@@ -169,12 +169,66 @@ export function absoluteFromSelectedDoc(
     .replace(/^[\\/]+/, "")
     .replace(/\//g, sep)
     .replace(/[\\/]+$/, "");
-  const cleanDoc = selectedDoc
-    .replace(/^[\\/]+/, "")
-    .replace(/\//g, sep);
+  const cleanDoc = selectedDoc.replace(/^[\\/]+/, "").replace(/\//g, sep);
   const base =
     !cleanDocsRoot || cleanDocsRoot === "."
       ? cleanRoot
       : `${cleanRoot}${sep}${cleanDocsRoot}`;
   return cleanDoc ? `${base}${sep}${cleanDoc}` : base;
+}
+
+/**
+ * Decide whether `absPath` lives inside the docs subtree (i.e. under
+ * `projectRoot + docsRoot`).
+ *
+ * Used by DocumentManager to filter the cross-cutting
+ * `useRecentFiles` entries down to the files this view can actually
+ * preview. `useRecentFiles` is a per-worktree bucket shared by every
+ * page (workspace + document manager), so it accumulates .py / .ts /
+ * .json too — a recent `.py` is valid in the workspace view but
+ * cannot be opened from the document manager, where the editor only
+ * accepts `.md` / `.txt`. Filtering by directory is the cheapest
+ * way to drop non-doc files without forcing a per-page
+ * `recordOpen` namespace.
+ *
+ * Edge cases mirror the surrounding helpers:
+ * - empty `projectRoot` → false (no docs subtree to belong to).
+ * - `docsRoot` is empty / "." → "docs subtree == project root",
+ *   so any path under projectRoot counts.
+ * - separator mismatch: `absPath` may use `\` while `projectRoot`
+ *   uses `/` (the same cross-separator hazard as
+ *   `docsRootRelativePath`); we normalize both sides to `/` and
+ *   compare case-insensitive on the leading segment so Windows
+ *   casings (`C:\foo` vs `c:\foo`) both match.
+ *
+ * Returns a boolean — callers use it as a filter predicate and
+ * never see the relative-path fallback that `docsRootRelativePath`
+ * produces for out-of-range inputs.
+ */
+export function isPathInDocsRoot(
+  absPath: string,
+  projectRoot: string | null | undefined,
+  docsRoot: string,
+): boolean {
+  if (!projectRoot) return false;
+  const normRoot = projectRoot.replace(/\\/g, "/").replace(/\/+$/, "");
+  // 2026-07-20 fix: docsRoot may carry its own separator (e.g. the
+  // user has configured `docs\superpowers` on a Windows project).
+  // The path we're matching against is also separator-normalized
+  // below, so the prefix MUST be too — otherwise a POSIX-slash
+  // `absPath` against a Windows-backslash docsRoot silently fails.
+  // We only normalize for the comparison; the docsRoot value the
+  // user originally typed stays unchanged elsewhere in the app.
+  const normDocsRoot = docsRoot
+    .trim()
+    .replace(/\\/g, "/")
+    .replace(/^[\\/]+/, "")
+    .replace(/\/+$/, "");
+  const prefix =
+    !normDocsRoot || normDocsRoot === "."
+      ? normRoot
+      : `${normRoot}/${normDocsRoot}`.replace(/\/+$/, "");
+  const normPrefix = prefix.toLowerCase();
+  const normPath = absPath.replace(/\\/g, "/").toLowerCase();
+  return normPath === normPrefix || normPath.startsWith(normPrefix + "/");
 }

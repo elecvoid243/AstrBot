@@ -23,6 +23,7 @@ const stubs = {
   FileBrowserBreadcrumb: { template: "<div />" },
   DiffPreview: { template: "<div />" },
   MarkdownView: { template: "<div />" },
+  RecentFilesBlock: { template: "<div />" },
   "v-icon": { template: "<i />" },
 };
 
@@ -37,7 +38,11 @@ describe("DocumentManager fullscreen state", () => {
         umo: "test",
         worktree: null,
         projectRoot: null,
-        gitLog: { state: ref({ kind: "idle" }), filter: ref({}), refresh: () => Promise.resolve() },
+        gitLog: {
+          state: ref({ kind: "idle" }),
+          filter: ref({}),
+          refresh: () => Promise.resolve(),
+        },
         gitShow: { cached: ref(new Set()), getState: () => ({ kind: "idle" }) },
       },
       global: { stubs },
@@ -61,7 +66,11 @@ describe("DocumentManager fullscreen state", () => {
         umo: "test",
         worktree: null,
         projectRoot: null,
-        gitLog: { state: ref({ kind: "idle" }), filter: ref({}), refresh: () => Promise.resolve() },
+        gitLog: {
+          state: ref({ kind: "idle" }),
+          filter: ref({}),
+          refresh: () => Promise.resolve(),
+        },
         gitShow: { cached: ref(new Set()), getState: () => ({ kind: "idle" }) },
       },
       global: { stubs },
@@ -85,7 +94,11 @@ describe("DocumentManager fullscreen state", () => {
         umo: "test",
         worktree: null,
         projectRoot: null,
-        gitLog: { state: ref({ kind: "idle" }), filter: ref({}), refresh: () => Promise.resolve() },
+        gitLog: {
+          state: ref({ kind: "idle" }),
+          filter: ref({}),
+          refresh: () => Promise.resolve(),
+        },
         gitShow: { cached: ref(new Set()), getState: () => ({ kind: "idle" }) },
       },
       global: { stubs },
