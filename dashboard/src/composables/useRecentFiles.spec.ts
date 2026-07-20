@@ -102,6 +102,35 @@ describe("recordOpen", () => {
     expect(entries.value).toEqual([]);
   });
 
+  // Regression: 2026-07-20 user report.
+  // `root` arrives from /spcode/project-status (POSIX '/' on every
+  // platform), `path` arrives from /spcode/file-browser's
+  // `str(Path)` (Windows '\\'). A naive `path.startsWith(root + sep)`
+  // check fails on Windows because the two use different
+  // separators. recordOpen must normalize before comparing.
+  it("accepts a Windows-backslash path when root is POSIX-slash (cross-separator)", () => {
+    const wt = ref<string | null>("/worktrees/proj");
+    const { entries, recordOpen } = useRecentFiles(wt);
+    recordOpen("\\worktrees\\proj\\src\\main.py");
+    expect(entries.value).toHaveLength(1);
+    expect(entries.value[0].path).toBe("\\worktrees\\proj\\src\\main.py");
+  });
+
+  it("accepts a POSIX-slash path when root is Windows-backslash (cross-separator)", () => {
+    const wt = ref<string | null>("\\worktrees\\proj");
+    const { entries, recordOpen } = useRecentFiles(wt);
+    recordOpen("/worktrees/proj/src/main.py");
+    expect(entries.value).toHaveLength(1);
+    expect(entries.value[0].path).toBe("/worktrees/proj/src/main.py");
+  });
+
+  it("rejects mixed-separator paths that share no prefix with the normalized root", () => {
+    const wt = ref<string | null>("/worktrees/proj");
+    const { entries, recordOpen } = useRecentFiles(wt);
+    recordOpen("\\other\\place\\main.py");
+    expect(entries.value).toEqual([]);
+  });
+
   it("trims to MAX_ENTRIES (50), dropping the oldest entry", () => {
     const wt = ref<string | null>(WT);
     const { entries, recordOpen } = useRecentFiles(wt);

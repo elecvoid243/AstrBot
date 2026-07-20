@@ -93,12 +93,6 @@ function saveBucket(key: string, entries: RecentEntry[]): void {
   safeSetItem(key, JSON.stringify({ entries } satisfies RecentBucket));
 }
 
-/** Worktree-separator detection: Windows root contains '\', others '/'.
- *  Mirrors the spec §6.1 logic exactly. */
-function sepOf(root: string): string {
-  return root.includes("\\") ? "\\" : "/";
-}
-
 export function useRecentFiles(worktree: Ref<string | null>): UseRecentFiles {
   const entries = ref<RecentEntry[]>([]);
 
@@ -124,8 +118,19 @@ export function useRecentFiles(worktree: Ref<string | null>): UseRecentFiles {
     // Path validation: the file must live strictly inside the worktree
     // (or be the root itself). Prevents arbitrary filesystem paths
     // from polluting the bucket from search jumps or external triggers.
-    const sep = sepOf(root);
-    if (path !== root && !path.startsWith(root + sep)) return;
+    //
+    // 2026-07-20 separator-mismatch fix: `root` comes from
+    // /spcode/project-status (POSIX '/' on every platform), while
+    // `path` comes from /spcode/file-browser's `str(Path)` (Windows
+    // '\\'). A literal `path.startsWith(root + sep)` check returns
+    // false whenever the two use different separators, which silently
+    // dropped every recordOpen on Windows. Normalize BOTH sides to
+    // forward slashes (just for the comparison — the stored entry.path
+    // keeps its original separator so RecentFilesBlock can render it
+    // verbatim).
+    const normRoot = root.replace(/\\/g, "/");
+    const normPath = path.replace(/\\/g, "/");
+    if (normPath !== normRoot && !normPath.startsWith(normRoot + "/")) return;
 
     // Dedupe: strip any prior entry pointing at this exact path so
     // the repeat-open re-lands it at the head.
