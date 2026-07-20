@@ -66,10 +66,9 @@ function dirOf(p: string): string {
       </v-icon>
       <span class="recent-files-header-text">
         {{
-          tm(
-            "spcodeProjectLoad.fileBrowser.recentFiles.titleWithCount",
-            { count: props.entries.length },
-          )
+          tm("spcodeProjectLoad.fileBrowser.recentFiles.titleWithCount", {
+            count: props.entries.length,
+          })
         }}
       </span>
       <v-icon size="16" class="recent-files-header-chevron">
@@ -82,10 +81,7 @@ function dirOf(p: string): string {
       class="recent-files-body"
       data-test="recent-files-body"
     >
-      <div
-        v-if="props.entries.length > 0"
-        class="recent-files-list"
-      >
+      <div v-if="props.entries.length > 0" class="recent-files-list">
         <button
           type="button"
           class="recent-files-clear"
@@ -119,9 +115,7 @@ function dirOf(p: string): string {
             class="recent-files-remove"
             data-test="recent-remove"
             :title="
-              tm(
-                'spcodeProjectLoad.fileBrowser.recentFiles.removeTooltip',
-              )
+              tm('spcodeProjectLoad.fileBrowser.recentFiles.removeTooltip')
             "
             @click.stop="$emit('remove', { path: entry.path })"
           >
@@ -138,11 +132,7 @@ function dirOf(p: string): string {
         </div>
       </div>
 
-      <div
-        v-else
-        class="recent-files-empty"
-        data-test="recent-files-empty"
-      >
+      <div v-else class="recent-files-empty" data-test="recent-files-empty">
         {{ tm("spcodeProjectLoad.fileBrowser.recentFiles.empty") }}
       </div>
     </div>
@@ -174,7 +164,13 @@ function dirOf(p: string): string {
   font-size: 13px;
   font-weight: 500;
 }
+/* 2026-07-20 recent-files-fix: anchor the chevron to the LEFT of the
+   header so it does not overlap the left-pane collapse button
+   (`.file-browser-collapse-btn` is `position: absolute; top: 4px; right: 4px`
+   on `.file-browser-pane-left`). Using `order` keeps the DOM order
+   (clock icon → label) intact for screen readers. */
 .recent-files-header-chevron {
+  order: -1;
   opacity: 0.6;
 }
 .recent-files-body {

@@ -97,8 +97,7 @@ const STORAGE_KEYS = {
   // 2026-07-19 hot-files picker: user-controllable "Top N" cap
   // (5..50). Owned by the sidebar so the change can re-fetch with
   // a new ETag bucket via useSpcodeGitStats.refresh({topFiles}).
-  gitStatsTopFilesLimit:
-    "astrbot.spcode.gitDiffSidebar.gitStatsTopFilesLimit",
+  gitStatsTopFilesLimit: "astrbot.spcode.gitDiffSidebar.gitStatsTopFilesLimit",
 } as const;
 
 function safeGetItem(key: string): string | null {
@@ -168,9 +167,23 @@ function loadGitStatsRange(): GitStatsRange {
   try {
     const parsed = JSON.parse(raw) as unknown;
     if (!parsed || typeof parsed !== "object") throw 0;
-    const obj = parsed as { kind?: unknown; preset?: unknown; since?: unknown; until?: unknown };
-    if (obj.kind === "preset" && typeof obj.preset === "string" && VALID_PRESETS.has(obj.preset)) {
-      return { kind: "preset", preset: obj.preset as GitStatsRange["kind" extends "preset" ? "preset" : never] } as GitStatsRange;
+    const obj = parsed as {
+      kind?: unknown;
+      preset?: unknown;
+      since?: unknown;
+      until?: unknown;
+    };
+    if (
+      obj.kind === "preset" &&
+      typeof obj.preset === "string" &&
+      VALID_PRESETS.has(obj.preset)
+    ) {
+      return {
+        kind: "preset",
+        preset: obj.preset as GitStatsRange["kind" extends "preset"
+          ? "preset"
+          : never],
+      } as GitStatsRange;
     }
     if (
       obj.kind === "custom" &&
@@ -268,9 +281,14 @@ const selectedWorktree = ref<string | null>(null);
 
 // ── Recent files (spec 2026-07-20 recent-files §3, §4) ──────────────
 // One bucket per worktree, persisted to localStorage by
-// useRecentFiles. Pass `selectedWorktree` (Ref<string|null>) so the
-// composable re-loads on worktree switch.
-const recentFiles = useRecentFiles(selectedWorktree);
+// useRecentFiles. The composable is instantiated further down,
+// right after `currentRoot` is declared, so it can take
+// `currentRoot` (the effective root = selectedWorktree ??
+// mainWorktreePath ?? projectRoot) as its bucket key — that way
+// recordOpen still works on the main worktree even before the user
+// has explicitly switched worktrees. See useRecentFiles invocation
+// and the [fileBrowserPreviewPath, currentRoot] watcher near the
+// bottom of this <script setup>.
 const showClearConfirm = ref(false);
 
 // ── View-mode tab (spec 2026-06-20 §5.1 + §5.2) ─────────────────────
@@ -325,11 +343,9 @@ const fileSearchScrollToLine = ref<number | null>(null);
 // 2026-07-18 git-stats heatmap: History-tab stats panel toggle,
 // persisted (flush:"post" writer).
 const statsOpen = ref<boolean>(loadGitStatsOpen());
-watch(
-  statsOpen,
-  (v) => safeSetItem(STORAGE_KEYS.gitStatsOpen, String(v)),
-  { flush: "post" },
-);
+watch(statsOpen, (v) => safeSetItem(STORAGE_KEYS.gitStatsOpen, String(v)), {
+  flush: "post",
+});
 // 2026-07-18 git-stats heatmap: owned by the sidebar, persisted across
 // reloads, and the source for the range prop passed to GitLogView.
 const gitStatsRange = ref<GitStatsRange>(loadGitStatsRange());
@@ -563,10 +579,9 @@ const GITIGNORE_I18N_PREFIX =
 async function loadGitIgnore(): Promise<void> {
   gitIgnoreLoadError.value = null;
   try {
-    const resp = await pluginExtensionApi.get<unknown>(
-      "spcode/file-browser",
-      { params: { path: gitIgnoreAbsPath.value } },
-    );
+    const resp = await pluginExtensionApi.get<unknown>("spcode/file-browser", {
+      params: { path: gitIgnoreAbsPath.value },
+    });
     const data = (
       resp.data as {
         data?: {
@@ -812,7 +827,10 @@ function onRecentSelect(payload: { path: string }): void {
   fileBrowserPreviewPath.value = payload.path;
   const sep = payload.path.includes("\\") ? "\\" : "/";
   const lastSep = payload.path.lastIndexOf(sep);
-  if (lastSep > 0 && payload.path.slice(0, lastSep) !== fileBrowserCurrentPath.value) {
+  if (
+    lastSep > 0 &&
+    payload.path.slice(0, lastSep) !== fileBrowserCurrentPath.value
+  ) {
     fileBrowserCurrentPath.value = payload.path.slice(0, lastSep);
   }
   fileSearchScrollToLine.value = null;
@@ -1162,7 +1180,11 @@ async function onConfirmRevert(): Promise<void> {
     REVERT_REASON_I18N_KEYS[reason] ?? REVERT_REASON_I18N_KEYS.unknown;
   revertDialogOpen.value = false;
   pendingRevert.value = null;
-  showSnackbar(tm(meta.key), meta.color, meta.withStderr ? result.stderr : undefined);
+  showSnackbar(
+    tm(meta.key),
+    meta.color,
+    meta.withStderr ? result.stderr : undefined,
+  );
 }
 
 const isProjectLoaded = computed(
@@ -1178,15 +1200,15 @@ const repoInitLastError = ref<{ reason: string; stderr?: string } | null>(null);
 const repoPromptDismissed = ref(false);
 const showRepoInitPrompt = computed(
   () =>
-    isProjectLoaded.value
-    && gitRepoProbe.state.value.kind === "not_a_git_repo"
-    && !repoPromptDismissed.value,
+    isProjectLoaded.value &&
+    gitRepoProbe.state.value.kind === "not_a_git_repo" &&
+    !repoPromptDismissed.value,
 );
 const showNotGitRepoChip = computed(
   () =>
-    isProjectLoaded.value
-    && gitRepoProbe.state.value.kind === "not_a_git_repo"
-    && repoPromptDismissed.value,
+    isProjectLoaded.value &&
+    gitRepoProbe.state.value.kind === "not_a_git_repo" &&
+    repoPromptDismissed.value,
 );
 // True while a scope-switch request is in flight. Drives the per-pill
 // spinner and the disabled state on the *other* two pills, so the
@@ -1367,11 +1389,7 @@ watch(
       // tabs, closed the sidebar, or the probe may have flipped to
       // `not_a_git_repo` during the refresh. Starting polling here
       // without re-checking would leak a timer in any of those cases.
-      if (
-        props.modelValue
-        && viewMode.value === "diff"
-        && isGitRepo.value
-      ) {
+      if (props.modelValue && viewMode.value === "diff" && isGitRepo.value) {
         composable.startPolling(10_000);
         // git-status polling rides on the same cadence so the
         // "new files" section stays in sync with diff changes.
@@ -1462,7 +1480,9 @@ function statsRangeArgs(): {
 } {
   const r = gitStatsRange.value;
   const sinceUntil =
-    r.kind === "preset" ? rangeForPreset(r.preset) : { since: r.since, until: r.until };
+    r.kind === "preset"
+      ? rangeForPreset(r.preset)
+      : { since: r.since, until: r.until };
   return {
     since: sinceUntil.since,
     until: sinceUntil.until,
@@ -1713,9 +1733,7 @@ async function onCreateSubmit(params: WorktreeAddParams): Promise<void> {
   }
   if (result.ok) {
     // spec §7.4: 自动切到新 worktree + 切到 Files 视图
-    const newWt = result.snapshot.worktrees.find(
-      (w) => w.path === params.path,
-    );
+    const newWt = result.snapshot.worktrees.find((w) => w.path === params.path);
     if (newWt) {
       selectedWorktree.value = newWt.isMain ? null : newWt.path;
       viewMode.value = "files";
@@ -1830,13 +1848,9 @@ async function loadDirtyFor(wt: SpcodeGitWorktree): Promise<void> {
     const resp = await pluginExtensionApi.get<{
       files?: Array<unknown>;
       summary?: { total?: number };
-    }>(
-      "spcode/git-status",
-      { params: { umo, worktree: wt.path } },
-    );
+    }>("spcode/git-status", { params: { umo, worktree: wt.path } });
     const data = resp.data?.data;
-    dirtyCount.value =
-      data?.summary?.total ?? data?.files?.length ?? 0;
+    dirtyCount.value = data?.summary?.total ?? data?.files?.length ?? 0;
   } catch {
     dirtyCount.value = null; // 不阻塞 UI
   }
@@ -2922,13 +2936,26 @@ const currentRoot = computed<string | null>(() => {
   return selectedWorktree.value ?? mainWorktreePath.value ?? projectRoot.value;
 });
 
+// 2026-07-20 recent-files-fix: instantiate the composable with
+// `currentRoot` (not `selectedWorktree`) so recordOpen has a valid
+// bucket key on the main worktree too. Previously passing
+// `selectedWorktree` meant the very first guard inside recordOpen
+// (`if (!root) return;`) early-returned whenever the user had not
+// switched worktrees, leaving Recent permanently empty.
+//
+// The composable's internal `watch(worktree, ...)` still re-loads
+// the bucket whenever the effective root changes, so manual
+// worktree switches still get their own per-worktree history.
+const recentFiles = useRecentFiles(currentRoot);
+
 // 2026-07-20 Recent Files §6.1: drive recordOpen off the canonical
 // preview-path writer so every entry point (search jumps, tree clicks,
 // recent-row clicks) shares one filter. Null writes (close preview /
 // worktree switch) are skipped; non-worktree paths are filtered inside
 // recordOpen. `immediate: false` keeps the empty initial state clean.
-// Attached here (not earlier) because `currentRoot` is a script-level
-// computed declaration and the TypeScript checker can't forward-ref it.
+// Attached here (alongside the composable instantiation) so both
+// reference `currentRoot`, which is a script-level `computed` and
+// would TDZ if used earlier in the file.
 watch(
   [fileBrowserPreviewPath, currentRoot],
   ([newPath, root]) => {
@@ -3164,7 +3191,9 @@ watch(
             ]"
             :title="
               wt.prunable
-                ? tm('spcodeProjectLoad.diffSidebar.worktreeTabs.prunableTooltip')
+                ? tm(
+                    'spcodeProjectLoad.diffSidebar.worktreeTabs.prunableTooltip',
+                  )
                 : wt.path
             "
             @click="onWorktreeChange(wt.isMain ? null : wt.path)"
@@ -3193,9 +3222,13 @@ watch(
                   : wt.headSha.slice(0, 7))
               }}
             </span>
-            <span v-if="wt.prunable" class="git-diff-sidebar-tab-badge git-diff-sidebar-tab-badge--prunable">{{
-              tm("spcodeProjectLoad.diffSidebar.worktreeTabs.prunableBadge")
-            }}</span>
+            <span
+              v-if="wt.prunable"
+              class="git-diff-sidebar-tab-badge git-diff-sidebar-tab-badge--prunable"
+              >{{
+                tm("spcodeProjectLoad.diffSidebar.worktreeTabs.prunableBadge")
+              }}</span
+            >
             <span v-else-if="!wt.branch" class="git-diff-sidebar-tab-badge">{{
               tm("spcodeProjectLoad.diffSidebar.worktreeTabs.detachedBadge")
             }}</span>
@@ -3370,7 +3403,9 @@ watch(
           role="status"
         >
           <v-icon size="14">mdi-information-outline</v-icon>
-          <span>{{ tm("spcodeProjectLoad.diffSidebar.repoInit.dismissedChip") }}</span>
+          <span>{{
+            tm("spcodeProjectLoad.diffSidebar.repoInit.dismissedChip")
+          }}</span>
           <button
             type="button"
             class="git-diff-sidebar-repo-chip-action"
