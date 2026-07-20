@@ -63,7 +63,6 @@ import {
   projectRelativePath,
   docsRootRelativePath,
   absoluteFromSelectedDoc,
-  isPathInDocsRoot,
 } from "@/composables/pathUtils";
 import { useRecentFiles } from "@/composables/useRecentFiles";
 
@@ -164,7 +163,7 @@ const gitFile = useSpcodeGitFile(computed(() => props.worktree));
 // DocumentManager is the active worktree's path (per the prop
 // contract above), so passing it through gives the same key the
 // FileBrowserView's `currentRoot` produces.
-const recentFiles = useRecentFiles(computed(() => props.projectRoot));
+const recentFiles = useRecentFiles();
 
 // 2026-07-20 recent-docs: when the user picks a doc, append it to the
 // shared recent-files bucket. We compute the absolute path lazily
@@ -187,23 +186,12 @@ watch(previewAbsolutePath, (absPath) => {
   if (absPath) recentFiles.recordOpen(absPath);
 });
 
-// Filtered view of the cross-cutting recent-files bucket: only show
-// entries that actually live inside the docs subtree. Out-of-range
-// entries (e.g. a .py the user opened in the workspace tab) are
-// valid in the FileBrowserView's "Recent Files" list, but cannot be
-// previewed from the document manager (the editor only accepts .md
-// / .txt, and even those outside docsRoot would need a docsRoot
-// switch first — better to hide them than to offer a click that
-// silently fails). `isPathInDocsRoot` already handles the
-// cross-separator / case-insensitive root match (regression test in
-// pathUtils.spec.ts).
-const recentDocEntries = computed(() => {
-  if (!props.projectRoot) return [];
-  const dr = docsRoot.value;
-  return recentFiles.entries.value.filter((e) =>
-    isPathInDocsRoot(e.path, props.projectRoot, dr),
-  );
-});
+// 2026-07-20 recent-files-unify: show the GLOBAL recent-files bucket
+// without any docsRoot / subdirectory filter so switching directories
+// does not change the count. Files outside the current docsRoot may
+// show up here (e.g. a .py opened in the workspace tab); clicking
+// them will attempt a docsRoot-relative lookup in onRecentSelect,
+// which guards with `if (!rel) return` for out-of-range paths.
 
 // 2026-07-20 recent-docs: clear-confirm mirrors the FileBrowserView's
 // dialog so destructive actions on the per-worktree bucket stay
@@ -943,10 +931,10 @@ function onStartEdit() {
 // and the workspace view already uses the same shape). Translate
 // back to docsRoot-relative so the rest of DocumentManager — which
 // stores selectedDoc as docsRoot-relative — can stay untouched.
-// `recentDocEntries` already guarantees absPath is in-range by the
-// time we get here, so the `docsRootRelativePath` translation
-// always returns the real relative form (never the basename
-// fallback).
+// 2026-07-20 recent-files-unify: the global-bucket display may
+// include files outside the current docsRoot. `docsRootRelativePath`
+// falls back to the basename for out-of-range paths; the `if (!rel)`
+// guard below handles that gracefully as a no-op.
 function onRecentSelect(payload: { path: string }): void {
   if (!props.projectRoot) return;
   const rel = docsRootRelativePath(
@@ -1529,7 +1517,7 @@ onBeforeUnmount(() => {
                  docsRoot-relative path glue the tree uses. -->
             <RecentFilesBlock
               v-if="projectRoot"
-              :entries="recentDocEntries"
+              :entries="recentFiles.entries.value"
               :current-root="projectRoot"
               @select="onRecentSelect"
               @remove="onRecentRemove"

@@ -10,16 +10,17 @@ import { useModuleI18n } from "@/i18n/composables";
 import { projectRelativePath } from "@/composables/pathUtils";
 import type { RecentEntry } from "@/composables/useRecentFiles";
 
-// 2026-07-20 recent-files-unify: the previous `currentRoot` prop
-// was vestigial — the list is now a single global bucket and the
-// composable no longer takes a worktree ref, so the component does
-// not need to know which root is active. Removed from the prop list
-// here and from the FileBrowserView call site.
+// 2026-07-20 recent-files-unify: the data is now a single global
+// bucket (no per-worktree splitting). `currentRoot` is only used
+// by the DISPLAY layer — `relativeDir()` renders a file's parent
+// relative to this root so the user gets a scannable location hint
+// — it does NOT affect which bucket is read/written.
 const props = withDefaults(
   defineProps<{
     entries: RecentEntry[];
+    currentRoot?: string;
   }>(),
-  { entries: () => [] },
+  { entries: () => [], currentRoot: "" },
 );
 
 defineEmits<{
