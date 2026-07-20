@@ -7,6 +7,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { useModuleI18n } from "@/i18n/composables";
+import { projectRelativePath } from "@/composables/pathUtils";
 import type { RecentEntry } from "@/composables/useRecentFiles";
 
 // 2026-07-20 recent-files-unify: the previous `currentRoot` prop
@@ -49,10 +50,17 @@ function basename(p: string): string {
   return idx === -1 ? p : p.slice(idx + 1);
 }
 
-function dirOf(p: string): string {
-  const sep = p.includes("\\") ? "\\" : "/";
-  const idx = p.lastIndexOf(sep);
-  return idx === -1 ? "" : p.slice(0, idx);
+/** Project-relative sub-path (everything before the basename), e.g.
+ *  `F:\repo\docs\specs\foo.md` → `docs/specs` when currentRoot is
+ *  `F:\repo`. Re-uses `projectRelativePath` (which already handles
+ *  cross-separator and case-insensitive root match) so the
+ *  behaviour stays consistent with the breadcrumb / tree panel. */
+function relativeDir(p: string, root: string): string {
+  const rel = projectRelativePath(p, root);
+  if (!rel) return "";
+  const sep = rel.includes("\\") ? "\\" : "/";
+  const idx = rel.lastIndexOf(sep);
+  return idx === -1 ? "" : rel.slice(0, idx);
 }
 </script>
 
@@ -65,7 +73,7 @@ function dirOf(p: string): string {
       data-test="recent-files-header"
       @click="toggle"
     >
-      <v-icon size="16" class="recent-files-header-icon">
+      <v-icon size="14" class="recent-files-header-icon">
         mdi-clock-outline
       </v-icon>
       <span class="recent-files-header-text">
@@ -75,7 +83,7 @@ function dirOf(p: string): string {
           })
         }}
       </span>
-      <v-icon size="16" class="recent-files-header-chevron">
+      <v-icon size="14" class="recent-files-header-chevron">
         {{ expanded ? "mdi-chevron-up" : "mdi-chevron-down" }}
       </v-icon>
     </button>
@@ -105,14 +113,17 @@ function dirOf(p: string): string {
           @click="$emit('select', { path: entry.path })"
           @keyup.enter="$emit('select', { path: entry.path })"
         >
-          <v-icon size="14" class="recent-files-row-icon">
+          <v-icon size="13" class="recent-files-row-icon">
             mdi-file-outline
           </v-icon>
           <span class="recent-files-row-main" :title="entry.path">
             {{ basename(entry.path) }}
           </span>
-          <span class="recent-files-row-sub">
-            {{ dirOf(entry.path) }}
+          <span
+            class="recent-files-row-sub"
+            :title="relativeDir(entry.path, currentRoot)"
+          >
+            {{ relativeDir(entry.path, currentRoot) }}
           </span>
           <button
             type="button"
@@ -123,7 +134,7 @@ function dirOf(p: string): string {
             "
             @click.stop="$emit('remove', { path: entry.path })"
           >
-            <v-icon size="14">mdi-close</v-icon>
+            <v-icon size="13">mdi-close</v-icon>
           </button>
         </div>
 
@@ -152,7 +163,7 @@ function dirOf(p: string): string {
   align-items: center;
   gap: 8px;
   width: 100%;
-  padding: 8px 12px;
+  padding: 6px 12px;
   background: transparent;
   border: none;
   cursor: pointer;
@@ -163,9 +174,13 @@ function dirOf(p: string): string {
 .recent-files-header:hover {
   background: rgba(var(--v-theme-on-surface), 0.04);
 }
+/* 2026-07-20 visual-parity with FileBrowserEntryList: header label
+   uses the same 12.5px the directory-tree entries use, so the
+   "Recent Files" section doesn't shout louder than the file list
+   below it. */
 .recent-files-header-text {
   flex: 1;
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 500;
 }
 /* 2026-07-20 recent-files-fix: anchor the chevron to the LEFT of the
@@ -178,7 +193,7 @@ function dirOf(p: string): string {
   opacity: 0.6;
 }
 .recent-files-body {
-  padding: 4px 0 8px 12px;
+  padding: 2px 0 6px 12px;
 }
 .recent-files-list {
   display: flex;
@@ -187,22 +202,26 @@ function dirOf(p: string): string {
 .recent-files-clear {
   align-self: flex-end;
   margin-right: 12px;
-  margin-bottom: 4px;
+  margin-bottom: 2px;
   background: transparent;
   border: none;
   color: rgba(var(--v-theme-primary), 0.85);
   cursor: pointer;
-  font-size: 12px;
+  font-size: 11.5px;
 }
 .recent-files-clear:hover {
   text-decoration: underline;
 }
+/* 2026-07-20 visual-parity: row sizing matches FileBrowserEntryList
+   (.file-browser-entry font-size 12.5px, .file-browser-entry-meta
+   font-size 10.5px). Spacing tightened to keep the row height
+   comparable to a single file-tree entry. */
 .recent-files-row {
   display: grid;
-  grid-template-columns: 18px 1fr auto auto;
+  grid-template-columns: 16px 1fr auto auto;
   align-items: center;
   gap: 6px;
-  padding: 4px 12px 4px 0;
+  padding: 3px 12px 3px 0;
   cursor: pointer;
 }
 .recent-files-row:hover {
@@ -212,18 +231,18 @@ function dirOf(p: string): string {
   opacity: 0.6;
 }
 .recent-files-row-main {
-  font-size: 13px;
+  font-size: 12.5px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .recent-files-row-sub {
-  font-size: 11px;
-  color: rgba(var(--v-theme-on-surface), 0.55);
+  font-size: 10.5px;
+  color: rgba(var(--v-theme-on-surface), 0.5);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 90px;
+  max-width: 110px;
 }
 .recent-files-remove {
   background: transparent;
@@ -240,14 +259,14 @@ function dirOf(p: string): string {
   opacity: 1;
 }
 .recent-files-more {
-  padding: 4px 12px;
-  font-size: 12px;
+  padding: 3px 12px;
+  font-size: 11.5px;
   color: rgba(var(--v-theme-primary), 0.85);
 }
 .recent-files-empty {
   text-align: center;
-  padding: 12px;
+  padding: 10px;
   color: rgba(var(--v-theme-on-surface), 0.45);
-  font-size: 12px;
+  font-size: 11.5px;
 }
 </style>

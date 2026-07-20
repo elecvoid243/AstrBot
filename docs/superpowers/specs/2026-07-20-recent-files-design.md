@@ -138,9 +138,9 @@ recordOpen(path):
 - 默认**最多显示前 5 条**；超出显示 `+{N} more →`
 - `+N more` 行为：未来接 A1 Quick Open（按住 Ctrl+P）；本次点击弹 toast：
   `按住 Ctrl+P 快速跳转所有文件`
-- 每行结构：
+- 每行结构（2026-07-20 字号与文件列表一致）：
   - mdi-clock-outline icon（与目录树 file-icon 同套）
-  - **basename**（主色，14px），父目录路径（淡色 12px，整体不可换行省略）
+  - **basename**（主色，12.5px，与 `FileBrowserEntryList` 主条目字号一致），父目录显示**项目相对路径**（淡色 10.5px，与 `FileBrowserEntryList` 元信息字号一致；不带 worktree 前缀；整体不可换行省略）
   - hover 整行背景轻高亮 + 右端出现 × icon 按钮
 - 每行点击 → `select` 事件 → FileBrowserView 复用既有 `navigateToFile(path)` 路径
 - × 按钮点击 → `remove` 事件（不冒泡到行点击；用 `event.stopPropagation`）
@@ -156,6 +156,21 @@ recordOpen(path):
 - 折叠块风格沿用 sidebar 内既有 `.section-header` 视觉（FileTreeList / DocumentTreePanel 顶栏）
 - icon 用 `mdi-clock-outline` 与 `mdi-file-outline`，全部已在 `@mdi/font` subset 内（构建时已处理 subset）
 - Clear 链接、`+N more`、× 按钮沿用 Vuetify `variant="text"` + `density="compact"`
+- 字号与 `FileBrowserEntryList` 完全一致（行 12.5px / 元信息 10.5px / header 12.5px），不喧宾夺主
+- 路径展示：用 `projectRelativePath(absPath, currentRoot)` 把绝对路径转项目相对路径再显示，让用户一眼能定位该文件在仓库中的位置
+
+### 5.5 文档管理页面也挂同一个组件
+
+`DocumentManager.vue` 在 DocumentTreePanel **上方**挂同一个 `<RecentFilesBlock>`：
+
+- 入参：
+  - `entries` = `recentFiles.entries` 过滤掉**不在 docs 子树**的项（用 `pathUtils.isPathInDocsRoot` 判断）。这样用户在 workspace FileBrowserView 打开的 `.py` 不会污染文档管理的"最近文档"列表。
+  - `currentRoot` = `props.projectRoot`（与 FileBrowserView 同一字符串，保证 localStorage bucket key 一致 → 同一 worktree 的两条记录合并）
+- 事件：
+  - `select` → DocumentManager 把 absolute path 转 docsRoot-relative（用 `docsRootRelativePath`）→ 走既有的 `onTreeSelect(rel)` 路径（dirty edit 检查 + reset viewMode / editMode / editBuffer）
+  - `remove` → `recentFiles.remove(absPath)`，从 bucket 移除
+  - `clear` → 打开同款二次确认 dialog，确认后调 `recentFiles.clear()`
+- recordOpen 也镜像：DocumentManager 监听 `(selectedDoc, docsRoot, projectRoot)` 的变化，把 `absoluteFromSelectedDoc(...)` 结果喂给 `recentFiles.recordOpen()`，让"在文档管理打开一个 .md"也写入同一 bucket
 
 ## 6. 接线点
 

@@ -6,7 +6,14 @@
      endpoints. Reuses the sidebar's existing useSpcodeGitLog and
      useSpcodeGitShow instances (per spec §2 decision #9 + §3.5). -->
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from "vue";
+import {
+  computed,
+  nextTick,
+  onMounted,
+  onBeforeUnmount,
+  ref,
+  watch,
+} from "vue";
 import { useSpcodeProjectStatus } from "@/composables/useSpcodeProjectStatus";
 import { useSpcodeGitFile } from "@/composables/useSpcodeGitFile";
 import { useSpcodeDocs } from "@/composables/useSpcodeDocs";
@@ -49,13 +56,16 @@ import DocumentEditor from "./DocumentEditor.vue";
 import DocumentHistoryPanel from "./DocumentHistoryPanel.vue";
 import FileBrowserBreadcrumb from "./FileBrowserBreadcrumb.vue";
 import DiffPreview from "./DiffPreview.vue";
+import RecentFilesBlock from "./RecentFilesBlock.vue";
 import MarkdownView from "@/components/shared/MarkdownView.vue";
 import { useResizableSplit } from "@/composables/useResizableSplit";
 import {
   projectRelativePath,
   docsRootRelativePath,
   absoluteFromSelectedDoc,
+  isPathInDocsRoot,
 } from "@/composables/pathUtils";
+import { useRecentFiles } from "@/composables/useRecentFiles";
 
 const props = defineProps<{
   worktree: string | null;
@@ -144,6 +154,71 @@ const fileBrowser = useSpcodeFileBrowser(
 );
 const docsApi = useSpcodeDocs(computed(() => props.worktree));
 const gitFile = useSpcodeGitFile(computed(() => props.worktree));
+
+// 2026-07-20 recent-docs: per-worktree recent-files bucket shared with
+// the workspace FileBrowserView. `useRecentFiles` keys on the string
+// we hand it (FNV-1a hash of the worktree path) so as long as both
+// pages see the SAME worktree-root string, their writes land in the
+// same bucket — which is what we want: opening `docs/foo.md` from
+// either view should update the same list. `projectRoot` in
+// DocumentManager is the active worktree's path (per the prop
+// contract above), so passing it through gives the same key the
+// FileBrowserView's `currentRoot` produces.
+const recentFiles = useRecentFiles(computed(() => props.projectRoot));
+
+// 2026-07-20 recent-docs: when the user picks a doc, append it to the
+// shared recent-files bucket. We compute the absolute path lazily
+// (via `absoluteFromSelectedDoc`, which is the same glue the
+// file-browser composable already uses) and only record when a file
+// is actually selected — selectedDoc="" would otherwise be recorded
+// as the docsRoot directory, polluting the list with "recently
+// opened folder" entries. `recordOpen` is also a no-op when the path
+// falls outside the worktree, so an out-of-range docsRoot change is
+// safe.
+const previewAbsolutePath = computed<string | null>(() => {
+  if (!props.projectRoot || !selectedDoc.value) return null;
+  return absoluteFromSelectedDoc(
+    props.projectRoot,
+    docsRoot.value,
+    selectedDoc.value,
+  );
+});
+watch(previewAbsolutePath, (absPath) => {
+  if (absPath) recentFiles.recordOpen(absPath);
+});
+
+// Filtered view of the cross-cutting recent-files bucket: only show
+// entries that actually live inside the docs subtree. Out-of-range
+// entries (e.g. a .py the user opened in the workspace tab) are
+// valid in the FileBrowserView's "Recent Files" list, but cannot be
+// previewed from the document manager (the editor only accepts .md
+// / .txt, and even those outside docsRoot would need a docsRoot
+// switch first — better to hide them than to offer a click that
+// silently fails). `isPathInDocsRoot` already handles the
+// cross-separator / case-insensitive root match (regression test in
+// pathUtils.spec.ts).
+const recentDocEntries = computed(() => {
+  if (!props.projectRoot) return [];
+  const dr = docsRoot.value;
+  return recentFiles.entries.value.filter((e) =>
+    isPathInDocsRoot(e.path, props.projectRoot, dr),
+  );
+});
+
+// 2026-07-20 recent-docs: clear-confirm mirrors the FileBrowserView's
+// dialog so destructive actions on the per-worktree bucket stay
+// consistent across the two views.
+const showClearConfirm = ref<boolean>(false);
+function onRecentClear(): void {
+  showClearConfirm.value = true;
+}
+function onConfirmClear(): void {
+  recentFiles.clear();
+  showClearConfirm.value = false;
+}
+function onCancelClear(): void {
+  showClearConfirm.value = false;
+}
 
 // The left-pane tree lives inside DocumentTreePanel which owns
 // its own useSpcodeFileBrowser instance pointed at docsRoot. Our
@@ -536,8 +611,8 @@ const copyButtonColor = computed<string>(() =>
   copyButtonState.value === "success"
     ? "success"
     : copyButtonState.value === "error"
-      ? "error"
-      : "primary",
+    ? "error"
+    : "primary",
 );
 let copyResetTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -662,8 +737,7 @@ async function onPresetClick(p: DocPreset): Promise<void> {
       parseSpcodeFileBrowser(data);
     } catch (err) {
       const missing =
-        err instanceof FileBrowserParseError &&
-        err.reason === "path_not_found";
+        err instanceof FileBrowserParseError && err.reason === "path_not_found";
       showPresetNotice(
         tm(
           missing
@@ -861,6 +935,35 @@ function onTreeSelect(fileRel: string) {
 function onStartEdit() {
   editBuffer.value = fileContent.value;
   editMode.value = true;
+}
+
+// 2026-07-20 recent-docs: wire the RecentFilesBlock to the existing
+// file-preview pipeline. RecentFilesBlock emits absolute paths
+// (because the underlying bucket is keyed on absolute file paths
+// and the workspace view already uses the same shape). Translate
+// back to docsRoot-relative so the rest of DocumentManager — which
+// stores selectedDoc as docsRoot-relative — can stay untouched.
+// `recentDocEntries` already guarantees absPath is in-range by the
+// time we get here, so the `docsRootRelativePath` translation
+// always returns the real relative form (never the basename
+// fallback).
+function onRecentSelect(payload: { path: string }): void {
+  if (!props.projectRoot) return;
+  const rel = docsRootRelativePath(
+    payload.path,
+    props.projectRoot,
+    docsRoot.value,
+  );
+  // Defensive: the filter dropped out-of-range entries, but a race
+  // (user changed docsRoot between the filter snapshot and the
+  // click) could still leave us with a basename fallback. Mirror
+  // onTreeSelect's no-op on empty input instead of feeding a stale
+  // value into the editor.
+  if (!rel) return;
+  onTreeSelect(rel);
+}
+function onRecentRemove(payload: { path: string }): void {
+  recentFiles.remove(payload.path);
 }
 
 async function onSave(content: string) {
@@ -1303,11 +1406,17 @@ onBeforeUnmount(() => {
             :aria-label="tm('spcodeProjectLoad.diffSidebar.search.button')"
             @click="searchOpen = true"
           >
-            <v-icon size="16" class="document-manager__search-trigger__icon">mdi-magnify</v-icon>
+            <v-icon size="16" class="document-manager__search-trigger__icon"
+              >mdi-magnify</v-icon
+            >
             <span class="document-manager__search-trigger__placeholder">
-              {{ tm('spcodeProjectLoad.diffSidebar.search.placeholder') }}
+              {{ tm("spcodeProjectLoad.diffSidebar.search.placeholder") }}
             </span>
-            <kbd class="document-manager__search-trigger__hint" aria-hidden="true">{{ searchShortcutLabel }}</kbd>
+            <kbd
+              class="document-manager__search-trigger__hint"
+              aria-hidden="true"
+              >{{ searchShortcutLabel }}</kbd
+            >
           </button>
           <input
             v-else
@@ -1412,6 +1521,20 @@ onBeforeUnmount(() => {
             class="document-manager__pane-left"
             :style="{ width: treeSplit.percent.value + '%' }"
           >
+            <!-- 2026-07-20 recent-docs: shared per-worktree "Recent
+                 Docs" list sitting above the docs tree. We feed it
+                 the docs-subtree-filtered entries (out-of-range
+                 files from the workspace view are hidden), and
+                 select/remove flow back through the same
+                 docsRoot-relative path glue the tree uses. -->
+            <RecentFilesBlock
+              v-if="projectRoot"
+              :entries="recentDocEntries"
+              :current-root="projectRoot"
+              @select="onRecentSelect"
+              @remove="onRecentRemove"
+              @clear="onRecentClear"
+            />
             <DocumentTreePanel
               ref="treeRef"
               class="document-manager__left"
@@ -1448,7 +1571,6 @@ onBeforeUnmount(() => {
             :aria-valuemax="70"
             @mousedown="treeSplit.startResize"
           />
-
 
           <section
             class="document-manager__right"
@@ -1573,7 +1695,7 @@ onBeforeUnmount(() => {
                   >
                     {{
                       tm(
-                        viewMode === 'rendered'
+                        viewMode === "rendered"
                           ? "spcodeProjectLoad.documentManager.viewMode.rendered"
                           : "spcodeProjectLoad.documentManager.viewMode.raw",
                       )
@@ -1758,6 +1880,38 @@ onBeforeUnmount(() => {
           </button>
         </div>
       </template>
+
+      <!-- 2026-07-20 recent-docs: clear-confirm dialog. Same copy
+           and layout as the FileBrowserView's identical dialog so
+           the user sees a consistent confirmation across both
+           surfaces. v-dialog lives inside <Teleport> like the rest
+           of the page so its stacking context behaves the same
+           in / out of fullscreen. -->
+      <v-dialog v-model="showClearConfirm" max-width="420">
+        <v-card>
+          <v-card-title class="text-h3 pa-4 pb-0 pl-6">
+            {{
+              tm("spcodeProjectLoad.fileBrowser.recentFiles.clearConfirmTitle")
+            }}
+          </v-card-title>
+          <v-card-text class="pt-4">
+            {{
+              tm(
+                "spcodeProjectLoad.fileBrowser.recentFiles.clearConfirmMessage",
+              )
+            }}
+          </v-card-text>
+          <v-card-actions class="pa-4 pt-0">
+            <v-spacer />
+            <v-btn variant="text" @click="onCancelClear">
+              {{ tm("spcodeProjectLoad.fileBrowser.editor.cancel") }}
+            </v-btn>
+            <v-btn variant="text" color="error" @click="onConfirmClear">
+              {{ tm("spcodeProjectLoad.fileBrowser.recentFiles.clear") }}
+            </v-btn>
+          </v-card-actions>
+        </v-card>
+      </v-dialog>
     </div>
   </Teleport>
 </template>
