@@ -2936,30 +2936,23 @@ const currentRoot = computed<string | null>(() => {
   return selectedWorktree.value ?? mainWorktreePath.value ?? projectRoot.value;
 });
 
-// 2026-07-20 recent-files-fix: instantiate the composable with
-// `currentRoot` (not `selectedWorktree`) so recordOpen has a valid
-// bucket key on the main worktree too. Previously passing
-// `selectedWorktree` meant the very first guard inside recordOpen
-// (`if (!root) return;`) early-returned whenever the user had not
-// switched worktrees, leaving Recent permanently empty.
-//
-// The composable's internal `watch(worktree, ...)` still re-loads
-// the bucket whenever the effective root changes, so manual
-// worktree switches still get their own per-worktree history.
-const recentFiles = useRecentFiles(currentRoot);
+// 2026-07-20 recent-files-unify: the recent list is a single global
+// bucket shared across every worktree / project root, so the
+// composable no longer takes a worktree ref. Switching directories
+// (e.g. project root → /data) no longer resets the list, and the
+// 6th open drops the oldest survivor instead of filling a new
+// per-worktree bucket. See useRecentFiles for the storage contract.
+const recentFiles = useRecentFiles();
 
 // 2026-07-20 Recent Files §6.1: drive recordOpen off the canonical
 // preview-path writer so every entry point (search jumps, tree clicks,
 // recent-row clicks) shares one filter. Null writes (close preview /
-// worktree switch) are skipped; non-worktree paths are filtered inside
+// worktree switch) are skipped; empty paths are filtered inside
 // recordOpen. `immediate: false` keeps the empty initial state clean.
-// Attached here (alongside the composable instantiation) so both
-// reference `currentRoot`, which is a script-level `computed` and
-// would TDZ if used earlier in the file.
 watch(
-  [fileBrowserPreviewPath, currentRoot],
-  ([newPath, root]) => {
-    if (!newPath || !root) return;
+  () => fileBrowserPreviewPath.value,
+  (newPath) => {
+    if (!newPath) return;
     recentFiles.recordOpen(newPath);
   },
   { immediate: false },

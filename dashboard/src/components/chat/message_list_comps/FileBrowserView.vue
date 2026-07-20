@@ -931,7 +931,6 @@ onBeforeUnmount(() => {
             <RecentFilesBlock
               v-if="rootPath"
               :entries="recentEntries ?? []"
-              :current-root="rootPath"
               @select="onRecentSelect"
               @remove="onRecentRemove"
               @clear="onRecentClear"

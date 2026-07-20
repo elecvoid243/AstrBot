@@ -25,7 +25,6 @@ function factory(props: Record<string, unknown> = {}) {
   return mount(RecentFilesBlock, {
     props: {
       entries: [],
-      currentRoot: "/projects/demo",
       ...props,
     },
     global: { stubs: vuetifyStubs },

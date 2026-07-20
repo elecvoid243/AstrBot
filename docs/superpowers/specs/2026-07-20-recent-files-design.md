@@ -4,6 +4,14 @@
 > Status: approved (brainstorming session 2026-07-20, 选项 a：Files view 顶部嵌入 + 默认折叠)
 > Scope: dashboard only（纯前端，无后端/插件改动）
 
+## 修订记录
+
+- **2026-07-20 v2 (recent-files-unify)**：用户反馈「文件管理」tab 在切换目录后会被
+  重新记录（「工作区」tab 反而保持不变），体验割裂。决议：**改回单一全局桶**，
+  与当前用户所在目录无关；上限由 50 收紧到 **5**；第 6 个写入自动丢弃最早一条。
+  本次修订只影响 §3（composable 职责）、§4（数据模型 / 存储 / 容量 / 写入规则）、
+  §6.1（接线点）和 §10.1（composable 测试）。其他章节（UI、错误处理、i18n、测试）保持。
+
 ## 1. 目标
 
 在工作区文件浏览器（Files view）里提供「最近打开文件」的可视化列表，
@@ -32,14 +40,16 @@
 
 | 单元 | 路径 | 职责 |
 |---|---|---|
-| `useRecentFiles` composable | `dashboard/src/composables/useRecentFiles.ts`（新） | 纯数据：读 / 删 / 清、按 worktree 分桶、50 条上限、同 path 去重；不感知 sidebar |
+| `useRecentFiles` composable | `dashboard/src/composables/useRecentFiles.ts`（新） | 纯数据：读 / 删 / 清、**单一全局桶**（不再按 worktree 分桶）、**5 条上限**、同 path 去重；不感知 sidebar |
 | `<RecentFilesBlock>` 组件 | `dashboard/src/components/chat/message_list_comps/RecentFilesBlock.vue`（新） | 纯 UI：折叠块、列表、× 按钮、Clear 链接、empty 占位 |
 | `GitDiffSidebar.vue`（增） | 同文件 | 一个 `watch` 做 recordOpen；把 `<RecentFilesBlock>` 透传给 `FileBrowserView` |
 | `FileBrowserView.vue`（增） | 同文件 | 在左栏 FileTreeList 上方嵌入 `<RecentFilesBlock>`；接收 currentRoot + recents props |
 
 边界（KISS）：
-- composable 接收 `worktree: Ref<string | null>`，输出 `{ entries, recordOpen, remove, clear }`——只依赖传进来的 ref，不耦合 sidebar
-- RecentFilesBlock 接收 `{ entries, currentRoot }` props + `select`/`remove`/`clear` 事件——不耦合 composable 实现
+- composable **不接收参数**，输出 `{ entries, recordOpen, remove, clear }`——纯全局
+  数据层，与 sidebar / 当前 worktree / 当前目录完全无关
+- RecentFilesBlock 接收 `{ entries }` props + `select`/`remove`/`clear` 事件——不耦合
+  composable 实现
 - 两个单元可独立阅读与单元测试
 
 ## 4. 数据模型
@@ -52,43 +62,41 @@ interface RecentBucket { entries: RecentEntry[]; }
 
 ### 4.1 存储
 
-- `localStorage["spcode.recentFiles.<bucketKey>"] = JSON.stringify(RecentBucket)`
-- `<bucketKey>` = FNV-1a 32 位 hash 的 8 字符 hex（inline 函数，~10 行，纯同步）
-  - 选 FNV-1a 而非 SHA-1：浏览器原生 SubtleCrypto 只支持 SHA-256+ 且是异步，会破坏同步桶键计算；引入 sha1 npm 包违反「无新增依赖」
-  - 不把 worktreeRoot 明文当 key：localStorage 在用户本机本就明文，这里仅做「key 不超 64 字符」的实用主义；安全敏感字段用 hash 而非明文以避免 path 字符触发 localStorage 配额统计困惑
-- `currentRoot` 为 `null`（无 worktree）→ composable 全部读写都是 no-op；RecentFilesBlock 用 `v-if` 不渲染
+- `localStorage["spcode.recentFiles.global"] = JSON.stringify(RecentBucket)`
+- **单一全局桶**：不按 worktree / project root 分桶，key 是固定常量
 - 复用 sidebar 现有的 `safeGetItem` / `safeSetItem`；JSON.parse 包 try/catch
 
 ### 4.2 容量与排序
 
-- 每桶 **50 条上限**（克制，对比 VSCode 默认 1000）
+- 全局 **5 条上限**（克制，UI 折叠块最多显示 5 行，存储与显示 1:1，避免
+  「+N more」永远看不到的悬空数据）
 - LIFO：按 `openedAt` 倒序排列；列表头 = 最新
-- 溢出按 `openedAt` 升序丢弃旧条目
+- 溢出按 `openedAt` 升序丢弃旧条目；第 6 个写入自动丢弃最早一条
 
 ### 4.3 写入规则（`recordOpen(path)`）
 
 ```
 recordOpen(path):
-  if worktree == null:                       return  // no worktree
-  if !path.startsWith(worktree + sep):       return  // path 越界（防污染）
-  bucket = loadBucket(worktree)
+  if !path or !path.trim():                  return  // 空 path 静默忽略
+  bucket = loadBucket()
   bucket.entries = bucket.entries.filter(e => e.path !== path)  // 去重
   bucket.entries.unshift({ path, openedAt: Date.now() })         // LIFO
   bucket.entries = bucket.entries.slice(0, MAX_ENTRIES)         // trim
-  saveBucket(worktree, bucket)
+  saveBucket(bucket)
 ```
 
 ### 4.4 删除 / 清空
 
 - `remove(path)`: filter 该 path → 持久化（频度低，无 debounce）
-- `clear()`: 将当前桶 `entries = []` → 持久化
+- `clear()`: 将 `entries = []` → 持久化
 - `clear` 在 UI 层需二次确认（不强制，但 spec 要求有 confirm dialog）
 
-### 4.5 跨 worktree 隔离
+### 4.5 跨目录 / 跨 worktree 行为
 
-- composable 内部 `watch(worktree)` 切桶；读写自动落到当前桶
-- 切换到新工作区 → 老桶数据保留在 localStorage；新桶无历史则显示空
-- 同样**不主动 prune 老桶**——用户可能在多个工作区之前反复跳，每个都该有自己的 Recent
+- **不**做隔离：无论用户切到哪个 worktree / project root，最近文件列表
+  保持一致；写入按 LIFO 规则落到同一桶
+- 切换目录后不重新读取 / 不重建桶；RecentFilesBlock 通过 prop 接收 `entries`，
+  不会因为目录变化而丢弃现有数据
 
 ## 5. UI（`<RecentFilesBlock>`）
 
@@ -156,15 +164,15 @@ recordOpen(path):
 ```ts
 import { useRecentFiles } from "@/composables/useRecentFiles";
 
-const recentFiles = useRecentFiles(currentRoot);
+// 2026-07-20 v2: 单一全局桶，composable 不再接参数
+const recentFiles = useRecentFiles();
 
-// 打开文件 → 记录（含切换 worktree 时被清空的 path）
+// 打开文件 → 记录。null write（关闭 preview / 切换 worktree）跳过。
+// 不再校验 path 与 currentRoot 的包含关系——桶是全局的。
 watch(
-  [fileBrowserPreviewPath, currentRoot],
-  ([newPath, root]) => {
-    if (!newPath || !root) return;
-    const sep = root.includes("\\") ? "\\" : "/";
-    if (!newPath.startsWith(root + sep) && newPath !== root) return;
+  () => fileBrowserPreviewPath.value,
+  (newPath) => {
+    if (!newPath) return;
     recentFiles.recordOpen(newPath);
   },
 );
@@ -180,9 +188,8 @@ watch(
 <template>
   <div class="file-browser-left">
     <RecentFilesBlock
-      v-if="currentRoot"
+      v-if="rootPath"
       :entries="recentEntries"
-      :current-root="currentRoot"
       @select="onRecentSelect"
       @remove="onRecentRemove"
       @clear="confirmClearRecentOpen = true"
@@ -191,6 +198,8 @@ watch(
   </div>
 </template>
 ```
+
+> 2026-07-20 v2：移除 `:current-root` 透传——全局桶下，组件不再关心当前根目录。
 
 `onRecentSelect(path)`：走既有 `navigateToFile(path)` / 等价于 `setSearchTarget(path)`：
 将 `fileBrowserPreviewPath = path` + `fileBrowserCurrentPath = dirOf(path)`，
@@ -227,14 +236,15 @@ watch(
 
 | 情况 | 处理 |
 |---|---|
-| `currentRoot` 为 null | composable 读写 no-op；`<RecentFilesBlock v-if>` 不渲染 |
+| 初次挂载、localStorage 无桶 | `entries` 为 `[]`；UI 显示「无最近文件」占位 |
 | 同 path 重复 recordOpen | 去重 + 更新 `openedAt` → 移到头部 |
 | localStorage 抛错（quota / 私密浏览） | `safeSetItem` 已 silent catch；Recent 退化为 no-op |
 | localStorage 返回非法 JSON | `loadBucket` 内 `try/catch` 返回空 entries |
-| 跨 worktree 切换 | composable 内部 watch 切桶；读 / 写立刻基于新桶；老桶数据保留 |
-| 50 条溢出 | recordOpen 后 `slice(0, 50)`，超出按 `openedAt` 升序丢弃 |
-| 点击 Recent 里已被删/改名文件 | 走 FileBrowserView 既有 reason → error 占位（与打开 sidebar 文件树里任意文件同路径） |
-| 当前 preview 打开的是 `null` | watch 早返，不记录（避免 dir-only 状态污染 Recent） |
+| 跨 worktree / 跨目录切换 | 桶不切；列表对所有视图可见 |
+| 5 条溢出（第 6 个写入） | `slice(0, 5)`，超出按 `openedAt` 升序丢弃 |
+| 点击 Recent 里已被删/改名文件 | 走 FileBrowserView 既有 reason → error 占位 |
+| 当前 preview 打开的是 `null` | watch 早返，不记录 |
+| `recordOpen` 收到空字符串 / 纯空格 | 静默忽略，不污染桶 |
 
 ## 8. 错误处理
 
@@ -242,8 +252,7 @@ watch(
 |---|---|
 | localStorage 写入失败 | silent no-op，主流程不受影响 |
 | localStorage 读取返回非法 JSON | 视为空 entries，不抛错 |
-| recordOpen 传入非 worktree 内路径 | 静默忽略（绝对 path 防污染） |
-| FNV-1a 实现异常（Js 类型边界） | catch 后退回 `encodeURIComponent(worktreeRoot).slice(0, 32)` 作 key |
+| `recordOpen` 传入空 path | 静默忽略 |
 
 ## 9. i18n
 
@@ -266,16 +275,15 @@ watch(
 
 | 用例 | 期望 |
 |---|---|
-| 空桶初始化 → recordOpen 1 条 | entries 长度 1，oponedAt≈now，bucket key 正确 |
+| 空桶初始化 → recordOpen 1 条 | entries 长度 1，openedAt≈now |
 | recordOpen 后 entries 顺序 | 新条在 `[0]` |
-| 重复 recordOpen 同一 path | entries 长度不变，oponedAt 更新，位置在头 |
-| 累积 51 条后 recordOpen | entries 长度 50，最旧的被丢弃 |
-| recordOpen 非 worktree 内路径 | 无变化（no-op） |
-| currentRoot = null | 所有读写调用均返回原状 / 不抛错 |
+| 重复 recordOpen 同一 path | entries 长度不变，openedAt 更新，位置在头 |
+| 累积 6 条后 recordOpen | entries 长度 5，最旧的被丢弃 |
+| recordOpen 空 / 纯空格 path | 无变化（no-op） |
+| 两个 composable 实例读写同一桶 | 两边 `entries` 实时一致 |
+| 不同目录 / worktree 路径写入同一桶 | 不分桶，按 LIFO 排序 |
 | remove 单条 | entries 移除该 path，持久化 |
 | clear | entries 长度 0，持久化 |
-| watch(worktree) 切换到新桶 | 新桶空（首次）；写新桶不影响老桶 |
-| 同时写两个不同 path 到同一桶 | 顺序按 recordOpen 时间倒序 |
 
 ### 10.2 Component（`RecentFilesBlock.spec.ts`）
 
