@@ -189,4 +189,247 @@ describe("useSpcodeGitBranches — shell", () => {
     expect(mockGet).toHaveBeenCalledTimes(1); // no more calls after dispose
     vi.useRealTimers();
   });
+
+  // ── Mutation tests ──────────────────────────────────────
+  it("switch() success: state updated with refreshed snapshot", async () => {
+    mockGet.mockResolvedValueOnce(
+      okEnvelope({
+        loaded: true,
+        directory: "D:/repo",
+        umo: "umo-test",
+        branches: [
+          {
+            name: "main",
+            sha: "a",
+            upstream: "",
+            upstream_track: "",
+            current: true,
+            remote: false,
+          },
+        ],
+        total: 1,
+        current: "main",
+        detached: false,
+        reason: null,
+        stderr: "",
+        elapsed_ms: 0,
+      }),
+    );
+    mockPost.mockResolvedValueOnce({
+      status: 200,
+      data: {
+        status: "ok",
+        data: {
+          loaded: true,
+          directory: "D:/repo",
+          umo: "umo-test",
+          switched: true,
+          name: "feat/x",
+          previous: "main",
+          created: false,
+          force: false,
+          detach: false,
+          branches: [
+            {
+              name: "main",
+              sha: "a",
+              upstream: "",
+              upstream_track: "",
+              current: false,
+              remote: false,
+            },
+            {
+              name: "feat/x",
+              sha: "b",
+              upstream: "",
+              upstream_track: "",
+              current: true,
+              remote: false,
+            },
+          ],
+          total: 2,
+          current: "feat/x",
+          detached: false,
+          reason: null,
+          stderr: "",
+          elapsed_ms: 0,
+        },
+      },
+    });
+    const { state, refresh, switch: doSwitch } = withSetup(() =>
+      useSpcodeGitBranches(),
+    );
+    await refresh();
+    const r = await doSwitch({ name: "feat/x" });
+    expect(r.ok).toBe(true);
+    if (state.value.kind === "ok") {
+      expect(state.value.snapshot.current).toBe("feat/x");
+    }
+  });
+
+  it("switch() failure: returns ok=false with reason and stderr", async () => {
+    mockPost.mockResolvedValueOnce({
+      status: 200,
+      data: {
+        status: "ok",
+        data: {
+          loaded: true,
+          directory: "D:/repo",
+          umo: "umo-test",
+          reason: "worktree_dirty",
+          stderr: "working tree has uncommitted changes",
+          elapsed_ms: 0,
+          branches: [],
+        },
+      },
+    });
+    const { switch: doSwitch } = withSetup(() => useSpcodeGitBranches());
+    const r = await doSwitch({ name: "feat/x" });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.reason).toBe("worktree_dirty");
+      expect(r.stderr).toContain("uncommitted");
+    }
+  });
+
+  it("create() success: snapshot includes new branch", async () => {
+    mockPost.mockResolvedValueOnce({
+      status: 200,
+      data: {
+        status: "ok",
+        data: {
+          loaded: true,
+          directory: "D:/repo",
+          umo: "umo-test",
+          created: true,
+          name: "feat/new",
+          start_point: "HEAD",
+          force: false,
+          sha: "newSha",
+          branches: [
+            {
+              name: "main",
+              sha: "a",
+              upstream: "",
+              upstream_track: "",
+              current: true,
+              remote: false,
+            },
+            {
+              name: "feat/new",
+              sha: "newSha",
+              upstream: "",
+              upstream_track: "",
+              current: false,
+              remote: false,
+            },
+          ],
+          total: 2,
+          current: "main",
+          detached: false,
+          reason: null,
+          stderr: "",
+          elapsed_ms: 0,
+        },
+      },
+    });
+    const { state, create: doCreate } = withSetup(() =>
+      useSpcodeGitBranches(),
+    );
+    const r = await doCreate({ name: "feat/new" });
+    expect(r.ok).toBe(true);
+    if (state.value.kind === "ok") {
+      expect(state.value.snapshot.branches.map((b) => b.name)).toContain(
+        "feat/new",
+      );
+    }
+  });
+
+  it("create() failure on branch_exists: returns ok=false with reason", async () => {
+    mockPost.mockResolvedValueOnce({
+      status: 200,
+      data: {
+        status: "ok",
+        data: {
+          loaded: true,
+          directory: "D:/repo",
+          umo: "umo-test",
+          reason: "branch_exists",
+          stderr: "already exists",
+          elapsed_ms: 0,
+          branches: [],
+        },
+      },
+    });
+    const { create: doCreate } = withSetup(() => useSpcodeGitBranches());
+    const r = await doCreate({ name: "feat/dup" });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toBe("branch_exists");
+  });
+
+  it("delete() success: branch removed from snapshot", async () => {
+    mockPost.mockResolvedValueOnce({
+      status: 200,
+      data: {
+        status: "ok",
+        data: {
+          loaded: true,
+          directory: "D:/repo",
+          umo: "umo-test",
+          deleted: true,
+          name: "feat/old",
+          force: false,
+          was_current: false,
+          branches: [
+            {
+              name: "main",
+              sha: "a",
+              upstream: "",
+              upstream_track: "",
+              current: true,
+              remote: false,
+            },
+          ],
+          total: 1,
+          current: "main",
+          detached: false,
+          reason: null,
+          stderr: "",
+          elapsed_ms: 0,
+        },
+      },
+    });
+    const { state, delete: doDelete } = withSetup(() =>
+      useSpcodeGitBranches(),
+    );
+    const r = await doDelete({ name: "feat/old" });
+    expect(r.ok).toBe(true);
+    if (state.value.kind === "ok") {
+      expect(state.value.snapshot.branches.map((b) => b.name)).not.toContain(
+        "feat/old",
+      );
+    }
+  });
+
+  it("delete() failure on branch_is_current: returns ok=false", async () => {
+    mockPost.mockResolvedValueOnce({
+      status: 200,
+      data: {
+        status: "ok",
+        data: {
+          loaded: true,
+          directory: "D:/repo",
+          umo: "umo-test",
+          reason: "branch_is_current",
+          stderr: "cannot delete current",
+          elapsed_ms: 0,
+          branches: [],
+        },
+      },
+    });
+    const { delete: doDelete } = withSetup(() => useSpcodeGitBranches());
+    const r = await doDelete({ name: "main" });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toBe("branch_is_current");
+  });
 });

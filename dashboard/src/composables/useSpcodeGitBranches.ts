@@ -13,6 +13,12 @@ import {
   type SpcodeGitBranchesSnapshot,
   type SpcodeGitBranchesRawResponse,
 } from "@/composables/parseSpcodeGitBranches";
+import {
+  parseSpcodeBranchSwitch,
+  parseSpcodeBranchCreate,
+  parseSpcodeBranchDelete,
+  type SpcodeBranchMgmtSnapshot,
+} from "@/composables/parseSpcodeBranchManagement";
 
 export type BranchesFetchState =
   | { kind: "idle" }
@@ -163,9 +169,119 @@ export function useSpcodeGitBranches(): UseSpcodeGitBranches {
     }
   }
 
-  // Stub mutation methods (real implementations in Task 4).
-  async function _branchStub(): Promise<BranchMgmtResult> {
-    return { ok: false, reason: "not_implemented" };
+  // ── Mutation methods (spec §3.2) ────────────────────────
+  //
+  // All 3 share the same shape: build a new AbortController, POST to
+  // the endpoint, parse the response, atomically swap state with
+  // the refreshed snapshot. Single-flight per kind via mutationAbort.
+  // The 3 different parser functions and endpoint paths are the only
+  // variation, so we share the boilerplate via `runMutation`.
+
+  type ParsedBranchResponse = {
+    kind: "ok";
+    snapshot: SpcodeBranchMgmtSnapshot;
+  } | { kind: "error"; reason: string; stderr: string };
+
+  async function runMutation(
+    endpoint: string,
+    body: Record<string, unknown>,
+    parser: (raw: unknown) => ParsedBranchResponse,
+  ): Promise<BranchMgmtResult> {
+    if (!isMounted) return { ok: false, reason: "aborted" };
+    const umo = spcodeStatus.status.value.umo ?? null;
+    if (!umo) return { ok: false, reason: "no_project_loaded" };
+    const ctrl = new AbortController();
+    mutationAbort?.abort();
+    mutationAbort = ctrl;
+    try {
+      const resp = await pluginExtensionApi.post<unknown>(
+        endpoint,
+        body,
+        { signal: ctrl.signal, params: { umo } },
+      );
+      if (!isMounted || ctrl.signal.aborted) {
+        return { ok: false, reason: "aborted" };
+      }
+      const parsed = parser(resp.data);
+      if (parsed.kind === "error") {
+        return { ok: false, reason: parsed.reason, stderr: parsed.stderr };
+      }
+      // Atomically swap state with the refreshed branch list.
+      const refreshed = parsed.snapshot.branches;
+      const rawResponse: SpcodeGitBranchesRawResponse = {
+        loaded: parsed.snapshot.meta.loaded,
+        directory: parsed.snapshot.meta.directory,
+        umo: parsed.snapshot.meta.umo,
+        branches: refreshed.branches.map((b) => ({
+          name: b.name,
+          sha: b.sha,
+          upstream: b.upstream,
+          upstream_track: b.upstreamTrack,
+          current: b.current,
+          remote: b.remote,
+        })),
+        total: refreshed.total,
+        current: refreshed.current,
+        detached: refreshed.detached,
+        reason: parsed.snapshot.meta.reason,
+        stderr: parsed.snapshot.meta.stderr,
+        elapsed_ms: parsed.snapshot.meta.elapsedMs,
+      };
+      const newSnap = parseSpcodeGitBranches(rawResponse);
+      const directory = parsed.snapshot.meta.directory;
+      prevSnapshotMap.set(etagKey({ umo, directory }), newSnap);
+      state.value = { kind: "ok", snapshot: newSnap, notModified: false };
+      return { ok: true, snapshot: newSnap };
+    } catch (err) {
+      if (!isMounted) return { ok: false, reason: "aborted" };
+      if ((err as { name?: string })?.name === "CanceledError") {
+        return { ok: false, reason: "aborted" };
+      }
+      const anyErr = err as { code?: string; message?: string };
+      const reason =
+        anyErr.code === "ERR_NETWORK" || /network/i.test(anyErr.message ?? "")
+          ? "network"
+          : "unknown";
+      return { ok: false, reason };
+    }
+  }
+
+  async function doSwitch(
+    params: BranchSwitchParams,
+  ): Promise<BranchMgmtResult> {
+    return runMutation(
+      "spcode/git-branch-switch",
+      {
+        name: params.name,
+        force: params.force ?? false,
+        detach: params.detach ?? false,
+      },
+      parseSpcodeBranchSwitch,
+    );
+  }
+
+  async function doCreate(
+    params: BranchCreateParams,
+  ): Promise<BranchMgmtResult> {
+    return runMutation(
+      "spcode/git-branch-create",
+      {
+        name: params.name,
+        start_point: params.startPoint ?? "HEAD",
+        force: false,
+      },
+      parseSpcodeBranchCreate,
+    );
+  }
+
+  async function doDelete(
+    params: BranchDeleteParams,
+  ): Promise<BranchMgmtResult> {
+    return runMutation(
+      "spcode/git-branch-delete",
+      { name: params.name, force: params.force ?? false },
+      parseSpcodeBranchDelete,
+    );
   }
 
   function dispose(): void {
@@ -182,9 +298,9 @@ export function useSpcodeGitBranches(): UseSpcodeGitBranches {
     refresh,
     startPolling,
     stopPolling,
-    switch: _branchStub as never,
-    create: _branchStub as never,
-    delete: _branchStub as never,
+    switch: doSwitch,
+    create: doCreate,
+    delete: doDelete,
     dispose,
   };
 }
