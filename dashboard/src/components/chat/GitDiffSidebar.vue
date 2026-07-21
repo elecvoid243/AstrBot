@@ -62,6 +62,11 @@ import {
 import { useSpcodeNewFileLineCounts } from "@/composables/useSpcodeNewFileLineCounts";
 import { classifyReason } from "@/composables/parseSpcodeGitWorkflow";
 import { classifyWorktreeReason } from "@/composables/parseSpcodeWorktreeManagement";
+import {
+  useSpcodeGitBranches,
+  type BranchDeleteParams,
+  type BranchSwitchParams,
+} from "@/composables/useSpcodeGitBranches";
 import { pluginExtensionApi } from "@/api/v1";
 import { useModuleI18n } from "@/i18n/composables";
 import GitDiffBodyContent from "@/components/chat/message_list_comps/GitDiffBodyContent.vue";
@@ -73,6 +78,8 @@ import WorktreeCreateDialog from "@/components/chat/message_list_comps/WorktreeC
 import LockReasonDialogBody from "@/components/chat/message_list_comps/LockReasonDialogBody.vue";
 import GitLogView from "@/components/chat/message_list_comps/GitLogView.vue";
 import DocumentManager from "@/components/chat/message_list_comps/DocumentManager.vue";
+import BranchSwitchConfirmDialog from "@/components/chat/message_list_comps/BranchSwitchConfirmDialog.vue";
+import BranchDeleteConfirmDialog from "@/components/chat/message_list_comps/BranchDeleteConfirmDialog.vue";
 const { tm } = useModuleI18n("features/chat");
 
 // ── localStorage persistence (spec 2026-06-20 §5.1 + §6) ────────────
@@ -378,6 +385,16 @@ if (_persistedWorktree !== null && _persistedWorktree !== "null") {
 }
 
 const worktreesComposable = useSpcodeWorktrees();
+const branchesComposable = useSpcodeGitBranches();
+const branchList = computed(() => {
+  const s = branchesComposable.state.value;
+  return s.kind === "ok" ? s.snapshot.branches : [];
+});
+const currentBranchName = computed(() => {
+  const s = branchesComposable.state.value;
+  if (s.kind !== "ok") return null;
+  return s.snapshot.current;
+});
 // Spec 2026-07-16: "is this a Git repo?" probe + init mutation. Used by
 // the GitRepoInitPrompt slot in the template to surface a one-click
 // `git init` flow when the loaded directory has no .git/.
@@ -844,6 +861,21 @@ function onConfirmClear(): void {
 // ── Worktree management state (spec 2026-06-27 §2.4) ────────
 const createDialogOpen = ref(false);
 const removeDialogOpen = ref(false);
+
+// ── Branch management state (spec 2026-07-21 §3.3) ─────────
+const switchDialogOpen = ref(false);
+const deleteDialogOpen = ref(false);
+const switchTarget = ref<{ from: string | null; to: string } | null>(null);
+const deleteTarget = ref<string | null>(null);
+const switchDirtyCount = ref(0);
+const isBranchSwitching = ref(false);
+const isBranchDeleting = ref(false);
+const isBranchCreating = ref(false);
+const branchCreateExpanded = ref(false);
+const branchCreateName = ref("");
+const branchCreateStartPoint = ref("HEAD");
+const branchCreateError = ref<string | null>(null);
+const branchMenuOpen = ref(false);
 const lockDialogOpen = ref(false);
 const confirmUnlockOpen = ref(false);
 const confirmUnlockPath = ref<string | null>(null);
@@ -1271,6 +1303,7 @@ async function onManualRefresh(): Promise<void> {
 // Spec §3.3: useSpcodeWorktrees does NOT depend on umo.
 onMounted(() => {
   void worktreesComposable.refresh();
+  void branchesComposable.refresh();
   // Spec 2026-07-16: initial probe on mount. The composable internally
   // watches `umo`/`directory` and re-probes on project switch, so a
   // single refresh() on mount is enough.
@@ -1329,6 +1362,23 @@ watch(
   { immediate: true },
 );
 
+// Spec 2026-07-21 §3.5: branch polling rides the same lifecycle
+// as worktree polling (30s cadence) — both start when the sidebar
+// opens in a git repo, both stop when it closes or the repo is
+// unloaded. Single source of truth: the same [modelValue, isGitRepo]
+// gate that drives worktree polling drives branch polling.
+watch(
+  () => props.modelValue,
+  (open) => {
+    if (open && isGitRepo.value) {
+      branchesComposable.startPolling(30_000);
+    } else {
+      branchesComposable.stopPolling();
+    }
+  },
+  { immediate: true },
+);
+
 // Spec 2026-07-16: one-shot check on open. The prompt is driven by
 // "is the loaded directory a Git repo?", which doesn't change while
 // the user is staring at the sidebar. Re-probing every 30s would just
@@ -1354,6 +1404,7 @@ watch(
 watch(isGitRepo, (isRepo) => {
   if (isRepo) return;
   worktreesComposable.stopPolling();
+  branchesComposable.stopPolling();
   composable.stopPolling();
   gitStatus.stopPolling();
   gitLog.stopPolling();
@@ -1709,6 +1760,227 @@ function onWorktreeChange(path: string | null): void {
   selectedWorktree.value = path;
   selectedScope.value = DEFAULT_SCOPE;
   pendingScope.value = null;
+}
+
+// ── Branch management helpers (spec 2026-07-21 §3.3, §3.6, §3.7) ──
+
+// Spec §3.7: branch error reason → i18n key. Per-endpoint tables.
+// We keep this in-script rather than importing from
+// `parseSpcodeBranchManagement` because we want one key per reason
+// (without the `i18nKey` doubling that classifyBranchReason does
+// for the worktree pattern), and the worktreeMgmt.* namespace uses
+// `error.<reason>` not `<endpoint>.error.<reason>`. The reason
+// → i18nKey map is small enough to inline.
+const BRANCH_ERROR_KEYS = {
+  switch: {
+    worktree_dirty:
+      "spcodeProjectLoad.diffSidebar.branchMgmt.switch.error.worktree_dirty",
+    branch_not_found:
+      "spcodeProjectLoad.diffSidebar.branchMgmt.switch.error.branch_not_found",
+    invalid_branch:
+      "spcodeProjectLoad.diffSidebar.branchMgmt.switch.error.invalid_branch",
+    invalid_body:
+      "spcodeProjectLoad.diffSidebar.branchMgmt.switch.error.git_error",
+    git_error:
+      "spcodeProjectLoad.diffSidebar.branchMgmt.switch.error.git_error",
+    network:
+      "spcodeProjectLoad.diffSidebar.branchMgmt.switch.error.git_error",
+    unknown:
+      "spcodeProjectLoad.diffSidebar.branchMgmt.switch.error.git_error",
+  },
+  delete: {
+    branch_is_current:
+      "spcodeProjectLoad.diffSidebar.branchMgmt.delete.error.branch_is_current",
+    branch_not_merged:
+      "spcodeProjectLoad.diffSidebar.branchMgmt.delete.error.branch_not_merged",
+    branch_not_found:
+      "spcodeProjectLoad.diffSidebar.branchMgmt.delete.error.branch_not_found",
+    invalid_branch:
+      "spcodeProjectLoad.diffSidebar.branchMgmt.delete.error.git_error",
+    git_error:
+      "spcodeProjectLoad.diffSidebar.branchMgmt.delete.error.git_error",
+    network:
+      "spcodeProjectLoad.diffSidebar.branchMgmt.delete.error.git_error",
+    unknown:
+      "spcodeProjectLoad.diffSidebar.branchMgmt.delete.error.git_error",
+  },
+  create: {
+    branch_exists:
+      "spcodeProjectLoad.diffSidebar.branchMgmt.create.error.branch_exists",
+    invalid_branch:
+      "spcodeProjectLoad.diffSidebar.branchMgmt.create.error.invalid_branch",
+    git_error:
+      "spcodeProjectLoad.diffSidebar.branchMgmt.create.error.git_error",
+    network:
+      "spcodeProjectLoad.diffSidebar.branchMgmt.create.error.git_error",
+    unknown:
+      "spcodeProjectLoad.diffSidebar.branchMgmt.create.error.git_error",
+  },
+} as const;
+
+function showBranchError(
+  endpoint: "switch" | "delete" | "create",
+  reason: string,
+  stderr: string,
+): void {
+  const key =
+    (BRANCH_ERROR_KEYS[endpoint] as Record<string, string>)[reason] ??
+    BRANCH_ERROR_KEYS[endpoint].git_error;
+  showSnackbar(tm(key, { name: "", stderr }), "error", stderr);
+}
+
+// Spec §3.6: cascade refresh after a successful branch
+// switch. Always refreshes worktree (wt.branch field changes).
+// Also refreshes the currently visible view so the user sees the
+// new branch state without waiting for the next 10s polling tick.
+async function refreshAfterBranchChange(): Promise<void> {
+  const tasks: Promise<unknown>[] = [worktreesComposable.refresh()];
+  switch (viewMode.value) {
+    case "diff":
+      tasks.push(composable.refresh(), gitStatus.refresh());
+      break;
+    case "files":
+      tasks.push(gitStatus.refresh());
+      break;
+    case "history":
+      tasks.push(gitLog.refresh());
+      break;
+    case "docs":
+      tasks.push(gitStatus.refresh());
+      break;
+  }
+  await Promise.allSettled(tasks);
+}
+
+async function onBranchMenuItemClick(b: {
+  name: string;
+  current: boolean;
+}): Promise<void> {
+  if (b.current) {
+    // Current branch is a no-op — close the menu.
+    branchMenuOpen.value = false;
+    return;
+  }
+  const fromBranch = currentBranchName.value;
+  switchTarget.value = { from: fromBranch, to: b.name };
+  switchDirtyCount.value = 0;
+  switchDialogOpen.value = true;
+  // Async dirty pre-check; if it fails, the dialog still opens
+  // with dirtyCount=0 (assume clean) and the backend will reject
+  // a real dirty switch.
+  const umo = spcodeStatus.status.value.umo;
+  if (umo) {
+    try {
+      // pluginExtensionApi.get<InnerShape>(...) returns
+      // ApiEnvelope<InnerShape> = { data: InnerShape, ... }, so we
+      // access resp.data.data.dirty_count for the inner field.
+      const resp = await pluginExtensionApi.get<{
+        dirty_count?: number;
+      }>("spcode/git-status", {
+        params: {
+          umo,
+          worktree: selectedWorktree.value ?? undefined,
+        },
+      });
+      switchDirtyCount.value = resp.data?.data?.dirty_count ?? 0;
+    } catch {
+      switchDirtyCount.value = 0;
+    }
+  }
+}
+
+async function onBranchSwitchConfirm(name: string): Promise<void> {
+  isBranchSwitching.value = true;
+  try {
+    const params: BranchSwitchParams = { name };
+    const result = await branchesComposable.switch(params);
+    if (!result.ok) {
+      showBranchError("switch", result.reason, result.stderr ?? "");
+      return;
+    }
+    switchDialogOpen.value = false;
+    branchMenuOpen.value = false;
+    await refreshAfterBranchChange();
+    showSnackbar(
+      tm(
+        "spcodeProjectLoad.diffSidebar.branchMgmt.switch.success",
+        { name },
+      ),
+      "success",
+    );
+  } finally {
+    isBranchSwitching.value = false;
+  }
+}
+
+function onBranchDeleteClick(b: {
+  name: string;
+  current: boolean;
+}): void {
+  if (b.current) return; // UI never shows × for current, but defense-in-depth
+  deleteTarget.value = b.name;
+  deleteDialogOpen.value = true;
+}
+
+async function onBranchDeleteConfirm(name: string): Promise<void> {
+  isBranchDeleting.value = true;
+  try {
+    const params: BranchDeleteParams = { name };
+    const result = await branchesComposable.delete(params);
+    if (!result.ok) {
+      showBranchError("delete", result.reason, result.stderr ?? "");
+      return;
+    }
+    deleteDialogOpen.value = false;
+    showSnackbar(
+      tm(
+        "spcodeProjectLoad.diffSidebar.branchMgmt.delete.success",
+        { name },
+      ),
+      "success",
+    );
+  } finally {
+    isBranchDeleting.value = false;
+  }
+}
+
+async function onBranchCreateSubmit(): Promise<void> {
+  const name = branchCreateName.value.trim();
+  if (!name) {
+    branchCreateError.value = tm(
+      "spcodeProjectLoad.diffSidebar.branchMgmt.create.nameRequired",
+    );
+    return;
+  }
+  branchCreateError.value = null;
+  isBranchCreating.value = true;
+  try {
+    const result = await branchesComposable.create({
+      name,
+      startPoint: branchCreateStartPoint.value.trim() || "HEAD",
+    });
+    if (!result.ok) {
+      branchCreateError.value = tm(
+        (BRANCH_ERROR_KEYS.create as Record<string, string>)[result.reason] ??
+          BRANCH_ERROR_KEYS.create.git_error,
+        { name, stderr: result.stderr ?? "" },
+      );
+      return;
+    }
+    // Success: collapse the form, keep the menu open.
+    branchCreateExpanded.value = false;
+    branchCreateName.value = "";
+    branchCreateStartPoint.value = "HEAD";
+    showSnackbar(
+      tm(
+        "spcodeProjectLoad.diffSidebar.branchMgmt.create.success",
+        { name },
+      ),
+      "success",
+    );
+  } finally {
+    isBranchCreating.value = false;
+  }
 }
 
 // ── Worktree management handlers (spec 2026-06-27 §3) ────────
@@ -2827,6 +3099,7 @@ onBeforeUnmount(() => {
   fileRestore.dispose();
   fileDiscardHunk.dispose();
   worktreesComposable.dispose();
+  branchesComposable.dispose();
   // Spec 2026-07-16: abort in-flight probe + init + clear polling
   // interval. Mirrors the worktree composable's dispose pattern.
   gitRepoProbe.dispose();
