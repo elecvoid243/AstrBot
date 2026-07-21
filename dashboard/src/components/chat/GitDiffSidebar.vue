@@ -4895,7 +4895,7 @@ watch(
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 6px;
+  padding: 4px 14px;
   font-size: 12px;
 }
 .git-diff-sidebar-branch-mgmt-label {
