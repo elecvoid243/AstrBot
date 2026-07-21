@@ -1783,10 +1783,8 @@ const BRANCH_ERROR_KEYS = {
       "spcodeProjectLoad.diffSidebar.branchMgmt.switch.error.git_error",
     git_error:
       "spcodeProjectLoad.diffSidebar.branchMgmt.switch.error.git_error",
-    network:
-      "spcodeProjectLoad.diffSidebar.branchMgmt.switch.error.git_error",
-    unknown:
-      "spcodeProjectLoad.diffSidebar.branchMgmt.switch.error.git_error",
+    network: "spcodeProjectLoad.diffSidebar.branchMgmt.switch.error.git_error",
+    unknown: "spcodeProjectLoad.diffSidebar.branchMgmt.switch.error.git_error",
   },
   delete: {
     branch_is_current:
@@ -1799,10 +1797,8 @@ const BRANCH_ERROR_KEYS = {
       "spcodeProjectLoad.diffSidebar.branchMgmt.delete.error.git_error",
     git_error:
       "spcodeProjectLoad.diffSidebar.branchMgmt.delete.error.git_error",
-    network:
-      "spcodeProjectLoad.diffSidebar.branchMgmt.delete.error.git_error",
-    unknown:
-      "spcodeProjectLoad.diffSidebar.branchMgmt.delete.error.git_error",
+    network: "spcodeProjectLoad.diffSidebar.branchMgmt.delete.error.git_error",
+    unknown: "spcodeProjectLoad.diffSidebar.branchMgmt.delete.error.git_error",
   },
   create: {
     branch_exists:
@@ -1811,10 +1807,8 @@ const BRANCH_ERROR_KEYS = {
       "spcodeProjectLoad.diffSidebar.branchMgmt.create.error.invalid_branch",
     git_error:
       "spcodeProjectLoad.diffSidebar.branchMgmt.create.error.git_error",
-    network:
-      "spcodeProjectLoad.diffSidebar.branchMgmt.create.error.git_error",
-    unknown:
-      "spcodeProjectLoad.diffSidebar.branchMgmt.create.error.git_error",
+    network: "spcodeProjectLoad.diffSidebar.branchMgmt.create.error.git_error",
+    unknown: "spcodeProjectLoad.diffSidebar.branchMgmt.create.error.git_error",
   },
 } as const;
 
@@ -1902,10 +1896,7 @@ async function onBranchSwitchConfirm(name: string): Promise<void> {
     branchMenuOpen.value = false;
     await refreshAfterBranchChange();
     showSnackbar(
-      tm(
-        "spcodeProjectLoad.diffSidebar.branchMgmt.switch.success",
-        { name },
-      ),
+      tm("spcodeProjectLoad.diffSidebar.branchMgmt.switch.success", { name }),
       "success",
     );
   } finally {
@@ -1913,10 +1904,7 @@ async function onBranchSwitchConfirm(name: string): Promise<void> {
   }
 }
 
-function onBranchDeleteClick(b: {
-  name: string;
-  current: boolean;
-}): void {
+function onBranchDeleteClick(b: { name: string; current: boolean }): void {
   if (b.current) return; // UI never shows × for current, but defense-in-depth
   deleteTarget.value = b.name;
   deleteDialogOpen.value = true;
@@ -1933,10 +1921,7 @@ async function onBranchDeleteConfirm(name: string): Promise<void> {
     }
     deleteDialogOpen.value = false;
     showSnackbar(
-      tm(
-        "spcodeProjectLoad.diffSidebar.branchMgmt.delete.success",
-        { name },
-      ),
+      tm("spcodeProjectLoad.diffSidebar.branchMgmt.delete.success", { name }),
       "success",
     );
   } finally {
@@ -1972,10 +1957,7 @@ async function onBranchCreateSubmit(): Promise<void> {
     branchCreateName.value = "";
     branchCreateStartPoint.value = "HEAD";
     showSnackbar(
-      tm(
-        "spcodeProjectLoad.diffSidebar.branchMgmt.create.success",
-        { name },
-      ),
+      tm("spcodeProjectLoad.diffSidebar.branchMgmt.create.success", { name }),
       "success",
     );
   } finally {
@@ -3432,6 +3414,202 @@ watch(
           </button>
         </div>
 
+        <!-- Branch switcher (spec 2026-07-21 §3.3, layout revised 2026-07-21)
+             Sits ABOVE the worktree tabs (not inside the flex row) so its
+             dropdown anchors to the button instead of being squeezed by
+             the tab strip. The button is wrapped by v-menu's activator slot
+             so Vuetify's positioning pipeline has an HTMLElement to anchor
+             against; without it the menu falls back to the viewport's
+             top-left corner. -->
+        <div
+          v-if="isGitRepo && hasMultipleWorktrees"
+          class="git-diff-sidebar-branch-mgmt"
+        >
+          <span class="git-diff-sidebar-branch-mgmt-label">
+            {{ tm("spcodeProjectLoad.diffSidebar.branchMgmt.currentLabel") }}
+          </span>
+          <v-menu
+            v-model="branchMenuOpen"
+            :close-on-content-click="false"
+            location="bottom end"
+            max-width="320"
+          >
+            <template #activator="{ props: menuProps }">
+              <button
+                v-bind="menuProps"
+                type="button"
+                class="git-diff-sidebar-branch-mgmt-btn"
+                :aria-label="
+                  tm('spcodeProjectLoad.diffSidebar.branchMgmt.menuButtonAria')
+                "
+                :title="
+                  tm('spcodeProjectLoad.diffSidebar.branchMgmt.menuButton')
+                "
+              >
+                <v-icon size="14">mdi-source-branch</v-icon>
+                <span class="git-diff-sidebar-branch-mgmt-btn-name">
+                  {{
+                    currentBranchName ??
+                    tm("spcodeProjectLoad.diffSidebar.branchMgmt.detached")
+                  }}
+                </span>
+                <v-icon size="12">mdi-menu-down</v-icon>
+              </button>
+            </template>
+            <v-list density="compact" class="git-diff-sidebar-branch-menu">
+              <!-- Loading -->
+              <template
+                v-if="branchesComposable.state.value.kind === 'loading'"
+              >
+                <v-list-item>
+                  <template #prepend>
+                    <v-progress-circular indeterminate :size="14" :width="2" />
+                  </template>
+                  <v-list-item-title>
+                    {{ tm("spcodeProjectLoad.diffSidebar.branchMgmt.loading") }}
+                  </v-list-item-title>
+                </v-list-item>
+              </template>
+
+              <!-- Error -->
+              <template
+                v-else-if="branchesComposable.state.value.kind === 'error'"
+              >
+                <v-list-item disabled>
+                  <v-list-item-title class="text-caption text-error">
+                    {{
+                      tm("spcodeProjectLoad.diffSidebar.branchMgmt.error", {
+                        reason: branchesComposable.state.value.reason,
+                      })
+                    }}
+                  </v-list-item-title>
+                </v-list-item>
+              </template>
+
+              <!-- Branch list -->
+              <template v-else>
+                <v-list-item v-if="branchList.length === 0" disabled>
+                  <v-list-item-title class="text-caption">
+                    {{ tm("spcodeProjectLoad.diffSidebar.branchMgmt.empty") }}
+                  </v-list-item-title>
+                </v-list-item>
+                <v-list-item
+                  v-for="b in branchList"
+                  :key="b.name"
+                  :active="b.current"
+                  :disabled="isBranchSwitching"
+                  @click="onBranchMenuItemClick(b)"
+                >
+                  <template #prepend>
+                    <v-icon v-if="b.current" size="14" color="primary"
+                      >mdi-check</v-icon
+                    >
+                    <v-icon v-else-if="b.remote" size="14" color="grey"
+                      >mdi-cloud-outline</v-icon
+                    >
+                    <v-icon v-else size="14">mdi-source-branch</v-icon>
+                  </template>
+                  <v-list-item-title>
+                    {{ b.name }}
+                  </v-list-item-title>
+                  <template #append>
+                    <v-icon
+                      v-if="!b.current"
+                      size="14"
+                      class="git-diff-sidebar-branch-delete"
+                      @click.stop="onBranchDeleteClick(b)"
+                      >mdi-close</v-icon
+                    >
+                  </template>
+                </v-list-item>
+              </template>
+
+              <!-- Inline create form -->
+              <v-divider />
+              <div
+                v-if="branchCreateExpanded"
+                class="git-diff-sidebar-branch-create"
+              >
+                <v-text-field
+                  v-model="branchCreateName"
+                  :label="
+                    tm('spcodeProjectLoad.diffSidebar.branchMgmt.create.name')
+                  "
+                  :error-messages="branchCreateError ? [branchCreateError] : []"
+                  density="compact"
+                  variant="outlined"
+                  autofocus
+                  autocomplete="off"
+                  name="branch-create-name"
+                  @keyup.enter="onBranchCreateSubmit"
+                />
+                <v-text-field
+                  v-model="branchCreateStartPoint"
+                  :label="
+                    tm(
+                      'spcodeProjectLoad.diffSidebar.branchMgmt.create.startPoint',
+                    )
+                  "
+                  :placeholder="'HEAD'"
+                  density="compact"
+                  variant="outlined"
+                  class="mt-1"
+                  autocomplete="off"
+                  name="branch-create-start"
+                  @keyup.enter="onBranchCreateSubmit"
+                />
+                <div class="git-diff-sidebar-branch-create-actions">
+                  <v-btn
+                    size="x-small"
+                    variant="text"
+                    :disabled="isBranchCreating"
+                    @click="
+                      branchCreateExpanded = false;
+                      branchCreateError = null;
+                    "
+                  >
+                    {{
+                      tm(
+                        "spcodeProjectLoad.diffSidebar.branchMgmt.create.cancel",
+                      )
+                    }}
+                  </v-btn>
+                  <v-btn
+                    size="x-small"
+                    variant="flat"
+                    color="primary"
+                    :loading="isBranchCreating"
+                    :disabled="!branchCreateName.trim()"
+                    @click="onBranchCreateSubmit"
+                  >
+                    {{
+                      tm(
+                        "spcodeProjectLoad.diffSidebar.branchMgmt.create.submit",
+                      )
+                    }}
+                  </v-btn>
+                </div>
+              </div>
+              <v-list-item
+                v-else
+                :disabled="isBranchCreating"
+                @click="branchCreateExpanded = true"
+              >
+                <template #prepend>
+                  <v-icon size="14">mdi-plus</v-icon>
+                </template>
+                <v-list-item-title>
+                  {{
+                    tm(
+                      "spcodeProjectLoad.diffSidebar.branchMgmt.create.menuItem",
+                    )
+                  }}
+                </v-list-item-title>
+              </v-list-item>
+            </v-list>
+          </v-menu>
+        </div>
+
         <!-- Worktree tabs (visible in BOTH views, spec 2026-06-20 §5.3) -->
         <div
           v-if="hasMultipleWorktrees && (isGitRepo || showNotGitRepoChip)"
@@ -3519,221 +3697,6 @@ watch(
           >
             <v-icon size="14">mdi-plus</v-icon>
           </button>
-
-          <!-- Branch switcher (spec 2026-07-21 §3.3) -->
-          <button
-            type="button"
-            class="git-diff-sidebar-tab-branch"
-            :aria-label="
-              tm('spcodeProjectLoad.diffSidebar.branchMgmt.menuButtonAria')
-            "
-            :title="tm('spcodeProjectLoad.diffSidebar.branchMgmt.menuButton')"
-            @click.stop="branchMenuOpen = !branchMenuOpen"
-          >
-            <v-icon size="14">mdi-source-branch</v-icon>
-            <span class="git-diff-sidebar-tab-branch-name">
-              {{
-                currentBranchName ??
-                tm(
-                  "spcodeProjectLoad.diffSidebar.branchMgmt.detached",
-                )
-              }}
-            </span>
-            <v-icon size="12">mdi-menu-down</v-icon>
-          </button>
-
-          <v-menu
-            v-model="branchMenuOpen"
-            :close-on-content-click="false"
-            location="bottom end"
-            max-width="320"
-          >
-            <v-list
-              density="compact"
-              class="git-diff-sidebar-branch-menu"
-            >
-              <!-- Loading -->
-              <template
-                v-if="branchesComposable.state.value.kind === 'loading'"
-              >
-                <v-list-item>
-                  <template #prepend>
-                    <v-progress-circular
-                      indeterminate
-                      :size="14"
-                      :width="2"
-                    />
-                  </template>
-                  <v-list-item-title>
-                    {{
-                      tm(
-                        "spcodeProjectLoad.diffSidebar.branchMgmt.loading",
-                      )
-                    }}
-                  </v-list-item-title>
-                </v-list-item>
-              </template>
-
-              <!-- Error -->
-              <template
-                v-else-if="branchesComposable.state.value.kind === 'error'"
-              >
-                <v-list-item disabled>
-                  <v-list-item-title class="text-caption text-error">
-                    {{
-                      tm(
-                        "spcodeProjectLoad.diffSidebar.branchMgmt.error",
-                        {
-                          reason:
-                            branchesComposable.state.value.reason,
-                        },
-                      )
-                    }}
-                  </v-list-item-title>
-                </v-list-item>
-              </template>
-
-              <!-- Branch list -->
-              <template v-else>
-                <v-list-item
-                  v-if="branchList.length === 0"
-                  disabled
-                >
-                  <v-list-item-title class="text-caption">
-                    {{
-                      tm(
-                        "spcodeProjectLoad.diffSidebar.branchMgmt.empty",
-                      )
-                    }}
-                  </v-list-item-title>
-                </v-list-item>
-                <v-list-item
-                  v-for="b in branchList"
-                  :key="b.name"
-                  :active="b.current"
-                  :disabled="isBranchSwitching"
-                  @click="onBranchMenuItemClick(b)"
-                >
-                  <template #prepend>
-                    <v-icon
-                      v-if="b.current"
-                      size="14"
-                      color="primary"
-                      >mdi-check</v-icon
-                    >
-                    <v-icon
-                      v-else-if="b.remote"
-                      size="14"
-                      color="grey"
-                      >mdi-cloud-outline</v-icon
-                    >
-                    <v-icon v-else size="14">mdi-source-branch</v-icon>
-                  </template>
-                  <v-list-item-title>
-                    {{ b.name }}
-                  </v-list-item-title>
-                  <template #append>
-                    <v-icon
-                      v-if="!b.current"
-                      size="14"
-                      class="git-diff-sidebar-branch-delete"
-                      @click.stop="onBranchDeleteClick(b)"
-                      >mdi-close</v-icon
-                    >
-                  </template>
-                </v-list-item>
-              </template>
-
-              <!-- Inline create form -->
-              <v-divider />
-              <div
-                v-if="branchCreateExpanded"
-                class="git-diff-sidebar-branch-create"
-              >
-                <v-text-field
-                  v-model="branchCreateName"
-                  :label="
-                    tm(
-                      'spcodeProjectLoad.diffSidebar.branchMgmt.create.name',
-                    )
-                  "
-                  :error-messages="
-                    branchCreateError ? [branchCreateError] : []
-                  "
-                  density="compact"
-                  variant="outlined"
-                  autofocus
-                  autocomplete="off"
-                  name="branch-create-name"
-                  @keyup.enter="onBranchCreateSubmit"
-                />
-                <v-text-field
-                  v-model="branchCreateStartPoint"
-                  :label="
-                    tm(
-                      'spcodeProjectLoad.diffSidebar.branchMgmt.create.startPoint',
-                    )
-                  "
-                  :placeholder="'HEAD'"
-                  density="compact"
-                  variant="outlined"
-                  class="mt-1"
-                  autocomplete="off"
-                  name="branch-create-start"
-                  @keyup.enter="onBranchCreateSubmit"
-                />
-                <div
-                  class="git-diff-sidebar-branch-create-actions"
-                >
-                  <v-btn
-                    size="x-small"
-                    variant="text"
-                    :disabled="isBranchCreating"
-                    @click="
-                      branchCreateExpanded = false;
-                      branchCreateError = null;
-                    "
-                  >
-                    {{
-                      tm(
-                        "spcodeProjectLoad.diffSidebar.branchMgmt.create.cancel",
-                      )
-                    }}
-                  </v-btn>
-                  <v-btn
-                    size="x-small"
-                    variant="flat"
-                    color="primary"
-                    :loading="isBranchCreating"
-                    :disabled="!branchCreateName.trim()"
-                    @click="onBranchCreateSubmit"
-                  >
-                    {{
-                      tm(
-                        "spcodeProjectLoad.diffSidebar.branchMgmt.create.submit",
-                      )
-                    }}
-                  </v-btn>
-                </div>
-              </div>
-              <v-list-item
-                v-else
-                :disabled="isBranchCreating"
-                @click="branchCreateExpanded = true"
-              >
-                <template #prepend>
-                  <v-icon size="14">mdi-plus</v-icon>
-                </template>
-                <v-list-item-title>
-                  {{
-                    tm(
-                      "spcodeProjectLoad.diffSidebar.branchMgmt.create.menuItem",
-                    )
-                  }}
-                </v-list-item-title>
-              </v-list-item>
-            </v-list>
-          </v-menu>
 
           <!-- Context menu (spec 2026-06-27 §2.3)
                      Teleported to <body> and positioned with manual
@@ -4839,7 +4802,7 @@ watch(
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: var(--chat-section-label, rgba(var(--v-theme-on-surface), 0.48));
+  color: rgba(var(--v-theme-on-surface), 0.6);
   user-select: none;
 }
 
@@ -4923,39 +4886,71 @@ watch(
   border-color: rgb(var(--v-theme-primary));
 }
 
-/* Branch switcher (spec 2026-07-21 §3.3) */
-.git-diff-sidebar-tab-branch {
+/* Branch switcher (spec 2026-07-21 §3.3, layout revised 2026-07-21)
+   Lives ABOVE the worktree-tabs flex row. The dropdown list scrolls
+   internally instead of growing past the viewport when a project has
+   many branches. Font-size matches the worktree tabs (12px) so a long
+   branch name doesn't visually dominate the sidebar. */
+.git-diff-sidebar-branch-mgmt {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  font-size: 12px;
+}
+.git-diff-sidebar-branch-mgmt-label {
+  flex-shrink: 0;
+  color: rgba(var(--v-theme-on-surface), 0.6);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+.git-diff-sidebar-branch-mgmt-btn {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 4px 8px;
-  margin-left: 4px;
-  border: 1px solid
-    rgba(var(--v-border-color), var(--v-border-opacity, 1));
+  padding: 3px 8px;
+  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity, 1));
   border-radius: 6px;
   background: transparent;
   color: rgb(var(--v-theme-on-surface));
   font-size: 12px;
-  line-height: 1;
+  line-height: 1.2;
   cursor: pointer;
-  max-width: 180px;
+  min-width: 0;
+  flex: 1;
+  max-width: 220px;
   white-space: nowrap;
   transition:
     background 0.15s,
     border-color 0.15s;
 }
-.git-diff-sidebar-tab-branch:hover {
+.git-diff-sidebar-branch-mgmt-btn:hover {
   background: var(
     --chat-session-active-bg,
     rgba(var(--v-theme-on-surface), 0.06)
   );
   border-color: rgb(var(--v-theme-primary));
 }
-.git-diff-sidebar-tab-branch-name {
+.git-diff-sidebar-branch-mgmt-btn-name {
   overflow: hidden;
   text-overflow: ellipsis;
   flex: 1;
   min-width: 0;
+}
+/* Scrollable branch list. max-height caps the dropdown to a viewport-
+   friendly size; overflow-y gives the user a scrollbar instead of the
+   menu growing past the screen edge. font-size mirrors the worktree
+   tabs to keep visual weight consistent. */
+.git-diff-sidebar-branch-menu {
+  max-height: 360px;
+  overflow-y: auto;
+  font-size: 12px;
+}
+.git-diff-sidebar-branch-menu :deep(.v-list-item-title) {
+  font-size: 12px;
+}
+.git-diff-sidebar-branch-menu :deep(.v-list-item__content) {
+  padding-inline: 8px;
 }
 .git-diff-sidebar-branch-menu .git-diff-sidebar-branch-delete {
   opacity: 0.6;

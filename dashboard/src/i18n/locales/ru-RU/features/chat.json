@@ -791,6 +791,7 @@
         }
       },
       "branchMgmt": {
+        "currentLabel": "Текущая ветка",
         "menuButton": "Переключить ветку",
         "menuButtonAria": "Переключить git ветку",
         "loading": "Загрузка списка веток…",

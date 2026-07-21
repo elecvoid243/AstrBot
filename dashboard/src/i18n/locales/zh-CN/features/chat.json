@@ -523,6 +523,7 @@
         }
       },
       "branchMgmt": {
+        "currentLabel": "分支",
         "menuButton": "切换分支",
         "menuButtonAria": "切换 git 分支",
         "loading": "加载分支列表…",

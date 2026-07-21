@@ -523,6 +523,7 @@
         }
       },
       "branchMgmt": {
+        "currentLabel": "Current branch",
         "menuButton": "Switch branch",
         "menuButtonAria": "Switch git branch",
         "loading": "Loading branches…",
