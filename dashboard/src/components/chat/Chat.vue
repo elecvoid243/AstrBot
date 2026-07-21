@@ -2538,6 +2538,13 @@ function toggleTheme() {
   height: 100%;
   background: var(--chat-sidebar-bg);
   border-right: 1px solid var(--chat-border);
+  /* 2026-07-21 chatui toolbar align (elecvoid243): explicit
+     border-box so the 1px right border consumes from `width`
+     instead of extending past it. Without this, the sidebar's
+     visual extent is `width + 1`, mismatching VerticalHeader's
+     `chatHeaderStyle` (which positions the v-app-bar at exactly
+     `chatSidebarWidth`). Matches .chat-sidebar.collapsed below. */
+  box-sizing: border-box;
   /* 拖拽时关闭过渡, 否则 width 跟不上鼠标; 非拖拽时给 0.18s 平滑过渡。 */
   transition: width 0.18s ease;
   will-change: width;

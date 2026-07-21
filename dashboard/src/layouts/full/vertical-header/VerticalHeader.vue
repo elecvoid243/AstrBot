@@ -129,10 +129,15 @@ const isDarkTheme = computed(
 );
 const chatHeaderStyle = computed(() => {
   if (!isChatPath.value) return undefined;
+  // 2026-07-21 chatui toolbar align (elecvoid243): previously this
+  // hard-coded 280 here, which desynced from the resizable sidebar
+  // (customizer.chatSidebarWidth). Read the same source of truth as
+  // Chat.vue's chatSidebarStyle so the toolbar follows the user
+  // drag live instead of overlapping the sidebar.
   const sidebarWidth = lgAndUp.value
     ? customizer.chatSidebarCollapsed
       ? 56
-      : 280
+      : customizer.chatSidebarWidth
     : 0;
   return {
     left: `${sidebarWidth}px`,
