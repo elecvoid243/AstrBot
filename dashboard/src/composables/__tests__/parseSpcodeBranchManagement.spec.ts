@@ -7,7 +7,7 @@ import {
   type BranchMgmtEndpoint,
 } from "../parseSpcodeBranchManagement";
 
-const successEnvelope = (data: unknown) => ({
+const successEnvelope = (data: Record<string, unknown>) => ({
   status: "ok",
   data: { ...data, reason: null, stderr: "", elapsed_ms: 50 },
 });
