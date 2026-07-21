@@ -4,18 +4,40 @@
     class="chat-ui"
     :class="{ 'is-dark': isDark, 'sidebar-collapsed': isSidebarCollapsed }"
   >
-    <v-navigation-drawer
-      v-model="chatSidebarDrawer"
+    <!-- 2026-07-21 chatui sidebar resize (elecvoid243): replaced the
+         Vuetify v-navigation-drawer with a custom <aside> so the user
+         can drag the right edge to resize. Mobile still behaves as a
+         fixed drawer with a backdrop and ESC-to-close. -->
+    <div
+      v-if="!lgAndUp && customizer.chatSidebarOpen"
+      class="chat-sidebar-backdrop"
+      @click="closeMobileSidebar"
+    />
+    <aside
+      ref="chatSidebarRef"
       class="chat-sidebar"
-      :class="{ collapsed: isSidebarCollapsed }"
-      :permanent="lgAndUp"
-      :temporary="!lgAndUp"
-      :rail="lgAndUp && customizer.chatSidebarCollapsed"
-      :width="280"
-      :rail-width="56"
-      location="left"
-      floating
+      :class="{
+        collapsed: isSidebarCollapsed,
+        'is-resizing': isResizingSidebar,
+        'is-mobile-drawer': !lgAndUp,
+        'is-mobile-drawer-open': !lgAndUp && customizer.chatSidebarOpen,
+        'is-mobile-drawer-closed': !lgAndUp && !customizer.chatSidebarOpen,
+      }"
+      :style="chatSidebarStyle"
+      :aria-hidden="!lgAndUp && !customizer.chatSidebarOpen"
     >
+      <!-- 2026-07-21 chatui sidebar resize (elecvoid243): drag handle
+           for the right edge. Only visible on desktop in expanded
+           mode — hidden in rail (56px) mode and on mobile where the
+           sidebar is a fixed drawer. -->
+      <div
+        v-if="lgAndUp && !isSidebarCollapsed"
+        class="chat-sidebar-resizer"
+        :aria-label="tm('conversation.resizeSidebar')"
+        role="separator"
+        aria-orientation="vertical"
+        @mousedown="startSidebarResize"
+      />
       <div class="sidebar-top">
         <div
           class="chat-sidebar-brand"
@@ -316,7 +338,7 @@
           </div>
         </StyledMenu>
       </div>
-    </v-navigation-drawer>
+    </aside>
 
     <main class="chat-main" :class="{ 'empty-chat': isEmptyChat }">
       <section v-if="isProviderWorkspace" class="provider-workspace-shell">
@@ -997,14 +1019,12 @@ const {
   startRecording: startRecorder,
   stopRecording: stopRecorder,
 } = useRecording();
-const chatSidebarDrawer = computed({
-  get: () => lgAndUp.value || customizer.chatSidebarOpen,
-  set: (value: boolean) => {
-    if (!lgAndUp.value) {
-      customizer.SET_CHAT_SIDEBAR(value);
-    }
-  },
-});
+// 2026-07-21 chatui sidebar resize (elecvoid243): the previous
+// chatSidebarDrawer computed that bridged v-navigation-drawer's
+// v-model is no longer needed — the new <aside> + class-based show
+// reads from customizer.chatSidebarOpen directly. The visibility
+// helpers (closeMobileSidebar, ESC handler) below also go straight
+// to the store.
 const isSidebarCollapsed = computed(() =>
   lgAndUp.value ? customizer.chatSidebarCollapsed : !customizer.chatSidebarOpen,
 );
@@ -1019,6 +1039,89 @@ function toggleChatSidebar() {
   }
   customizer.TOGGLE_CHAT_SIDEBAR();
 }
+
+/* ── sidebar drag resize ─────────────────────────────────────
+ * 桌面端通过拖拽 right edge 调整 sidebar 宽度; 宽度持久化在
+ * customizer.chatSidebarWidth (见 stores/customizer.ts)。移动端
+ * sidebar 是 fixed 抽屉, 不参与拖拽。
+ * 模式与同文件 todoBarPos 拖拽一致: dragState 单例 + 模块级 flag,
+ * mousemove/mouseup 注册在 window 而不是 document.body (避免被
+ * 拖出页面外丢失事件)。 */
+const CHAT_SIDEBAR_RAIL_WIDTH = 56;
+const CHAT_SIDEBAR_MIN_WIDTH = 200;
+const CHAT_SIDEBAR_MAX_WIDTH = 480;
+const chatSidebarRef = ref<HTMLElement | null>(null);
+const isResizingSidebar = ref(false);
+let sidebarDragState: {
+  mouseStartX: number;
+  startWidth: number;
+  didMove: boolean;
+} | null = null;
+
+const chatSidebarStyle = computed(() => {
+  // 移动端 fixed 抽屉占满整个屏幕宽度, 不受用户调整的宽度影响。
+  if (!lgAndUp.value) {
+    return { width: "min(86vw, 360px)" };
+  }
+  // 桌面 rail 模式宽度固定 56px, 走原本的折叠/展开语义。
+  if (isSidebarCollapsed.value) {
+    return { width: `${CHAT_SIDEBAR_RAIL_WIDTH}px` };
+  }
+  return { width: `${customizer.chatSidebarWidth}px` };
+});
+
+function startSidebarResize(e: MouseEvent) {
+  if (!lgAndUp.value || isSidebarCollapsed.value) return;
+  e.preventDefault();
+  sidebarDragState = {
+    mouseStartX: e.clientX,
+    startWidth: customizer.chatSidebarWidth,
+    didMove: false,
+  };
+  isResizingSidebar.value = true;
+  window.addEventListener("mousemove", onSidebarResizeMove);
+  window.addEventListener("mouseup", onSidebarResizeEnd);
+}
+
+function onSidebarResizeMove(e: MouseEvent) {
+  const state = sidebarDragState;
+  if (!state) return;
+  // 拖拽方向: 鼠标右移 → sidebar 变宽。deltaX 为正即加宽。
+  const deltaX = e.clientX - state.mouseStartX;
+  // 超过 3px 才算 "真的在拖", 否则只视作 mousedown (避免误触)。
+  if (!state.didMove && Math.abs(deltaX) < 3) return;
+  state.didMove = true;
+  const desired = state.startWidth + deltaX;
+  const clamped = Math.min(
+    CHAT_SIDEBAR_MAX_WIDTH,
+    Math.max(CHAT_SIDEBAR_MIN_WIDTH, Math.round(desired)),
+  );
+  // 拖拽过程中直接写 store, 触发响应式 width 实时变化。
+  customizer.SET_CHAT_SIDEBAR_WIDTH(clamped);
+}
+
+function onSidebarResizeEnd() {
+  if (sidebarDragState) {
+    sidebarDragState = null;
+  }
+  isResizingSidebar.value = false;
+  window.removeEventListener("mousemove", onSidebarResizeMove);
+  window.removeEventListener("mouseup", onSidebarResizeEnd);
+}
+
+// 2026-07-21 chatui sidebar resize (elecvoid243): ESC 关闭移动端抽屉,
+// 镜像 Vuetify v-navigation-drawer (temporary) 原本的行为。桌面端无
+// 遮罩, 不需要 ESC 关闭 (用户可点击 brand 区域的 toggle 按钮)。
+function onSidebarKeydown(e: KeyboardEvent) {
+  if (e.key !== "Escape") return;
+  if (lgAndUp.value) return;
+  if (!customizer.chatSidebarOpen) return;
+  customizer.SET_CHAT_SIDEBAR(false);
+}
+
+onMounted(() => {
+  window.addEventListener("keydown", onSidebarKeydown);
+});
 
 const activeReasoningParts = computed<MessagePart[]>(() => {
   if (!activeReasoningTarget.value) return [];
@@ -1279,6 +1382,11 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   chatHeader.CLEAR_CONTEXT();
   cleanupMediaCache();
+  // 2026-07-21 chatui sidebar resize (elecvoid243): make sure no
+  // stray global listeners survive the component. onSidebarResizeEnd
+  // is a no-op when there's no active drag.
+  onSidebarResizeEnd();
+  window.removeEventListener("keydown", onSidebarKeydown);
 });
 
 watch(
@@ -1418,10 +1526,12 @@ function basePath() {
   return props.chatboxMode ? "/chatbox" : "/chat";
 }
 
+// 2026-07-21 chatui sidebar resize (elecvoid243): close the mobile
+// drawer (called by the backdrop click + ESC). Desktop has no
+// overlay so this is a no-op for lgAndUp.
 function closeMobileSidebar() {
-  if (!lgAndUp.value) {
-    customizer.SET_CHAT_SIDEBAR(false);
-  }
+  if (lgAndUp.value) return;
+  customizer.SET_CHAT_SIDEBAR(false);
 }
 
 function closeSecondaryPanels() {
@@ -2415,11 +2525,27 @@ function toggleTheme() {
   --chat-section-label: rgba(255, 255, 255, 0.5);
 }
 
+/* 2026-07-21 chatui sidebar resize (elecvoid243): replaced the
+   Vuetify v-navigation-drawer wrapper with a plain <aside> so the
+   width can be set via inline style. Desktop is a flex item in
+   .chat-ui; mobile switches to position: fixed drawer (see
+   media query below). */
 .chat-sidebar {
-  top: 0 !important;
-  height: 100vh !important;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 auto;
+  height: 100%;
   background: var(--chat-sidebar-bg);
   border-right: 1px solid var(--chat-border);
+  /* 拖拽时关闭过渡, 否则 width 跟不上鼠标; 非拖拽时给 0.18s 平滑过渡。 */
+  transition: width 0.18s ease;
+  will-change: width;
+}
+
+.chat-sidebar.is-resizing {
+  transition: none;
+  user-select: none;
 }
 
 .chat-sidebar.collapsed {
@@ -2427,10 +2553,66 @@ function toggleTheme() {
   border-right: 1px solid var(--chat-border);
 }
 
-.chat-sidebar :deep(.v-navigation-drawer__content) {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
+/* 拖拽手柄: 6px 宽, 绝对定位在 aside 右边缘。 */
+.chat-sidebar-resizer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 6px;
+  margin-right: -3px;
+  cursor: ew-resize;
+  z-index: 10;
+  background: transparent;
+  transition: background 0.15s ease;
+}
+
+.chat-sidebar-resizer:hover,
+.chat-sidebar-resizer:active {
+  background: rgba(var(--v-theme-primary), 0.2);
+}
+
+/* 移动端: 抽屉 + 遮罩 */
+.chat-sidebar-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.42);
+  z-index: 1099;
+  animation: chat-sidebar-fade-in 0.18s ease;
+}
+
+.chat-sidebar.is-mobile-drawer {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 100vh;
+  z-index: 1100;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  animation: chat-sidebar-slide-in 0.22s ease;
+}
+
+/* 移动端关闭时: 直接 display:none, 不占布局位置。
+   桌面端不应用此 class, 因此不受影响。 */
+.chat-sidebar.is-mobile-drawer-closed {
+  display: none;
+}
+
+@keyframes chat-sidebar-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes chat-sidebar-slide-in {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
 }
 
 .sidebar-top {

@@ -140,7 +140,8 @@
     "displayName": "会话名称",
     "displayNameUpdated": "会话名称已更新",
     "displayNameUpdateFailed": "更新会话名称失败",
-    "confirmDelete": "确定要删除“{name}”吗？此操作无法撤销。"
+    "confirmDelete": "确定要删除“{name}”吗？此操作无法撤销。",
+    "resizeSidebar": "拖动以调整侧边栏宽度"
   },
   "modes": {
     "darkMode": "切换到夜间模式",
