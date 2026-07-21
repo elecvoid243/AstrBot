@@ -840,6 +840,9 @@
             "invalid_branch": "Недопустимое имя ветки",
             "git_error": "Ошибка создания: {stderr}"
           }
+        },
+        "tracking": {
+          "tooltip": "Относительно upstream: {ahead} впереди, {behind} позади"
         }
       },
       "search": {

@@ -572,6 +572,9 @@
             "invalid_branch": "分支名格式错误",
             "git_error": "创建失败:{stderr}"
           }
+        },
+        "tracking": {
+          "tooltip": "相对 upstream:领先 {ahead},落后 {behind}"
         }
       },
       "scopeBar": {

@@ -572,6 +572,9 @@
             "invalid_branch": "Invalid branch name",
             "git_error": "Create failed: {stderr}"
           }
+        },
+        "tracking": {
+          "tooltip": "Relative to upstream: {ahead} ahead, {behind} behind"
         }
       },
       "scopeBar": {

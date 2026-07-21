@@ -395,6 +395,37 @@ const currentBranchName = computed(() => {
   if (s.kind !== "ok") return null;
   return s.snapshot.current;
 });
+// Parse git's upstream-track string ("ahead 3" / "behind 1, ahead 2")
+// into structured counts. Returns null when the field is empty (no
+// upstream configured) or malformed — the UI then simply hides the
+// ahead/behind badge.
+function parseUpstreamTrack(
+  track: string,
+): { ahead: number; behind: number } | null {
+  const trimmed = track.trim();
+  if (!trimmed) return null;
+  let ahead = 0;
+  let behind = 0;
+  let matched = false;
+  const aheadMatch = /ahead\s+(\d+)/i.exec(trimmed);
+  if (aheadMatch) {
+    ahead = Number.parseInt(aheadMatch[1], 10);
+    matched = true;
+  }
+  const behindMatch = /behind\s+(\d+)/i.exec(trimmed);
+  if (behindMatch) {
+    behind = Number.parseInt(behindMatch[1], 10);
+    matched = true;
+  }
+  return matched ? { ahead, behind } : null;
+}
+const currentBranchTracking = computed(() => {
+  const s = branchesComposable.state.value;
+  if (s.kind !== "ok") return null;
+  const current = s.snapshot.branches.find((b) => b.current);
+  if (!current) return null;
+  return parseUpstreamTrack(current.upstreamTrack);
+});
 // Spec 2026-07-16: "is this a Git repo?" probe + init mutation. Used by
 // the GitRepoInitPrompt slot in the template to surface a one-click
 // `git init` flow when the loaded directory has no .git/.
@@ -3608,6 +3639,31 @@ watch(
               </v-list-item>
             </v-list>
           </v-menu>
+          <!-- Ahead/behind indicator for the current branch. Mirrors
+                 the worktree tab badges ("主" / "游离" / "损坏") in
+                 shape and palette; hidden when there's no upstream
+                 (local-only branch) or no tracking info. -->
+          <span
+            v-if="currentBranchTracking"
+            class="git-diff-sidebar-branch-mgmt-tracking"
+            :title="
+              tm('spcodeProjectLoad.diffSidebar.branchMgmt.tracking.tooltip', {
+                ahead: currentBranchTracking.ahead,
+                behind: currentBranchTracking.behind,
+              })
+            "
+          >
+            <span
+              v-if="currentBranchTracking.ahead > 0"
+              class="git-diff-sidebar-branch-mgmt-tracking-ahead"
+              >↑{{ currentBranchTracking.ahead }}</span
+            >
+            <span
+              v-if="currentBranchTracking.behind > 0"
+              class="git-diff-sidebar-branch-mgmt-tracking-behind"
+              >↓{{ currentBranchTracking.behind }}</span
+            >
+          </span>
         </div>
 
         <!-- Worktree tabs (visible in BOTH views, spec 2026-06-20 §5.3) -->
@@ -4986,6 +5042,31 @@ watch(
 .git-diff-sidebar-tab-badge--prunable {
   background: rgba(255, 152, 0, 0.15);
   color: rgb(255, 152, 0);
+}
+/* Ahead/behind indicator: mirrors the worktree tab badge shape so the
+   branch row visually matches the worktree row. Ahead is a soft green
+   (you have unpushed commits), behind is a muted grey (you should
+   pull) — kept subtle so it never reads as an alert. */
+.git-diff-sidebar-branch-mgmt-tracking {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 500;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+.git-diff-sidebar-branch-mgmt-tracking-ahead {
+  padding: 1px 5px;
+  border-radius: 6px;
+  background: rgba(76, 175, 80, 0.15);
+  color: rgb(76, 175, 80);
+}
+.git-diff-sidebar-branch-mgmt-tracking-behind {
+  padding: 1px 5px;
+  border-radius: 6px;
+  background: rgba(var(--v-theme-on-surface), 0.08);
+  color: rgba(var(--v-theme-on-surface), 0.6);
 }
 
 @media (max-width: 760px) {
