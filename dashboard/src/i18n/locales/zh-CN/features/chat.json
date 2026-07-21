@@ -522,6 +522,57 @@
           "success": "已解锁 worktree {branch}"
         }
       },
+      "branchMgmt": {
+        "menuButton": "切换分支",
+        "menuButtonAria": "切换 git 分支",
+        "loading": "加载分支列表…",
+        "error": "获取分支失败（{reason}）",
+        "detached": "detached HEAD",
+        "remote": "远程",
+        "empty": "暂无分支",
+        "switch": {
+          "confirmTitle": "切换分支",
+          "confirmMessage": "确认从 {from} 切换到 {to}？",
+          "dirtyBlocked": "该 worktree 有 {count} 个未提交改动，请先 commit 或 stash 后再切换。",
+          "submit": "切换",
+          "cancel": "取消",
+          "success": "已切换到分支 {name}",
+          "error": {
+            "worktree_dirty": "工作区有未提交改动，切换被阻止",
+            "branch_not_found": "分支 {name} 不存在",
+            "invalid_branch": "分支名格式错误",
+            "git_error": "切换失败:{stderr}"
+          }
+        },
+        "delete": {
+          "confirmTitle": "删除分支",
+          "confirmMessage": "确认删除分支 {name}？",
+          "submit": "删除",
+          "cancel": "取消",
+          "success": "已删除分支 {name}",
+          "error": {
+            "branch_is_current": "不能删除当前分支",
+            "branch_not_merged": "分支未合并，无法安全删除（需 force）",
+            "branch_not_found": "分支 {name} 不存在",
+            "git_error": "删除失败:{stderr}"
+          }
+        },
+        "create": {
+          "menuItem": "新建分支",
+          "name": "分支名",
+          "nameHint": "仅允许字母数字 / . / - / _",
+          "nameRequired": "请输入分支名",
+          "startPoint": "起始点",
+          "startPointHint": "默认 HEAD",
+          "submit": "创建",
+          "success": "已创建分支 {name}",
+          "error": {
+            "branch_exists": "分支 {name} 已存在",
+            "invalid_branch": "分支名格式错误",
+            "git_error": "创建失败:{stderr}"
+          }
+        }
+      },
       "scopeBar": {
         "ariaLabel": "选择 diff 范围"
       },

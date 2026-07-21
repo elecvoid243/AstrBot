@@ -522,6 +522,57 @@
           "success": "Unlocked worktree {branch}"
         }
       },
+      "branchMgmt": {
+        "menuButton": "Switch branch",
+        "menuButtonAria": "Switch git branch",
+        "loading": "Loading branches…",
+        "error": "Failed to load branches ({reason})",
+        "detached": "detached HEAD",
+        "remote": "remote",
+        "empty": "No branches yet",
+        "switch": {
+          "confirmTitle": "Switch branch",
+          "confirmMessage": "Switch from {from} to {to}?",
+          "dirtyBlocked": "This worktree has {count} uncommitted change(s). Please commit or stash before switching.",
+          "submit": "Switch",
+          "cancel": "Cancel",
+          "success": "Switched to branch {name}",
+          "error": {
+            "worktree_dirty": "Working tree has uncommitted changes; switch blocked",
+            "branch_not_found": "Branch {name} not found",
+            "invalid_branch": "Invalid branch name",
+            "git_error": "Switch failed: {stderr}"
+          }
+        },
+        "delete": {
+          "confirmTitle": "Delete branch",
+          "confirmMessage": "Delete branch {name}?",
+          "submit": "Delete",
+          "cancel": "Cancel",
+          "success": "Deleted branch {name}",
+          "error": {
+            "branch_is_current": "Cannot delete the current branch",
+            "branch_not_merged": "Branch is not fully merged; force required",
+            "branch_not_found": "Branch {name} not found",
+            "git_error": "Delete failed: {stderr}"
+          }
+        },
+        "create": {
+          "menuItem": "New branch",
+          "name": "Branch name",
+          "nameHint": "Alphanumeric / . / - / _ only",
+          "nameRequired": "Branch name required",
+          "startPoint": "Start point",
+          "startPointHint": "Defaults to HEAD",
+          "submit": "Create",
+          "success": "Created branch {name}",
+          "error": {
+            "branch_exists": "Branch {name} already exists",
+            "invalid_branch": "Invalid branch name",
+            "git_error": "Create failed: {stderr}"
+          }
+        }
+      },
       "scopeBar": {
         "ariaLabel": "Select diff scope"
       },

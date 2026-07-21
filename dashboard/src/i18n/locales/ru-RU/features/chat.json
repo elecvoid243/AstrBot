@@ -790,6 +790,57 @@
           "success": "Unlocked worktree {branch}"
         }
       },
+      "branchMgmt": {
+        "menuButton": "Переключить ветку",
+        "menuButtonAria": "Переключить git ветку",
+        "loading": "Загрузка списка веток…",
+        "error": "Не удалось загрузить ветки ({reason})",
+        "detached": "detached HEAD",
+        "remote": "удалённая",
+        "empty": "Веток пока нет",
+        "switch": {
+          "confirmTitle": "Переключить ветку",
+          "confirmMessage": "Переключиться с {from} на {to}?",
+          "dirtyBlocked": "В этом worktree есть {count} несохранённых изменений. Сначала сделайте commit или stash.",
+          "submit": "Переключить",
+          "cancel": "Отмена",
+          "success": "Переключено на ветку {name}",
+          "error": {
+            "worktree_dirty": "В рабочей директории есть несохранённые изменения; переключение заблокировано",
+            "branch_not_found": "Ветка {name} не найдена",
+            "invalid_branch": "Недопустимое имя ветки",
+            "git_error": "Ошибка переключения: {stderr}"
+          }
+        },
+        "delete": {
+          "confirmTitle": "Удалить ветку",
+          "confirmMessage": "Удалить ветку {name}?",
+          "submit": "Удалить",
+          "cancel": "Отмена",
+          "success": "Ветка {name} удалена",
+          "error": {
+            "branch_is_current": "Нельзя удалить текущую ветку",
+            "branch_not_merged": "Ветка не слита; требуется force",
+            "branch_not_found": "Ветка {name} не найдена",
+            "git_error": "Ошибка удаления: {stderr}"
+          }
+        },
+        "create": {
+          "menuItem": "Новая ветка",
+          "name": "Имя ветки",
+          "nameHint": "Только буквы/цифры / . / - / _",
+          "nameRequired": "Укажите имя ветки",
+          "startPoint": "Точка старта",
+          "startPointHint": "По умолчанию HEAD",
+          "submit": "Создать",
+          "success": "Ветка {name} создана",
+          "error": {
+            "branch_exists": "Ветка {name} уже существует",
+            "invalid_branch": "Недопустимое имя ветки",
+            "git_error": "Ошибка создания: {stderr}"
+          }
+        }
+      },
       "search": {
         "button": "Поиск файлов (Cmd/Ctrl-F)",
         "placeholder": "Искать в проекте…",
