@@ -14,6 +14,7 @@ import { computed } from "vue";
 import type {
   SpcodeGitDiffFile,
   FileStatus,
+  GitDiffScope,
 } from "@/composables/parseSpcodeGitDiff";
 import { useModuleI18n } from "@/i18n/composables";
 import { useSpcodeProjectStatus } from "@/composables/useSpcodeProjectStatus";
@@ -65,11 +66,22 @@ const props = defineProps<{
   // Matches DiffPreview's prop signature exactly so the prop can be
   // threaded through verbatim (DiffPreview invokes a callback-prop,
   // not an emit — see task-5-report and Spec 2026-07-07-… §6.1.2).
+  // v2 (2026-07-21): callback now carries the active `scope` so the
+  // backend can pick `git apply --reverse[ --cached]` without
+  // re-deriving from porcelain (file-discard-hunk-api v2.21).
   onDiscardHunk?: (params: {
     file: string;
     hunkIndex: number;
     patchText: string;
+    scope: GitDiffScope;
   }) => void;
+  /**
+   * Active diff scope that produced `file.slice`. Forwarded
+   * verbatim to `DiffPreview` so the discard callback carries the
+   * scope down the chain. Optional — when missing the backend
+   * falls back to porcelain auto-detect (v1 behaviour).
+   */
+  scope?: GitDiffScope;
   /** Set of `${file.path}#${hunkIndex}` keys currently in flight. */
   discardingHunks?: ReadonlySet<string>;
   discardable?: boolean;
@@ -334,6 +346,7 @@ function rowKey(): string {
         :discarding-hunks="discardingHunks"
         :discard-key-prefix="file.path"
         :discardable="discardable"
+        :scope="scope"
       />
       <!-- Fallback: content not yet fetched (or file is too large /
            binary). Shows the same placeholder as a diff row whose

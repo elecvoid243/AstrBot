@@ -1,9 +1,17 @@
 // Author: elecvoid243
-// Date: 2026-07-07
+// Date: 2026-07-21
 // Spec: docs/superpowers/specs/2026-07-07-hunk-discard-design.md §4.2
+// v2 (2026-07-21): add optional `scope` field (file-discard-hunk-api
+// v2.21). Front-end passes the active diff scope (unstaged / staged /
+// all) so the backend can pick the correct `git apply --reverse[ --cached]`
+// path on its own without re-deriving it from porcelain — which was
+// ambiguous in the MM (staged + worktree) state. When `scope` is
+// omitted the backend falls back to the v1 porcelain auto-detect, so
+// older clients keep working.
 
 import { ref, type Ref } from "vue";
 import { pluginExtensionApi } from "@/api/v1";
+import type { GitDiffScope } from "@/composables/parseSpcodeGitDiff";
 import {
   parseSpcodeFileDiscardHunk,
   classifyDiscardHunkReason,
@@ -14,6 +22,14 @@ export interface DiscardHunkParams {
   file: string;
   hunkIndex: number;
   patchText: string;
+  /**
+   * Active diff scope that produced `patchText`. Forwarded to the
+   * backend so it can decide whether `git apply --reverse` should
+   * touch the worktree (unstaged) or the index (`--cached`, staged).
+   * Optional — when missing the backend re-derives from porcelain
+   * (v1 behaviour, retained for back-compat).
+   */
+  scope?: GitDiffScope | null;
   worktree?: string | null;
   umo?: string | null;
 }
@@ -48,6 +64,7 @@ export function useSpcodeFileDiscardHunk(): UseSpcodeFileDiscardHunk {
         {
           file: params.file,
           patch_text: params.patchText,
+          ...(params.scope ? { scope: params.scope } : {}),
           ...(params.worktree ? { worktree: params.worktree } : {}),
           ...(params.umo ? { umo: params.umo } : {}),
         },

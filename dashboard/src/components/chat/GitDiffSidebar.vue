@@ -2274,8 +2274,15 @@ async function onDiscardHunk(params: {
   file: string;
   hunkIndex: number;
   patchText: string;
+  // v2 (2026-07-21): active diff scope forwarded down from
+  // DiffPreview → FileItem → BodyContent so the backend can pick
+  // the right `git apply --reverse[ --cached]` path without
+  // re-deriving it from porcelain. When `scope` is missing (legacy
+  // ToolCallCard / FilePatchPanel callers) the backend falls back
+  // to the v1 auto-detect.
+  scope: GitDiffScope;
 }): Promise<void> {
-  const { file, hunkIndex, patchText } = params;
+  const { file, hunkIndex, patchText, scope } = params;
   const umo = spcodeStatus.status.value.umo;
   if (!umo) return;
   const worktree = selectedWorktree.value;
@@ -2283,6 +2290,7 @@ async function onDiscardHunk(params: {
     file,
     hunkIndex,
     patchText,
+    scope,
     umo,
     worktree,
   });

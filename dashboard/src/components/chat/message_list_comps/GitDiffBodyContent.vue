@@ -76,10 +76,14 @@ const props = defineProps<{
   // Matches GitDiffFileItem's prop signature exactly so the prop can be
   // threaded through verbatim (callback-prop passthrough, not emit —
   // see task-7-report and Spec 2026-07-07-… §6.1.2).
+  // v2 (2026-07-21): callback now carries the active `scope` so the
+  // backend can pick `git apply --reverse[ --cached]` without
+  // re-deriving from porcelain (file-discard-hunk-api v2.21).
   onDiscardHunk?: (params: {
     file: string;
     hunkIndex: number;
     patchText: string;
+    scope: GitDiffScope;
   }) => void;
   /** Set of `${file.path}#${hunkIndex}` keys currently in flight. */
   discardingHunks?: ReadonlySet<string>;
@@ -719,6 +723,7 @@ function isSectionPartiallySelected(section: DiffSection): boolean {
           :on-discard-hunk="onDiscardHunk"
           :discarding-hunks="discardingHunks"
           :discardable="discardableFor(f)"
+          :scope="selectedScope"
           @toggle="emit('toggle', f.path)"
           @restore="emit('restore', $event)"
           @stage="emit('stage', $event)"

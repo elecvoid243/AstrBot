@@ -823,6 +823,7 @@
 <script setup lang="ts">
 import { computed, ref, nextTick, watch, onBeforeUnmount } from "vue";
 import { useModuleI18n } from "@/i18n/composables";
+import type { GitDiffScope } from "@/composables/parseSpcodeGitDiff";
 import {
   extractLineContext,
   useFileComments,
@@ -885,7 +886,20 @@ const props = withDefaults(
      * comment list can pass it in without re-deriving.
      */
     comments?: FileComment[];
-    onDiscardHunk?: (params: { file: string; hunkIndex: number; patchText: string }) => void;
+    /**
+     * Active diff scope that produced `content`. Forwarded verbatim
+     * through `onDiscardHunk` so the backend can pick the right
+     * `git apply --reverse[ --cached]` path. Optional — when omitted,
+     * `onDiscardHunk` is called without a `scope` and the backend
+     * falls back to porcelain auto-detect (v1 behaviour).
+     */
+    scope?: GitDiffScope;
+    onDiscardHunk?: (params: {
+      file: string;
+      hunkIndex: number;
+      patchText: string;
+      scope: GitDiffScope;
+    }) => void;
     /** Set of `${discardKeyPrefix}#${hunkIndex}` keys currently in flight. */
     discardingHunks?: ReadonlySet<string>;
     /** Used as the key prefix when checking `discardingHunks`. Defaults to filePath. */
@@ -905,6 +919,12 @@ const props = withDefaults(
     discardingHunks: () => new Set<string>(),
     discardKeyPrefix: "",
     discardable: false,
+    // No default for `scope` — the optional prop intentionally
+    // doesn't fall back to a single scope, because the discard button
+    // is only rendered in sidebar-driven contexts where the parent
+    // always supplies a real scope (GitDiffFileItem → BodyContent →
+    // Sidebar). Leaving it undefined keeps legacy ToolCallCard /
+    // FilePatchPanel callers (no scope) untouched.
   },
 );
 
@@ -960,7 +980,20 @@ function onDiscardHunkClick(hi: number, e: MouseEvent): void {
     confirmingHunkIndex.value = null;
     const patchText = buildHunkPatchText(props.content, props.filePath, hi);
     if (!patchText) return;   // defensive: empty patch, don't fire
-    props.onDiscardHunk({ file: props.filePath, hunkIndex: hi, patchText });
+    // Forward the active scope so the backend can pick the right
+    // `git apply --reverse[ --cached]` path. Legacy callers
+    // (ToolCallCard, FilePatchPanel) don't pass `scope`; in that
+    // case we surface the discard error via the parent's natural
+    // callback chain (the backend falls back to porcelain
+    // auto-detect when scope is missing). To keep types tight we
+    // cast: the callback signature now requires scope, but the
+    // runtime contract is "missing => backend fallback".
+    props.onDiscardHunk({
+      file: props.filePath,
+      hunkIndex: hi,
+      patchText,
+      scope: props.scope as GitDiffScope,
+    });
   } else {
     // First click: enter confirmation state.
     confirmingHunkIndex.value = hi;
