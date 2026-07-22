@@ -99,9 +99,17 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 2px;
   padding: 2px;
-  background: var(--v-theme-surface, rgb(255, 255, 255));
+  /* 2026-07-22 selection-menu-opacity: container fill was just
+     var(--v-theme-surface), which left the highlight-band code
+     bleeding through and made the buttons hard to read. Match the
+     border's ~0.1 transparency (per user follow-up) so the menu
+     still reads as a floating overlay but the underlying code is
+     muted enough that the icons/labels win the contrast fight.
+     Using rgba() with the theme's RGB triplet keeps dark mode
+     working since --v-theme-surface is "r,g,b" (no alpha). */
+  background: rgba(var(--v-theme-surface), 0.9);
   color: rgb(var(--v-theme-on-surface));
-  border: 1px solid rgba(var(--v-theme-on-surface), 0.16);
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.9);
   border-radius: 6px;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.14);
   font-size: 11.5px;

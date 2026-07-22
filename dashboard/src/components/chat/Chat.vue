@@ -2496,7 +2496,13 @@ function toggleTheme() {
   --chat-muted: rgba(var(--v-theme-on-surface), 0.62);
   --chat-section-label: rgba(var(--v-theme-on-surface), 0.48);
   --chat-content-width: 76%;
-  --chat-content-max-width: 760px;
+    /* 2026-07-22 widen-chat-column: previous 760 px cap on the chat
+       column was the real bottleneck — .messages-list-shell and the
+       input box both consumed this var, so widening only the inner
+       .from-bot .message-stack had no visible effect on the chat bar.
+       860 px aligns the outer shell with the inner bubble target so
+       longer assistant replies actually get the room we wanted. */
+    --chat-content-max-width: 860px;
   display: flex;
   height: 100%;
   min-height: 0;

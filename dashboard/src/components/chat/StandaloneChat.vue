@@ -575,7 +575,10 @@ function closeImage() {
 .from-bot .message-stack {
   flex: 1 1 0;
   min-width: 0;
-  max-width: 760px;
+  /* 2026-07-22 widen-chat-column: keep this standalone config-test
+     chat (mounted by ConfigPage.vue's test drawer) in sync with
+     ChatMessageList.vue / MessageList.vue at 860 px. */
+  max-width: 860px;
 }
 
 .from-user .message-stack {
