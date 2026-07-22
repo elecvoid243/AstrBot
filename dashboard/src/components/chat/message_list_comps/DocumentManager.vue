@@ -58,6 +58,7 @@ import FileBrowserBreadcrumb from "./FileBrowserBreadcrumb.vue";
 import DiffPreview from "./DiffPreview.vue";
 import RecentFilesBlock from "./RecentFilesBlock.vue";
 import MarkdownView from "@/components/shared/MarkdownView.vue";
+import BinaryPreview from "./binary_preview/BinaryPreview.vue";
 import { useResizableSplit } from "@/composables/useResizableSplit";
 import {
   projectRelativePath,
@@ -290,6 +291,30 @@ const rawIsBinary = computed<boolean>(() => {
     selectedRevision.value,
   );
   return state.kind === "ok" && state.data.isBinary === true;
+});
+
+/** 2026-07-22 binary-preview: true when the currently selected doc
+ *  is a binary file the BinaryPreview dispatcher knows how to render
+ *  (pdf / docx / xlsx / csv). The list mirrors the backend
+ *  /spcode/file-binary whitelist in tools/webapi/_helpers.py so a
+ *  file type that fails the backend allowlist also short-circuits
+ *  here — no client-side guessing about renderer support. */
+const BINARY_EXTS = new Set([".pdf", ".docx", ".xlsx", ".csv"]);
+const binaryActive = computed<boolean>(() => {
+  const name = selectedDoc.value ?? "";
+  const dot = name.lastIndexOf(".");
+  const ext = dot >= 0 ? name.slice(dot).toLowerCase() : "";
+  return BINARY_EXTS.has(ext);
+});
+
+/** Filename exposed to BinaryPreview so it can dispatch to the
+ *  correct child previewer (extension-based). `selectedDoc` is
+ *  docsRoot-relative and may contain "/" for nested files; take
+ *  the basename so BinaryPreview's extension check works. */
+const binaryFilename = computed<string>(() => {
+  const name = selectedDoc.value ?? "";
+  const slash = name.lastIndexOf("/");
+  return slash >= 0 ? name.slice(slash + 1) : name;
 });
 
 // ── Inline comments (in-memory, shared singleton with FileBrowser) ──
@@ -629,6 +654,7 @@ const canCopyContent = computed<boolean>(
     !editMode.value &&
     viewMode.value !== "diff" &&
     !rawIsBinary.value &&
+    !binaryActive.value &&
     !!rawContent.value,
 );
 
@@ -1726,8 +1752,21 @@ onBeforeUnmount(() => {
                   </v-btn>
                 </div>
               </div>
+              <!-- 2026-07-22 binary-preview: take precedence over
+                   rendered/raw/diff so binary types (pdf / docx /
+                   xlsx / csv) never get rendered as markdown or as
+                   the raw text view. BinaryPreview owns its own
+                   fetch + composable, so the markdown/codeview path
+                   can stay text-only. -->
+              <BinaryPreview
+                v-if="binaryActive"
+                class="document-manager__binary"
+                :path="gitLogPath"
+                :git-ref="selectedRevision ?? ''"
+                :worktree="props.worktree"
+              />
               <div
-                v-if="viewMode === 'rendered'"
+                v-else-if="viewMode === 'rendered'"
                 class="document-manager__rendered"
                 @mouseup="onRenderedMouseUp"
               >
