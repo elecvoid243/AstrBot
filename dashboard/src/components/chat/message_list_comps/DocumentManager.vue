@@ -17,6 +17,14 @@ import {
 import { useSpcodeProjectStatus } from "@/composables/useSpcodeProjectStatus";
 import { useSpcodeGitFile } from "@/composables/useSpcodeGitFile";
 import { useSpcodeDocs } from "@/composables/useSpcodeDocs";
+// 2026-07-22 docs-rename-remove-endpoints: workspace tab's
+// rename/remove flow uses the generic spcode/file-rename and
+// spcode/file-remove endpoints (accepts umo/worktree). The
+// docs-rooted PATCH/DELETE spcode/docs endpoints reject umo/worktree
+// with invalid_param, so route document-management destructive
+// actions through the same file composables the workspace uses.
+import { useSpcodeFileRename } from "@/composables/useSpcodeFileRename";
+import { useSpcodeFileRemove } from "@/composables/useSpcodeFileRemove";
 import { useSpcodeFileBrowser } from "@/composables/useSpcodeFileBrowser";
 import { useSpcodeFileSearch } from "@/composables/useSpcodeFileSearch";
 import { copyToClipboard } from "@/utils/clipboard";
@@ -153,6 +161,10 @@ const fileBrowser = useSpcodeFileBrowser(
   ),
 );
 const docsApi = useSpcodeDocs(computed(() => props.worktree));
+// See import comment above: rename/remove use the workspace's
+// generic file endpoints, not the docs PATCH/DELETE pair.
+const fileRename = useSpcodeFileRename(computed(() => props.worktree));
+const fileRemove = useSpcodeFileRemove(computed(() => props.worktree));
 const gitFile = useSpcodeGitFile(computed(() => props.worktree));
 
 // 2026-07-20 recent-docs: per-worktree recent-files bucket shared with
@@ -1041,9 +1053,11 @@ async function onDelete() {
   deleteError.value = null;
   // Same project-relative path fix as onSave: selectedDoc is
   // docsRoot-relative, the backend needs the project-relative form.
-  const r = await docsApi.remove(
-    projectRelativeFromDoc(docsRoot.value, selectedDoc.value),
-  );
+  // Use POST spcode/file-remove (accepts umo/worktree); the docs
+  // DELETE endpoint rejects umo/worktree with invalid_param.
+  const r = await fileRemove.remove({
+    path: projectRelativeFromDoc(docsRoot.value, selectedDoc.value),
+  });
   if (r.ok) {
     selectedDoc.value = null;
     selectedRevision.value = null;
@@ -1060,14 +1074,21 @@ async function onDelete() {
 function onRename(newPath: string) {
   if (!selectedDoc.value) return;
   renameError.value = null;
-  // Both `path` (the existing file) and `newPath` (the user-typed
-  // value from DocumentEditor's rename input) are docsRoot-relative;
-  // the backend resolves them against projectRoot, so we have to
-  // glue docsRoot onto each.
-  void docsApi
+  // Use POST spcode/file-rename (accepts umo/worktree and only the
+  // new basename). The docs PATCH endpoint rejects umo/worktree
+  // with invalid_param, so we route through the same composable
+  // the workspace uses. selectedDoc is docsRoot-relative; the
+  // workspace endpoint expects the project-relative path for the
+  // existing file plus the bare new basename — extract that from
+  // the user-typed newPath (DocumentEditor already restricts input
+  // to .md names, so splitting on / or \ always gives a usable
+  // basename here).
+  const lastSep = Math.max(newPath.lastIndexOf("/"), newPath.lastIndexOf("\\"));
+  const newName = lastSep >= 0 ? newPath.slice(lastSep + 1) : newPath;
+  void fileRename
     .rename({
       path: projectRelativeFromDoc(docsRoot.value, selectedDoc.value),
-      newPath: projectRelativeFromDoc(docsRoot.value, newPath),
+      newName,
     })
     .then((r) => {
       if (r.ok) {
