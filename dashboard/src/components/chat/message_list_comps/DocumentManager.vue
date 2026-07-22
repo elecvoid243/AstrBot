@@ -255,11 +255,11 @@ const historicalFileState = computed(() => {
   if (!selectedDoc.value || !selectedRevision.value) {
     return { kind: "idle" as const };
   }
-  return gitFile.getState(selectedDoc.value, selectedRevision.value);
+  return gitFile.getState(gitLogPath.value, selectedRevision.value);
 });
 const historicalFileContent = computed<string>(() => {
   if (!selectedDoc.value || !selectedRevision.value) return "";
-  const d = gitFile.getData(selectedDoc.value, selectedRevision.value);
+  const d = gitFile.getData(gitLogPath.value, selectedRevision.value);
   return d?.content ?? "";
 });
 
@@ -286,7 +286,7 @@ const { highlightedHtml: rawHighlightedHtml, isReady: rawHighlightReady } =
 const rawIsBinary = computed<boolean>(() => {
   if (!selectedRevision.value) return false;
   const state = gitFile.getState(
-    selectedDoc.value ?? "",
+    gitLogPath.value,
     selectedRevision.value,
   );
   return state.kind === "ok" && state.data.isBinary === true;
@@ -335,15 +335,15 @@ watch(
 const diffPatch = ref<string | null>(null);
 
 watch(
-  () => [selectedDoc.value, selectedRevision.value, viewMode.value] as const,
-  async ([doc, rev, mode]) => {
-    if (mode !== "diff" || !doc || !rev) {
+  () => [gitLogPath.value, selectedRevision.value, viewMode.value] as const,
+  async ([path, rev, mode]) => {
+    if (mode !== "diff" || !path || !rev) {
       diffPatch.value = null;
       return;
     }
     diffPatch.value = null;
-    await props.gitShow.fetchFile(rev, doc);
-    const snap = props.gitShow.getFileData(rev, doc);
+    await props.gitShow.fetchFile(rev, path);
+    const snap = props.gitShow.getFileData(rev, path);
     if (snap) diffPatch.value = snap.patch ?? null;
   },
   { immediate: true },
@@ -379,6 +379,22 @@ const isLeftPaneCollapsed = ref<boolean>(false);
 // manually toggles it, that choice wins — no forced sync with
 // selectedDoc.
 const isHistoryCollapsed = ref<boolean>(!selectedDoc.value);
+
+// 2026-07-22 git-path-fix: selectedDoc is docsRoot-relative
+// (e.g. "README.md" when docsRoot is "docs"), but every git/file
+// backend endpoint expects a PROJECT-relative path (e.g.
+// "docs/README.md"). Passing selectedDoc through unchanged causes
+// the history panel to show commits for the wrong file when
+// docsRoot is anything other than "." — git log -- README.md
+// matches the root README.md, not docs/README.md. This computed
+// mirrors FileBrowserView's `gitLogPath` so the two tabs query the
+// same path space. Use this anywhere a path goes to a git/file
+// API (gitLog.refresh path, gitFile.fetchRef, gitShow.fetchFile).
+const gitLogPath = computed<string>(() =>
+  selectedDoc.value
+    ? projectRelativeFromDoc(docsRoot.value, selectedDoc.value)
+    : "",
+);
 
 /** Fullscreen review mode. NOT persisted — each visit starts at false.
  *
@@ -1047,7 +1063,7 @@ function onSelectRevision(sha: string) {
   selectedRevision.value = sha;
   viewMode.value = "rendered";
   if (selectedDoc.value && sha) {
-    void gitFile.fetchRef(selectedDoc.value, sha);
+    void gitFile.fetchRef(gitLogPath.value, sha);
   }
 }
 
@@ -1843,7 +1859,7 @@ onBeforeUnmount(() => {
             class="document-manager__history"
             :style="{ width: historySplit.percent.value + '%' }"
             :git-log="gitLog"
-            :file-relative="selectedDoc"
+            :file-relative="gitLogPath"
             :current-revision="selectedRevision"
             :is-loading="gitLog.state.value.kind === 'loading'"
             @select-revision="onSelectRevision"
