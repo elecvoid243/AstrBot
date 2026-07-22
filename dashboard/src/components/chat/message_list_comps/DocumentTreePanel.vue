@@ -28,7 +28,30 @@ import type { SpcodeFileBrowserEntry } from "@/composables/parseSpcodeFileBrowse
  *  which TS rejects as not assignable to a mutable `string[]`.
  *  Case is normalized at the comparison site so the values
  *  themselves can stay lowercase. */
-const ALLOWED_DOC_EXTENSIONS: string[] = [".md", ".txt"];
+/** Whitelist of file extensions the document manager shows in the
+ *  tree. Mirrors the backend /spcode/file-binary whitelist
+ *  (pdf / docx / xlsx / csv / md) so the user can pick any preview-
+ *  able file from the tree. Editing is still gated by the editor
+ *  code path (markdown-only). Typed as `string[]` (not `as const`)
+ *  because the receiving prop is declared `string[]` — using
+ *  `as const` here would yield `readonly [...]`, which TS rejects
+ *  as not assignable to a mutable `string[]`. Case is normalised
+ *  at the comparison site so the values themselves can stay
+ *  lowercase. */
+const ALLOWED_DOC_EXTENSIONS: string[] = [
+  ".pdf",
+  ".docx",
+  ".xlsx",
+  ".csv",
+  ".md",
+];
+
+/** Whitelist of extensions the "new file" button accepts.
+ *  Smaller than ALLOWED_DOC_EXTENSIONS because the docs CRUD
+ *  endpoint is .md-only. New binary types are visible in the tree
+ *  but cannot be created from this UI (spec
+ *  2026-07-22-binary-preview-design.md §6.4). */
+const ALLOWED_CREATE_EXTENSIONS: string[] = [".md"];
 
 function isAllowedDocFile(name: string): boolean {
   const lower = name.toLowerCase();
@@ -172,7 +195,7 @@ function onSubmitNew() {
   // the user can pre-fill a path like "subdir/note.md", but
   // note that the backend will reject ".." segments; that's
   // handled in the rename/save path, not here.
-  const exts = ALLOWED_DOC_EXTENSIONS.map((e) => e.slice(1)).join("|");
+  const exts = ALLOWED_CREATE_EXTENSIONS.map((e) => e.slice(1)).join("|");
   const re = new RegExp(`^[\\w\\-./ ]+\\.(${exts})$`, "i");
   if (!re.test(name)) {
     newNameError.value = tm(
