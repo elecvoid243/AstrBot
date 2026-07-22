@@ -38,7 +38,7 @@ const props = defineProps<{
 
 const { tm } = useModuleI18n("features/chat");
 
-const binary = useSpcodeFileBinary(() => props.worktree);
+const binary = useSpcodeFileBinary(computed(() => props.worktree));
 const fetchToken = ref(0); // bump on path/ref change to re-trigger fetch
 
 watch(
