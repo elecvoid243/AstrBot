@@ -836,7 +836,8 @@
           "startPoint": "Точка старта",
           "startPointHint": "По умолчанию HEAD",
           "submit": "Создать",
-          "success": "Ветка {name} создана",
+                    "cancel": "Отмена",
+                    "success": "Ветка {name} создана",
           "error": {
             "branch_exists": "Ветка {name} уже существует",
             "invalid_branch": "Недопустимое имя ветки",

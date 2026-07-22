@@ -568,7 +568,8 @@
           "startPoint": "起始点",
           "startPointHint": "默认 HEAD",
           "submit": "创建",
-          "success": "已创建分支 {name}",
+                    "cancel": "取消",
+                    "success": "已创建分支 {name}",
           "error": {
             "branch_exists": "分支 {name} 已存在",
             "invalid_branch": "分支名格式错误",
