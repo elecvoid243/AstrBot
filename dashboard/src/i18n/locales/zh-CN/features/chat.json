@@ -1034,6 +1034,32 @@
         "enter": "进入全屏",
         "exit": "退出全屏"
       },
+      "binary": {
+        "errors": {
+          "fetch_failed": "无法下载文件",
+          "decode_failed": "无法解析文件",
+          "too_large": "文件超过 50MB 预览上限",
+          "missing_at_ref": "该版本下不存在此文件",
+          "unsupported_type": "暂不支持预览此文件类型"
+        },
+        "pdf": {
+          "pageLabel": "第 {current} / {total} 页",
+          "prev": "上一页",
+          "next": "下一页",
+          "zoomIn": "放大",
+          "zoomOut": "缩小"
+        }
+      },
+      "binaryPreview": {
+        "xlsx": {
+          "sheetLabel": "工作表 {current} / {total}",
+          "emptySheet": "空工作表"
+        },
+        "csv": {
+          "rowCount": "{n} 行",
+          "truncated": "仅显示前 {max} 行"
+        }
+      },
       "newFile": "选择 .md 文件或新建",
       "noFileSelected": "请先选择一个文档",
       "noProject": "请先加载项目"

@@ -1001,6 +1001,32 @@
         "enter": "Enter fullscreen",
         "exit": "Exit fullscreen"
       },
+      "binary": {
+        "errors": {
+          "fetch_failed": "Failed to fetch binary file",
+          "decode_failed": "Failed to decode file",
+          "too_large": "File exceeds the 50MB preview limit",
+          "missing_at_ref": "File does not exist at this revision",
+          "unsupported_type": "This file type is not supported for preview"
+        },
+        "pdf": {
+          "pageLabel": "Page {current} / {total}",
+          "prev": "Previous page",
+          "next": "Next page",
+          "zoomIn": "Zoom in",
+          "zoomOut": "Zoom out"
+        }
+      },
+      "binaryPreview": {
+        "xlsx": {
+          "sheetLabel": "Sheet {current} / {total}",
+          "emptySheet": "Empty sheet"
+        },
+        "csv": {
+          "rowCount": "{n} rows",
+          "truncated": "Showing the first {max} rows"
+        }
+      },
       "newFile": "Select a .md file or create one",
       "noFileSelected": "Select a document to begin",
       "noProject": "Load a project to begin"
