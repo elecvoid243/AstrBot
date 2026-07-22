@@ -464,7 +464,9 @@
         "mainBadge": "main",
         "detachedBadge": "detached",
         "prunableBadge": "prunable",
-        "prunableTooltip": "This worktree is prunable (its directory may have been deleted). Run \"git worktree prune\" to clean up."
+        "prunableTooltip": "This worktree is prunable (its directory may have been deleted). Run \"git worktree prune\" to clean up.",
+        "expand": "Show all worktrees",
+        "collapse": "Show only the current worktree"
       },
       "worktreeMgmt": {
         "addButton": "New worktree",

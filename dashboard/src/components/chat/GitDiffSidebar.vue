@@ -98,6 +98,11 @@ const STORAGE_KEYS = {
     "astrbot.spcode.gitDiffSidebar.fileBrowserCurrentPath",
   selectedWorktree: "astrbot.spcode.gitDiffSidebar.selectedWorktree",
   selectedScope: "astrbot.spcode.gitDiffSidebar.selectedScope",
+  // 2026-07-22 worktree-tabs-collapse: persists whether the worktree
+  // tab bar is expanded (show all) or collapsed (show only the active
+  // worktree). Default collapsed keeps the sidebar compact when many
+  // worktrees exist (the long row was the reported UX problem).
+  worktreeTabsExpanded: "astrbot.spcode.gitDiffSidebar.worktreeTabsExpanded",
   // 2026-07-18 git-stats heatmap: stats-panel collapsed state.
   gitStatsOpen: "astrbot.spcode.gitDiffSidebar.gitStatsOpen",
   gitStatsRange: "astrbot.spcode.gitDiffSidebar.gitStatsRange",
@@ -285,6 +290,26 @@ const SCOPE_OPTIONS: ReadonlyArray<ScopeOption> = [
 // null = use primary (main) worktree. This ref is passed to
 // useSpcodeGitDiff which auto-refreshes on changes.
 const selectedWorktree = ref<string | null>(null);
+// 2026-07-22 worktree-tabs-collapse: when many worktrees exist the
+// full row of tab pills overflows the sidebar and pushes the
+// actual content down. Collapsing hides all-but-the-active tab to
+// keep the row single-line. Hydrated from localStorage.
+// 2026-07-22 (rev): default flipped to EXPANDED (true) — the
+// original opt-in collapsed default assumed the "many worktrees"
+// case was the norm, but most projects in practice have 1-3
+// worktrees where the full row fits comfortably and collapsing
+// adds a click. Existing users who already chose collapsed keep
+// their stored preference; only fresh sessions (no stored value)
+// pick up the new default. The hydration returns the stored value
+// verbatim when present, else `true`.
+const _storedWorktreeTabsExpanded = safeGetItem(
+  STORAGE_KEYS.worktreeTabsExpanded,
+);
+const worktreeTabsExpanded = ref<boolean>(
+  _storedWorktreeTabsExpanded === null
+    ? true
+    : _storedWorktreeTabsExpanded === "true",
+);
 
 // ── Recent files (spec 2026-07-20 recent-files §3, §4) ──────────────
 // One bucket per worktree, persisted to localStorage by
@@ -441,6 +466,19 @@ const hasMultipleWorktrees = computed(() => worktreeList.value.length > 0);
 const mainWorktreePath = computed(
   () => worktreeList.value.find((w) => w.isMain)?.path ?? null,
 );
+// 2026-07-22 worktree-tabs-collapse: the row of tab pills shown to
+// the user. When worktreeTabsExpanded is false, hide all but the
+// active worktree so a long row doesn't dominate the sidebar;
+// the toggle button next to the "工作树" label brings the full row
+// back. Falls back to the full list if (somehow) the active path
+// isn't in `worktreeList` — the watcher above normalizes this so
+// it's a belt-and-braces guard for transient states during a switch.
+const visibleWorktreeList = computed(() => {
+  if (worktreeTabsExpanded.value) return worktreeList.value;
+  const active = selectedWorktree.value ?? mainWorktreePath.value;
+  const filtered = worktreeList.value.filter((w) => w.path === active);
+  return filtered.length > 0 ? filtered : worktreeList.value;
+});
 // Path of the loaded project's root directory (from
 // /spcode/project-status, independent of git). Used as a fallback
 // root for the file browser when the project is NOT a git project
@@ -461,6 +499,13 @@ watch(selectedScope, (v) => safeSetItem(STORAGE_KEYS.selectedScope, v), {
 watch(
   selectedWorktree,
   (v) => safeSetItem(STORAGE_KEYS.selectedWorktree, v === null ? "null" : v),
+  { flush: "post" },
+);
+// 2026-07-22 worktree-tabs-collapse: persist expanded/collapsed state
+// (default collapsed; hydration below reads the stored string at setup).
+watch(
+  worktreeTabsExpanded,
+  (v) => safeSetItem(STORAGE_KEYS.worktreeTabsExpanded, v ? "true" : "false"),
   { flush: "post" },
 );
 
@@ -3445,6 +3490,21 @@ watch(
           </button>
         </div>
 
+        <!-- 2026-07-22 worktree-tabs-collapse: branch switcher and
+             worktree tabs are wrapped in `.git-diff-sidebar-bw` so that
+             when the worktree tabs are collapsed the two rows collapse
+             into ONE row (worktree on the left, branch on the right) to
+             save vertical space. When expanded, the wrapper is just a
+             transparent group — both rows render with their original
+             padding/border. The wrapper's v-if mirrors the worktree
+             row's own condition (the broadest of the two), so the
+             non-git-repo path keeps the worktree row without a stale
+             branch row leaking in. -->
+        <div
+          v-if="hasMultipleWorktrees && (isGitRepo || showNotGitRepoChip)"
+          class="git-diff-sidebar-bw"
+          :class="{ 'is-collapsed': !worktreeTabsExpanded }"
+        >
         <!-- Branch switcher (spec 2026-07-21 §3.3, layout revised 2026-07-21)
              Sits ABOVE the worktree tabs (not inside the flex row) so its
              dropdown anchors to the button instead of being squeezed by
@@ -3653,16 +3713,49 @@ watch(
               })
             "
           >
+            <!-- 2026-07-22 redesigned: the original used the unicode
+                 "↑" / "↓" characters in the same font / color / weight
+                 as the count, which the eye confused with the digit
+                 "1" — both render as a vertical stem with a small mark
+                 on top. Swap the arrow for an MDI glyph
+                 (`mdi-arrow-up-thick` / `-down-thick`) whose shape is
+                 a solid triangle with NO stem, so the arrow and the
+                 digits occupy completely different shape classes.
+                 The count is the dominant information (how many
+                 commits to push / pull), so it is the bold 13px digit
+                 the user actually wants to read; the arrow is a
+                 subordinate 10px hint that conveys direction. A 3px
+                 gap between them gives the eye a clear break.
+                 `aria-hidden` on the v-icon means screen readers only
+                 announce the count, not the meaningless glyph, so the
+                 badge is read aloud as "16 ahead, 5 behind" rather
+                 than "up arrow 16, down arrow 5". -->
             <span
               v-if="currentBranchTracking.ahead > 0"
               class="git-diff-sidebar-branch-mgmt-tracking-ahead"
-              >↑{{ currentBranchTracking.ahead }}</span
             >
+              <v-icon
+                size="10"
+                class="git-diff-sidebar-branch-mgmt-tracking-arrow"
+                aria-hidden="true"
+              >mdi-arrow-up-thick</v-icon>
+              <span
+                class="git-diff-sidebar-branch-mgmt-tracking-count"
+              >{{ currentBranchTracking.ahead }}</span>
+            </span>
             <span
               v-if="currentBranchTracking.behind > 0"
               class="git-diff-sidebar-branch-mgmt-tracking-behind"
-              >↓{{ currentBranchTracking.behind }}</span
             >
+              <v-icon
+                size="10"
+                class="git-diff-sidebar-branch-mgmt-tracking-arrow"
+                aria-hidden="true"
+              >mdi-arrow-down-thick</v-icon>
+              <span
+                class="git-diff-sidebar-branch-mgmt-tracking-count"
+              >{{ currentBranchTracking.behind }}</span>
+            </span>
           </span>
         </div>
 
@@ -3679,12 +3772,41 @@ watch(
              worktrees (otherwise they look like generic pills with
              no obvious purpose). Anchored to the left of the flex row;
              existing flex-wrap still lets the tabs wrap to a new line
-             on narrow widths. -->
-          <span class="git-diff-sidebar-tabs-label">
-            {{ tm("spcodeProjectLoad.diffSidebar.worktreeTabs.label") }}
-          </span>
+             on narrow widths.
+             2026-07-22 worktree-tabs-collapse: this label is now a
+             toggle button. Chevron-down = expanded (full row visible),
+             chevron-right = collapsed (only the active worktree
+             visible). Clicking flips worktreeTabsExpanded so users
+             with many worktrees can keep the sidebar compact. -->
           <button
-            v-for="wt in worktreeList"
+            type="button"
+            class="git-diff-sidebar-tabs-toggle"
+            :aria-expanded="worktreeTabsExpanded"
+            :title="
+              tm(
+                worktreeTabsExpanded
+                  ? 'spcodeProjectLoad.diffSidebar.worktreeTabs.collapse'
+                  : 'spcodeProjectLoad.diffSidebar.worktreeTabs.expand',
+              )
+            "
+            :aria-label="
+              tm(
+                worktreeTabsExpanded
+                  ? 'spcodeProjectLoad.diffSidebar.worktreeTabs.collapse'
+                  : 'spcodeProjectLoad.diffSidebar.worktreeTabs.expand',
+              )
+            "
+            @click="worktreeTabsExpanded = !worktreeTabsExpanded"
+          >
+            <span>{{ tm("spcodeProjectLoad.diffSidebar.worktreeTabs.label") }}</span>
+            <v-icon size="12" class="git-diff-sidebar-tabs-toggle-chevron">
+              {{
+                worktreeTabsExpanded ? "mdi-chevron-down" : "mdi-chevron-right"
+              }}
+            </v-icon>
+          </button>
+          <button
+            v-for="wt in visibleWorktreeList"
             :key="wt.path"
             type="button"
             role="tab"
@@ -3836,6 +3958,8 @@ watch(
             </div>
           </Teleport>
         </div>
+        </div>
+        <!-- /git-diff-sidebar-bw -->
 
         <!-- Diff-only sub-UI: scope bar + truncation warning -->
         <template v-if="viewMode === 'diff'">
@@ -4835,6 +4959,103 @@ watch(
   flex-shrink: 0;
 }
 
+/* ── Branch + Worktree wrapper (2026-07-22) ──────────────
+   Transparent group around the branch switcher row and the worktree
+   tab row. When the worktree tabs are collapsed the wrapper turns
+   into a single flex row so the two rows share a line (worktree on
+   the left, branch on the right) and save ~30px of vertical space.
+   In the expanded state the wrapper is purely structural — the
+   inner rows still own their own padding and border, so this is a
+   pure layout pass with no visual regression. */
+
+/* The wrapper itself is borderless and paddingless in the expanded
+   (default) state; the inner worktree row keeps its `border-bottom`
+   to separate the header strip from the main sidebar content. */
+.git-diff-sidebar-bw {
+  /* no display: block here — the inner rows are already block. */
+}
+
+/* 2026-07-22 (rev): expanded mode = the wrapper is NOT
+   `.is-collapsed`. In that mode the inner branch row and worktree
+   row are independent block elements with their own
+   `padding-left: 14px` defaults. Nudge that to 16px so each row's
+   first content (the "当前分支" / "工作树" labels) picks up an
+   extra 2px of breathing room against the sidebar edge — the
+   2px-inward counterpart of the collapsed-mode `margin-left/right`
+   nudge. The selector is scoped to the wrapper's NOT-collapsed
+   mode so the collapsed layout (which already gives the wrapper
+   its own `padding: 6px 14px 8px` and zeroes the inner rows'
+   padding) stays byte-for-byte identical. */
+.git-diff-sidebar-bw:not(.is-collapsed) > .git-diff-sidebar-branch-mgmt {
+  padding-left: 16px;
+}
+.git-diff-sidebar-bw:not(.is-collapsed) > .git-diff-sidebar-tabs {
+  padding-left: 16px;
+}
+
+/* Collapsed: turn the wrapper into a single flex row.
+   `justify-content: space-between` parks the worktree row flush
+   LEFT and the branch row flush RIGHT, leaving an empty gap in
+   the middle — the user-stated "工作树靠左, 分支靠右, 中间
+   离远一些，对称" layout. `flex: 0 0 auto` on both children so
+   each row only takes its natural width. `flex-wrap: wrap` is the
+   belt-and-braces guard for the very narrow sidebar case where
+   the two rows can't fit on one line.
+   2026-07-22 (rev): the visual left/right is the INVERSE of the
+   DOM order — the DOM keeps branch-then-worktree so the tab
+   order / screen-reader order stays the same as the expanded
+   layout, but the wrapper sets explicit `order` values to make
+   worktree render on the left and branch on the right. */
+.git-diff-sidebar-bw.is-collapsed {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 6px 14px 8px;
+  border-bottom: 1px solid
+    var(--chat-border, rgba(var(--v-theme-on-surface), 0.08));
+}
+/* In the collapsed state the inner rows shed their own padding and
+   border so the wrapper owns them — otherwise the combined row
+   would carry an internal border line in the middle (the worktree
+   row's `border-bottom`) and look broken. */
+.git-diff-sidebar-bw.is-collapsed > .git-diff-sidebar-tabs,
+.git-diff-sidebar-bw.is-collapsed > .git-diff-sidebar-branch-mgmt {
+  padding: 0;
+  border-bottom: 0;
+  /* Natural-size rows so the wrapper's `space-between` actually
+     creates an empty middle gap instead of having one row stretch
+     to fill it. */
+  flex: 0 0 auto;
+}
+/* Visual left/right is opposite the DOM order. `order` is a
+   layout-only property: it does NOT change tab order, screen
+   reader reading order, or selection — the focusable elements
+   inside still follow DOM order, so keyboard users and AT users
+   get the same logical order as the expanded state. Only the
+   visual placement changes.
+   2026-07-22 (rev): pull the two rows 2px closer to the center
+   so "工作树" and "当前分支" are not flush against the wrapper's
+   `space-between` extremes. The worktree row's leading label
+   ("工作树") is at the row's left edge, so `margin-left: 2px`
+   on the worktree row pushes the entire content 2px toward the
+   center; the branch row's leading label ("当前分支") is at the
+   row's left edge, so `margin-right: 2px` on the branch row
+   shrinks the row's right padding under `space-between`, which
+   pulls the row 2px left. Net effect: the empty middle gap is
+   ~4px narrower, the labels themselves move 2px each toward
+   center. Kept as a small visual nudge (`2px`) so the change is
+   imperceptible in absolute terms but visibly tighter. */
+.git-diff-sidebar-bw.is-collapsed > .git-diff-sidebar-tabs {
+  order: 1; /* visually left */
+  margin-left: 2px; /* nudge content 2px right */
+}
+.git-diff-sidebar-bw.is-collapsed > .git-diff-sidebar-branch-mgmt {
+  order: 2; /* visually right */
+  margin-right: 2px; /* nudge content 2px left */
+}
+
 /* ── Worktree tabs (spec 2026-06-18 §3.4) ──────────────────── */
 
 .git-diff-sidebar-tabs {
@@ -4860,6 +5081,47 @@ watch(
   letter-spacing: 0.04em;
   color: rgba(var(--v-theme-on-surface), 0.6);
   user-select: none;
+}
+/* 2026-07-22 worktree-tabs-collapse: the label is a button now so the
+   user can expand / collapse the worktree tab row. Inherits the same
+   muted typography as the old static label so the only visible delta
+   when collapsed is the chevron direction. Hover nudges the
+   foreground color up so it reads as interactive.
+   2026-07-22 align: horizontal padding is 0 so the leading character
+   of "工作树" sits at the same x as "分支" (the branch label is a
+   plain span with no left padding, so any button padding would
+   visually push the worktree label right of the branch label). The
+   right-side `margin-right: 4px` still gives breathing room before
+   the first tab; the hover background is widened by the
+   `border-radius: 4px` so the click target still feels generous. */
+.git-diff-sidebar-tabs-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  margin-right: 4px;
+  padding: 2px 0;
+  border: none;
+  background: transparent;
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: rgba(var(--v-theme-on-surface), 0.6);
+  cursor: pointer;
+  transition:
+    color 0.14s ease,
+    background 0.14s ease;
+}
+.git-diff-sidebar-tabs-toggle:hover {
+  color: rgba(var(--v-theme-on-surface), 0.85);
+  background: rgba(var(--v-theme-on-surface), 0.04);
+}
+.git-diff-sidebar-tabs-toggle-chevron {
+  color: inherit;
+  flex-shrink: 0;
 }
 
 /* Pill shape, fully aligned with chat's chat-session-active-bg hover.
@@ -4956,6 +5218,10 @@ watch(
 }
 .git-diff-sidebar-branch-mgmt-label {
   flex-shrink: 0;
+  white-space: nowrap; /* the label is "当前分支" (4 zh chars) —
+                            keep it on one line even on narrow sidebars,
+                            so it can never wrap next to the branch
+                            button and break the row's vertical rhythm */
   color: rgba(var(--v-theme-on-surface), 0.6);
   font-size: 11px;
   letter-spacing: 0.02em;
@@ -5043,30 +5309,73 @@ watch(
   background: rgba(255, 152, 0, 0.15);
   color: rgb(255, 152, 0);
 }
-/* Ahead/behind indicator: mirrors the worktree tab badge shape so the
-   branch row visually matches the worktree row. Ahead is a soft green
-   (you have unpushed commits), behind is a muted grey (you should
-   pull) — kept subtle so it never reads as an alert. */
+/* Ahead/behind indicator: mirrors the worktree tab badge shape so
+   the branch row visually matches the worktree row. Ahead is a soft
+   green (you have unpushed commits). Behind is a soft red
+   (you should pull — same Vuetify `error` red used elsewhere so the
+   hue is consistent across the sidebar, e.g. the trash icon in the
+   worktree context menu). Both colors are tones (alpha background
+   + saturated foreground) rather than full-saturation, so they
+   read as a state hint, not a hard alert.
+   2026-07-22: bumped font-size 10 → 13 (and tweaked padding) so
+   the count is legible at a glance — at the original 10px the
+   badge quietly disappeared next to the 14–16px branch name and
+   drop-arrow button. The container, not the badge, holds the
+   font-size so the badge layout inherits cleanly.
+   2026-07-22 (rev): visual hierarchy rewritten. The badge is now a
+   2-cell inline-flex: an MDI arrow icon (10px) on the left and a
+   bold count (13px) on the right. The count dominates the badge —
+   it's the information the user actually wants (how many commits
+   ahead / behind). The arrow is a subordinate directional hint.
+   The MDI glyph (`mdi-arrow-up-thick` / `-down-thick`) is a SOLID
+   TRIANGLE with no vertical stem, so it cannot be confused with
+   the digit "1" the way the unicode "↑" / "↓" could — those share
+   the same "vertical-line + small top mark" silhouette as "1" in
+   most sans-serif fonts, which is what the user reported. */
 .git-diff-sidebar-branch-mgmt-tracking {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 10px;
+  font-size: 12px; /* 2026-07-22: 13 → 12 to match the row's
+                          sibling 12px (branch button text), so the
+                          badge sits at the row's text rhythm
+                          instead of one step taller */
   font-weight: 500;
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;
 }
-.git-diff-sidebar-branch-mgmt-tracking-ahead {
-  padding: 1px 5px;
+.git-diff-sidebar-branch-mgmt-tracking-ahead,
+.git-diff-sidebar-branch-mgmt-tracking-behind {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 7px;
   border-radius: 6px;
-  background: rgba(76, 175, 80, 0.15);
-  color: rgb(76, 175, 80);
+}
+.git-diff-sidebar-branch-mgmt-tracking-ahead {
+  background: rgba(76, 175, 80, 0.15); /* Vuetify success tint */
+  color: rgb(76, 175, 80); /* "↑ ahead — you have unpushed commits" */
 }
 .git-diff-sidebar-branch-mgmt-tracking-behind {
-  padding: 1px 5px;
-  border-radius: 6px;
-  background: rgba(var(--v-theme-on-surface), 0.08);
-  color: rgba(var(--v-theme-on-surface), 0.6);
+  background: rgba(244, 67, 54, 0.15); /* Vuetify error tint */
+  color: rgb(244, 67, 54); /* "↓ behind — you should pull" */
+}
+/* The v-icon's `size="10"` prop sets the glyph's font-size to 10px.
+   This class just makes the icon flex-stable (won't shrink in a
+   tight sidebar) and locks its line-height to 1 so the count's
+   visual center aligns with the icon's visual center inside the
+   inline-flex badge. */
+.git-diff-sidebar-branch-mgmt-tracking-arrow {
+  flex-shrink: 0;
+  line-height: 1;
+}
+/* The count is the dominant information: bold 13px, inheriting
+   `font-variant-numeric: tabular-nums` from the container so the
+   badge width stays identical whether the count is 1 digit ("5")
+   or 2 digits ("16"). */
+.git-diff-sidebar-branch-mgmt-tracking-count {
+  font-weight: 700;
+  line-height: 1;
 }
 
 @media (max-width: 760px) {

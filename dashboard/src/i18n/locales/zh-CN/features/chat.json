@@ -464,7 +464,9 @@
         "mainBadge": "主",
         "detachedBadge": "游离",
         "prunableBadge": "损坏",
-        "prunableTooltip": "此 worktree 已损坏（其目录可能已被删除）。请执行 \"git worktree prune\" 清理。"
+        "prunableTooltip": "此 worktree 已损坏（其目录可能已被删除）。请执行 \"git worktree prune\" 清理。",
+        "expand": "展开显示所有工作树",
+        "collapse": "折叠仅显示当前工作树"
       },
       "worktreeMgmt": {
         "addButton": "新建 worktree",
@@ -523,7 +525,7 @@
         }
       },
       "branchMgmt": {
-        "currentLabel": "分支",
+        "currentLabel": "当前分支",
         "menuButton": "切换分支",
         "menuButtonAria": "切换 git 分支",
         "loading": "加载分支列表…",
