@@ -1708,8 +1708,14 @@ onBeforeUnmount(() => {
                        from the history sidebar; the toggle hides
                        while in diff mode (exit via the banner /
                        sidebar). -->
+                  <!-- 2026-07-22 binary-preview: the rendered/raw
+                       toggle is meaningless for binary files (PDF
+                       / DOCX / XLSX / CSV) since BinaryPreview owns
+                       the entire body, so hide it instead of letting
+                       the click be a no-op. Text files (.md/.txt)
+                       still surface the toggle. -->
                   <v-btn
-                    v-if="viewMode !== 'diff'"
+                    v-if="viewMode !== 'diff' && !binaryActive"
                     size="x-small"
                     variant="text"
                     color="primary"
@@ -1731,7 +1737,13 @@ onBeforeUnmount(() => {
                       )
                     }}
                   </v-btn>
+                  <!-- 2026-07-22 binary-preview: editing is not
+                       supported for binary files (PDF / DOCX / XLSX
+                       / CSV), so the edit button only appears for
+                       text/markdown where DocumentEditor can
+                       actually save meaningful changes. -->
                   <v-btn
+                    v-if="!binaryActive"
                     size="x-small"
                     variant="text"
                     color="primary"
