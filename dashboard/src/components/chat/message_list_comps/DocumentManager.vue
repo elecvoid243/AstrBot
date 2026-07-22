@@ -1787,11 +1787,15 @@ onBeforeUnmount(() => {
                   @delete="onDeleteComment"
                 />
               </div>
-              <DiffPreview
+              <div
                 v-else
-                :content="diffPatch ?? ''"
-                :is-dark="isDark"
-              />
+                class="document-manager__diff"
+              >
+                <DiffPreview
+                  :content="diffPatch ?? ''"
+                  :is-dark="isDark"
+                />
+              </div>
               <!-- 2026-07-17 selection-comment: copy-only menu for the
                    rendered container. MUST be a sibling of the
                    rendered/raw/diff branches, NOT inside the raw
@@ -2073,6 +2077,12 @@ onBeforeUnmount(() => {
   min-height: 0;
   overflow: auto;
   padding: 12px;
+}
+.document-manager__diff {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 .document-manager__error {
   padding: 6px 10px;

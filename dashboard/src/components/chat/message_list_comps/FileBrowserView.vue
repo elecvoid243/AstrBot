@@ -1318,7 +1318,8 @@ onBeforeUnmount(() => {
      long file paths from blowing out the pane. */
   flex: 1 1 auto;
   min-width: 0;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
   display: flex;
   flex-direction: column;
 }

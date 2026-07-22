@@ -1135,20 +1135,24 @@ function onDeleteComment(commentId: string): void {
             />
           </div>
 
-          <DiffPreview
+          <div
             v-else-if="isHistoricalDiff"
-            :content="props.diffPatch ?? ''"
-            :file-path="state.snapshot.meta.path"
-            :summary="
-              props.diffIsBinary
-                ? tm('spcodeProjectLoad.fileBrowser.preview.binary')
-                : (props.diffPatch ?? '').length
-                ? ''
-                : tm('spcodeProjectLoad.fileBrowser.loading')
-            "
-            :is-dark="isDark"
-            :commentable="false"
-          />
+            class="preview-file__diff-wrapper"
+          >
+            <DiffPreview
+              :content="props.diffPatch ?? ''"
+              :file-path="state.snapshot.meta.path"
+              :summary="
+                props.diffIsBinary
+                  ? tm('spcodeProjectLoad.fileBrowser.preview.binary')
+                  : (props.diffPatch ?? '').length
+                  ? ''
+                  : tm('spcodeProjectLoad.fileBrowser.loading')
+              "
+              :is-dark="isDark"
+              :commentable="false"
+            />
+          </div>
 
           <!--
         Historical-raw mode: a revision is picked but the user
@@ -1369,7 +1373,8 @@ function onDeleteComment(commentId: string): void {
   flex: 1 1 auto;
   min-width: 0;
   height: 100%;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
   display: flex;
   flex-direction: column;
   background: transparent;
@@ -1417,6 +1422,14 @@ function onDeleteComment(commentId: string): void {
   flex-direction: column;
   height: 100%;
   min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+.preview-file__diff-wrapper {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 .preview-file-meta {
   display: flex;
