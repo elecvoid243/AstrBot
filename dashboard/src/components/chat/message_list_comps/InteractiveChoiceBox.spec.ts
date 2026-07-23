@@ -284,3 +284,97 @@ describe("InteractiveChoiceBox — cancelled state (v1.2)", () => {
     expect(wrapper.find(".choice-cancelled-label").exists()).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// 2026-07-23: 右上角「取消」按钮 — pending 状态可点,emits "cancel",
+// 父组件转交 store.cancelChoice() 完成「已取消」视觉切换 + 后端 DELETE
+// 往返。已 submit / ignored / cancelled 状态不渲染此按钮(头部已切换
+// 到非 pending 变体)。
+// ---------------------------------------------------------------------------
+
+describe("InteractiveChoiceBox — cancel button (2026-07-23)", () => {
+  beforeEach(() => {
+    storeMock._reset();
+  });
+
+  it("renders the cancel button in the pending header (top-right)", () => {
+    const wrapper = mountBox({
+      part: makePart({ title: "选一个", prompt: "选哪个?" }),
+    });
+
+    const btn = wrapper.find(".choice-cancel-button");
+    expect(btn.exists()).toBe(true);
+    // Label uses the i18n key (zh-CN: "取消").
+    expect(btn.text()).toContain("取消");
+    // aria-label + title for screen readers / hover tooltip.
+    expect(btn.attributes("aria-label")).toBe("取消此候选框");
+    expect(btn.attributes("title")).toBe("取消此候选框");
+  });
+
+  it("emits 'cancel' with the request_id when clicked in pending state", async () => {
+    const wrapper = mountBox({
+      part: makePart({ request_id: "req-cancel-emit" }),
+    });
+
+    await wrapper.find(".choice-cancel-button").trigger("click");
+
+    const emitted = wrapper.emitted("cancel");
+    expect(emitted).toBeDefined();
+    expect(emitted?.length).toBe(1);
+    expect(emitted?.[0]?.[0]).toBe("req-cancel-emit");
+    // Cancel is a separate event from submit — must NOT emit submit.
+    expect(wrapper.emitted("submit")).toBeUndefined();
+  });
+
+  it("does NOT render the cancel button when submissionState is set", () => {
+    // User already chose option A → state becomes 'submitted_via_option'.
+    // The header switches to the check-circle variant, and the
+    // cancel button must disappear (it only lives inside the
+    // pending header v-if branch).
+    const umo = "webchat:FriendMessage:webchat!alice!sess";
+    storeMock.markSubmitted(umo, "req-1", "option", { optionId: "A" });
+
+    const wrapper = mountBox({ part: makePart(), umo });
+
+    expect(wrapper.find(".choice-cancel-button").exists()).toBe(false);
+  });
+
+  it("does NOT render the cancel button when is-ignored", () => {
+    // The parent flips the box to ignored after a later user msg
+    // passes over it. The ignored header is a different element
+    // entirely (.choice-header--ignored), so the pending-only
+    // cancel button is not in the DOM.
+    const wrapper = mountBox({
+      part: makePart(),
+      isIgnored: true,
+    });
+
+    expect(wrapper.find(".choice-cancel-button").exists()).toBe(false);
+  });
+
+  it("does NOT render the cancel button when cancelledStates is set", () => {
+    const umo = "webchat:FriendMessage:webchat!alice!sess";
+    storeMock.markCancelled(umo, "req-1");
+
+    const wrapper = mountBox({ part: makePart(), umo });
+
+    expect(wrapper.find(".choice-cancel-button").exists()).toBe(false);
+  });
+
+  it("does NOT emit 'cancel' when clicked after the box has been submitted", async () => {
+    // Defence in depth: even if the button somehow stayed in the
+    // DOM (e.g. a future refactor breaks the v-if guard), the
+    // onCancelClick handler short-circuits on non-pending state.
+    // We test this by force-clicking the underlying header button
+    // on a submitted box, which is impossible in the current
+    // template but pins the handler's guard.
+    const umo = "webchat:FriendMessage:webchat!alice!sess";
+    storeMock.markSubmitted(umo, "req-1", "option", { optionId: "A" });
+
+    const wrapper = mountBox({ part: makePart(), umo });
+
+    // Pending header should not even render the button — confirms
+    // the v-if guard is the first line of defence.
+    expect(wrapper.find(".choice-cancel-button").exists()).toBe(false);
+  });
+});

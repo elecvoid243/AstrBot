@@ -307,6 +307,7 @@
                       :is-dark="isDark"
                       :is-ignored="isInteractiveChoiceIgnored(msg)"
                       @submit="onInteractiveChoiceSubmit"
+                      @cancel="onInteractiveChoiceCancel"
                     />
 
                     <div v-else class="unknown-part">
@@ -605,6 +606,20 @@ async function onInteractiveChoiceSubmit(
     );
   } catch (e) {
     console.error("[interactiveChoice] submit failed:", e);
+  }
+}
+
+/**
+ * 2026-07-23: 用户点击右上角「取消」按钮的事件转交。store.cancelChoice()
+ * 做乐观 markCancelled(立即把框切到「已取消」视觉)+ POST DELETE
+ * 通知后端取消 awaiting Future。网络错误时 UI 仍保持「已取消」,
+ * 后续 reconcile(umo) 会基于 backend pending 列表兜底重对账。
+ */
+async function onInteractiveChoiceCancel(requestId: string): Promise<void> {
+  try {
+    await interactiveChoiceStore.cancelChoice(props.currentUmo, requestId);
+  } catch (e) {
+    console.error("[interactiveChoice] cancel failed:", e);
   }
 }
 

@@ -1069,6 +1069,8 @@
     "expandDetails": "Show details",
     "collapseDetails": "Hide details",
     "extraContentLabel": "Supplementary information (AI generated)",
-    "cancelled": "Cancelled"
+    "cancelled": "Cancelled",
+    "cancel": "Cancel",
+    "cancelAria": "Cancel this choice box"
   }
 }

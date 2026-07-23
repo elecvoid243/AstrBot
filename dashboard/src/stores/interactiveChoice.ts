@@ -590,6 +590,61 @@ export const useInteractiveChoiceStore = defineStore("interactiveChoice", {
     },
 
     /**
+     * User-initiated cancel of a pending choice box.
+     *
+     * Behaviour:
+     *   - Optimistically writes the request_id to
+     *     `cancelledStates[umo]` via `markCancelled` so the
+     *     originating tab transitions to the "已取消" visual
+     *     immediately, without waiting for the round-trip.
+     *   - Removes the local `activeChoices[umo][rid]` entry so a
+     *     pending-only watcher (e.g. `reconcile`) does not
+     *     re-inject the cancelled box. Mirrors `submitChoice`'s
+     *     optimistic-removal contract.
+     *   - POSTs to the backend cancel endpoint
+     *     (`DELETE /api/chat/interactive-choice/{rid}`); the
+     *     plugin's registry.remove() cancels the awaiting
+     *     asyncio.Future, which makes the ask_user_choice tool's
+     *     `except asyncio.CancelledError` branch return
+     *     "[User input was cancelled] ..." to the LLM and
+     *     broadcast an `interactive_choice_resolved
+     *     {reason: "cancelled"}` SSE event for cross-tab
+     *     consistency. The markCancelled() above is idempotent so
+     *     the eventual SSE event is a no-op here.
+     *
+     * Network failures: the UI has already flipped to "已取消"
+     * (markCancelled is local), so we log + rethrow but do not
+     * roll the user-visible state back. The follow-up
+     * `reconcile(umo)` will re-derive the cancelled state from
+     * the backend's `pending` list once the network is back.
+     *
+     * Why per-UMO: the cancel is scoped to a single session's
+     * pending entry (Bug Y1/Y2 mirror). A typo'd empty `umo`
+     * throws via the existing `missingUmo` guard.
+     */
+    async cancelChoice(
+      umo: string,
+      requestId: string,
+    ): Promise<ApiEnvelope<unknown> | undefined> {
+      if (!umo) missingUmo("cancelChoice");
+      this.markCancelled(umo, requestId);
+      this.removeChoice(umo, requestId);
+      try {
+        const res = await httpClient.delete<ApiEnvelope<unknown>>(
+          `/api/chat/interactive-choice/${encodeURIComponent(requestId)}`,
+        );
+        return res.data;
+      } catch (e) {
+        console.error("[interactiveChoice] cancelChoice FAILED", {
+          umo,
+          requestId,
+          error: e,
+        });
+        throw e;
+      }
+    },
+
+    /**
      * Submit a user's selection for the given request_id under a
      * specific UMO. On success, optimistically removes the local
      * entry; the caller can roll back by re-adding it if a

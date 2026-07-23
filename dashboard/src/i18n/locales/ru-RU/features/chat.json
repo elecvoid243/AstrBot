@@ -990,6 +990,8 @@
     "expandDetails": "Показать варианты",
     "collapseDetails": "Скрыть варианты",
     "extraContentLabel": "Дополнительная информация (сгенерирована ИИ)",
-    "cancelled": "Отменено"
+    "cancelled": "Отменено",
+    "cancel": "Отмена",
+    "cancelAria": "Отменить этот блок выбора"
   }
 }

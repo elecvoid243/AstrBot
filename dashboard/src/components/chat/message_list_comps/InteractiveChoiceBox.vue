@@ -40,6 +40,26 @@
         </div>
         <div class="choice-prompt" :title="part.prompt">{{ part.prompt }}</div>
       </div>
+      <!-- 2026-07-23: user-initiated cancel — only rendered in pending
+           state since submitted / ignored / cancelled boxes are
+           already terminal. Clicking fires the `cancel` emit so the
+           parent (ChatMessageList) can call store.cancelChoice(),
+           which optimistically markCancelled()s the box (→ "已取消"
+           visual) and POSTs DELETE to the backend so the LLM tool's
+           awaiting Future unblocks via asyncio.CancelledError. -->
+      <button
+        v-if="state === 'pending'"
+        type="button"
+        class="choice-cancel-button"
+        :aria-label="tm('interactiveChoice.cancelAria')"
+        :title="tm('interactiveChoice.cancelAria')"
+        @click="onCancelClick"
+      >
+        <v-icon size="16">mdi-close</v-icon>
+        <span class="choice-cancel-label">{{
+          tm("interactiveChoice.cancel")
+        }}</span>
+      </button>
     </div>
     <div
       v-else-if="state === 'ignored'"
@@ -258,11 +278,16 @@ const props = defineProps<{
 
 // v1.0 提交协议:emit (requestId, payload),由 ChatMessageList 冒泡到 Chat.vue
 // 处理实际发送。payload.choice_id 为 "__free_text__" 表示自由文本提交。
+// v1.3: cancel 协议 — emit 仅携带 requestId,父组件转交
+// `interactiveChoiceStore.cancelChoice(umo, requestId)` 处理(乐观
+// markCancelled + POST DELETE)。不在组件内直接 fetch,以保持网络细节
+// 集中在 store,与 submitChoice 保持对称。
 const emit = defineEmits<{
   submit: [
     requestId: string,
     payload: { choice_id: string; free_text: string },
   ];
+  cancel: [requestId: string];
 }>();
 
 const { tm } = useModuleI18n("features/chat");
@@ -407,6 +432,16 @@ function onInputSubmit() {
   });
 }
 
+// 2026-07-23: 右上角「取消」按钮的 click 处理。emit 后由父组件
+// ChatMessageList 转交给 store.cancelChoice(),后者做乐观 markCancelled
+// + 后端 DELETE 往返。这里不直接 fetch / mutate store,保持与
+// submit / onInputSubmit 的对偶(symmetric)与「网络细节集中在
+// store」的分层原则。
+function onCancelClick() {
+  if (state.value !== "pending") return;
+  emit("cancel", props.part.request_id);
+}
+
 function ariaLabelForOption(opt: InteractiveChoiceOption): string {
   return opt.description ? `${opt.label} — ${opt.description}` : opt.label;
 }
@@ -419,7 +454,10 @@ function ariaLabelForOption(opt: InteractiveChoiceOption): string {
   border-radius: 10px;
   background: rgba(var(--v-theme-primary), 0.04);
   border: 1px solid rgba(var(--v-theme-primary), 0.18);
-  max-width: min(560px, 100%);
+  /* 2026-07-23 widen-interactive-box: 跟随父容器 .from-bot .message-stack
+     的宽度(桌面 860px / 移动 100%),让候选框与每条 chat message 视觉
+     宽度对齐;之前 hard-coded 560px cap 比消息气泡窄很多。 */
+  max-width: 100%;
 }
 
 .interactive-choice-box.is-submitted,
@@ -472,13 +510,64 @@ function ariaLabelForOption(opt: InteractiveChoiceOption): string {
   opacity: 0.7;
 }
 
+/* 2026-07-23: 右上角「取消」按钮。位于 .choice-header 末尾(因
+   .choice-header-text 有 flex: 1 自动占满,按钮自然被推到右侧),
+   仅在 pending 状态出现;submitted / ignored / cancelled 头部
+   不渲染此节点。
+
+   设计目标:低调、点击区足够(>= 28px a11y 阈值)、文字+图标可读;
+   hover/focus 时给明显反馈但不喧宾夺主(走 primary 主题色)。 */
+.choice-cancel-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  margin-left: 4px;
+  padding: 4px 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(var(--v-theme-on-surface), 0.6);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.2;
+  cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease;
+}
+
+.choice-cancel-button:hover,
+.choice-cancel-button:focus-visible {
+  background: rgba(var(--v-theme-primary), 0.08);
+  border-color: rgba(var(--v-theme-primary), 0.35);
+  color: rgb(var(--v-theme-primary));
+  outline: none;
+}
+
+.choice-cancel-button:active {
+  background: rgba(var(--v-theme-primary), 0.16);
+}
+
+.is-dark .choice-cancel-button {
+  color: rgba(var(--v-theme-on-surface), 0.7);
+}
+
+.is-dark .choice-cancel-button:hover,
+.is-dark .choice-cancel-button:focus-visible {
+  background: rgba(var(--v-theme-primary), 0.18);
+  border-color: rgba(var(--v-theme-primary), 0.5);
+  color: rgb(var(--v-theme-primary));
+}
+
 .choice-header--ignored,
 .choice-header--cancelled {
   color: rgba(var(--v-theme-on-surface), 0.6);
   /* 让长 title / prompt 能在 header 行内自然换行,不被压成单字符。
      v1.2 之前 ignored header 只渲染 label + prompt,内容短;补上
-     title 渲染后(见模板),CJK 长 title 可能在 560px 容器里被
-     flex 默认 shrink 挤扁,加 wrap 让浏览器自动换行。 */
+     title 渲染后(见模板),CJK 长 title 在 flex 容器里可能被
+     默认 shrink 挤扁,加 wrap 让浏览器自动换行。 */
   flex-wrap: wrap;
 }
 

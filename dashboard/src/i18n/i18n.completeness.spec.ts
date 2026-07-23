@@ -38,5 +38,22 @@ describe("interactiveChoice i18n completeness", () => {
         `${locale} missing interactiveChoice.cancelled string`,
       ).toBe("string");
     });
+
+    // 2026-07-23: cancel button on the pending box header needs
+    // both the visible label and the aria-label. Pin both so the
+    // button never falls back to the [MISSING: ...] placeholder.
+    it(`${locale} defines interactiveChoice.cancel + cancelAria`, () => {
+      const interactiveChoice = dict.interactiveChoice as
+        | Record<string, unknown>
+        | undefined;
+      expect(
+        typeof interactiveChoice?.cancel,
+        `${locale} missing interactiveChoice.cancel string`,
+      ).toBe("string");
+      expect(
+        typeof interactiveChoice?.cancelAria,
+        `${locale} missing interactiveChoice.cancelAria string`,
+      ).toBe("string");
+    });
   }
 });

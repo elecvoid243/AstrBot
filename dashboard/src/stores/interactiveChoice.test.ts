@@ -999,3 +999,122 @@ test("reconcile marks locally-tracked parts absent from backend as cancelled", a
   assert.equal(store.isCancelled(umo, "rid-missing"), true);
   assert.equal(store.isCancelled(umo, "rid-present"), false);
 });
+
+// ---------------------------------------------------------------------------
+// Task 2026-07-23: cancelChoice — user-initiated cancel of a pending box.
+// Optimistically markCancelled() + removeChoice() locally, then
+// DELETE /api/chat/interactive-choice/{rid}. Network errors do not
+// roll back the local cancelled state (UI must not flicker).
+// ---------------------------------------------------------------------------
+
+test("cancelChoice marks the rid as cancelled and removes it from activeChoices", async () => {
+  const store = useInteractiveChoiceStore();
+  store.addChoice(TEST_UMO, {
+    type: "interactive_choice",
+    request_id: "rid-cancel-1",
+    prompt: "Pick one",
+    options: [
+      { id: "A", label: "Alpha" },
+      { id: "B", label: "Beta" },
+    ],
+  });
+  mock
+    .onDelete("/api/chat/interactive-choice/rid-cancel-1")
+    .reply(200, { status: "ok", data: { cancelled: true } });
+
+  await store.cancelChoice(TEST_UMO, "rid-cancel-1");
+
+  assert.equal(store.activeChoices[TEST_UMO]?.["rid-cancel-1"], undefined);
+  assert.equal(store.isCancelled(TEST_UMO, "rid-cancel-1"), true);
+  // cancelledStates are persisted to localStorage for refresh-safety.
+  const saved = JSON.parse(
+    localStorage.getItem(CANCELLED_STORAGE_KEY) ?? "{}",
+  ) as Record<string, Record<string, true>>;
+  assert.equal(saved[TEST_UMO]?.["rid-cancel-1"], true);
+});
+
+test("cancelChoice sends DELETE to the right URL with the right rid", async () => {
+  const store = useInteractiveChoiceStore();
+  store.addChoice(TEST_UMO, {
+    type: "interactive_choice",
+    request_id: "rid-cancel-2",
+    prompt: "x",
+    options: [{ id: "A", label: "A" }],
+  });
+  mock
+    .onDelete("/api/chat/interactive-choice/rid-cancel-2")
+    .reply(200, { status: "ok", data: { cancelled: true } });
+
+  await store.cancelChoice(TEST_UMO, "rid-cancel-2");
+
+  assert.equal(mock.history.delete.length, 1);
+  assert.equal(
+    mock.history.delete[0].url,
+    "/api/chat/interactive-choice/rid-cancel-2",
+  );
+});
+
+test("cancelChoice URL-encodes the request_id", async () => {
+  const store = useInteractiveChoiceStore();
+  // Some UUI D generators produce slashes / colons; the path segment
+  // must be encoded to stay valid in the URL.
+  const rid = "rid/with:special";
+  store.addChoice(TEST_UMO, {
+    type: "interactive_choice",
+    request_id: rid,
+    prompt: "x",
+    options: [{ id: "A", label: "A" }],
+  });
+  mock
+    .onDelete(`/api/chat/interactive-choice/${encodeURIComponent(rid)}`)
+    .reply(200, { status: "ok", data: { cancelled: true } });
+
+  await store.cancelChoice(TEST_UMO, rid);
+
+  assert.equal(mock.history.delete.length, 1);
+  assert.equal(
+    mock.history.delete[0].url,
+    `/api/chat/interactive-choice/${encodeURIComponent(rid)}`,
+  );
+});
+
+test("cancelChoice throws when umo is missing (safety)", async () => {
+  const store = useInteractiveChoiceStore();
+  // cancelChoice is async — the throw becomes a rejected promise,
+  // so use assert.rejects (assert.throws would not await and would
+  // produce a misleading "Missing expected exception" plus a
+  // post-test unhandledRejection).
+  await assert.rejects(
+    () => store.cancelChoice("", "rid-cancel-x"),
+    /missing required 'umo'/,
+  );
+  // No DELETE attempted when umo is empty.
+  assert.equal(mock.history.delete.length, 0);
+});
+
+test("cancelChoice keeps the cancelled state on network failure (UI must not flicker)", async () => {
+  const store = useInteractiveChoiceStore();
+  store.addChoice(TEST_UMO, {
+    type: "interactive_choice",
+    request_id: "rid-cancel-net-err",
+    prompt: "x",
+    options: [{ id: "A", label: "A" }],
+  });
+  mock
+    .onDelete("/api/chat/interactive-choice/rid-cancel-net-err")
+    .networkError();
+
+  await assert.rejects(() =>
+    store.cancelChoice(TEST_UMO, "rid-cancel-net-err"),
+  );
+
+  // Local cancelled state must survive the failure — the user has
+  // already seen the box flip to "已取消", and rolling back would
+  // visually bring the pending box back, which is worse than the
+  // local-state mismatch that reconcile(umo) eventually repairs.
+  assert.equal(store.isCancelled(TEST_UMO, "rid-cancel-net-err"), true);
+  assert.equal(
+    store.activeChoices[TEST_UMO]?.["rid-cancel-net-err"],
+    undefined,
+  );
+});
