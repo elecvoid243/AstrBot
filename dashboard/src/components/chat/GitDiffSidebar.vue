@@ -1358,7 +1358,32 @@ const gitDiffBodyRef = ref<{ clearSelection: () => void } | null>(null);
 // visible. Loading state is derived in the template from each
 // composable's `state.value.kind === 'loading'` rather than a
 // local ref.
+//
+// Spec 2026-07-23 (rev for click feedback): the loading spinner
+// alone is not enough — instant refreshes (cached, no changes)
+// finish before the spinner can render, so the user gets no
+// "click registered" confirmation. We layer a 350ms primary-tint
+// flash via `bwClickFlash` so every click registers visually.
+// The `nextTick` + `setTimeout` reset trick lets rapid re-clicks
+// each get a fresh flash: setting false → await DOM patch →
+// setting true re-applies the class, restarting any active CSS
+// transition. The timer is cleared on each click so a stray timer
+// from a prior click can't keep `is-flashing` stuck on.
+const bwClickFlash = ref(false);
+let bwClickFlashTimer: ReturnType<typeof setTimeout> | null = null;
+function flashBwRefreshButton(): void {
+  bwClickFlash.value = false;
+  void nextTick(() => {
+    bwClickFlash.value = true;
+    if (bwClickFlashTimer) clearTimeout(bwClickFlashTimer);
+    bwClickFlashTimer = setTimeout(() => {
+      bwClickFlash.value = false;
+      bwClickFlashTimer = null;
+    }, 350);
+  });
+}
 async function refreshBranchesAndWorktrees(): Promise<void> {
+  flashBwRefreshButton();
   await Promise.allSettled([
     branchesComposable.refresh(),
     worktreesComposable.refresh(),
@@ -3790,6 +3815,7 @@ watch(
             v-if="worktreeTabsExpanded"
             type="button"
             class="git-diff-sidebar-bw-refresh"
+            :class="{ 'is-flashing': bwClickFlash }"
             :title="tm('spcodeProjectLoad.diffSidebar.bwRefreshTooltip')"
             :aria-label="tm('spcodeProjectLoad.diffSidebar.bwRefreshTooltip')"
             :disabled="
@@ -3827,6 +3853,7 @@ watch(
           v-if="!worktreeTabsExpanded"
           type="button"
           class="git-diff-sidebar-bw-refresh"
+          :class="{ 'is-flashing': bwClickFlash }"
           :title="tm('spcodeProjectLoad.diffSidebar.bwRefreshTooltip')"
           :aria-label="tm('spcodeProjectLoad.diffSidebar.bwRefreshTooltip')"
           :disabled="
@@ -5198,6 +5225,30 @@ watch(
 .git-diff-sidebar-bw-refresh:disabled {
   cursor: default;
   opacity: 0.5;
+}
+/* Click ack (spec 2026-07-23 rev): brief primary-tint flash so the
+   user sees the click registered even on instant/cached refreshes
+   where the loading spinner never visibly appears. Toggled for
+   350ms via the `is-flashing` class from `flashBwRefreshButton()`
+   inside `refreshBranchesAndWorktrees`. `transition` is on the
+   base rule above so the background fades smoothly back to
+   transparent when the class is removed. The tint overrides
+   `:hover`/`:active` for those 350ms — that's intentional: the
+   flash IS the post-click feedback, distinct from hover/press
+   pre-click states. */
+.git-diff-sidebar-bw-refresh.is-flashing {
+  background: rgba(var(--v-theme-primary), 0.22);
+  color: rgba(var(--v-theme-primary), 1);
+}
+/* Press feel: subtle scale-down on mouse hold so the click
+   visually registers as soon as mousedown — pairs with the
+   post-click flash above which confirms the click was accepted.
+   Uses `:not(:disabled)` to keep the static `opacity: 0.5` on
+   `disabled` buttons (a scale-down on a faded button looks
+   broken). */
+.git-diff-sidebar-bw-refresh:active:not(:disabled) {
+  background: rgba(var(--v-theme-on-surface), 0.14);
+  transform: scale(0.97);
 }
 .git-diff-sidebar-bw-refresh:focus-visible {
   outline: 2px solid rgba(var(--v-theme-primary), 0.5);
