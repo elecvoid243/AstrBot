@@ -525,6 +525,24 @@
           </div>
         </section>
 
+        <div
+                  v-if="scrollMarkers.length"
+                  class="scroll-marker-strip"
+                  :style="{ height: stripHeight + 'px', right: stripRightOffset + 'px' }"
+                  @click="onStripClick"
+                >
+          <div
+            v-for="marker in scrollMarkers"
+            :key="`sm-${marker.id}`"
+            class="scroll-marker-dot"
+            :style="{ top: marker.topPct + '%' }"
+            @click.stop="scrollToMessage(marker.id)"
+            @mouseenter="onDotEnter(marker.preview, $event)"
+            @mousemove="onDotMove($event)"
+            @mouseleave="onDotLeave"
+          />
+        </div>
+
         <section class="composer-shell">
           <ChatInput
             ref="inputRef"
@@ -562,6 +580,23 @@
         </section>
       </div>
     </main>
+
+    <Teleport to="body">
+      <div
+        v-if="dotTooltip.visible"
+        ref="dotTooltipRef"
+        class="scroll-dot-tooltip"
+        :class="{ 'is-dark': isDark }"
+        :style="{
+          position: 'fixed',
+          right: dotTooltip.right + 'px',
+          top: dotTooltip.y + 'px',
+          zIndex: 10000,
+        }"
+      >
+        <span class="scroll-dot-tooltip-text">{{ dotTooltip.text }}</span>
+      </div>
+    </Teleport>
 
     <div
       v-if="threadSelection.visible"
@@ -819,6 +854,16 @@ const savingSessionTitle = ref(false);
 const messageEditDraft = ref("");
 const editingMessage = ref<ChatRecord | null>(null);
 const savingMessageEdit = ref(false);
+const scrollMarkers = ref<Array<{id: string | number; topPct: number; preview: string}>>([]);
+const stripHeight = ref(0);
+const stripRightOffset = ref(0); // scrollbar width (px) so the yellow strip sits flush with the scrollbar's left edge
+const dotTooltip = reactive({
+  visible: false,
+  text: "",
+  right: 0,
+  y: 0,
+});
+const dotTooltipRef = ref<HTMLElement | null>(null);
 const projectSessions = ref<Session[]>([]);
 const projectSessionsById = ref<Record<string, Session[]>>({});
 const loadingProjectSessionIds = ref<string[]>([]);
@@ -1392,6 +1437,10 @@ onBeforeUnmount(() => {
   // is a no-op when there's no active drag.
   onSidebarResizeEnd();
   window.removeEventListener("keydown", onSidebarKeydown);
+  if (markerResizeObserver) {
+    markerResizeObserver.disconnect();
+    markerResizeObserver = null;
+  }
 });
 
 watch(
@@ -1417,7 +1466,25 @@ watch(activeMessages, () => {
   if (shouldStickToBottom.value) {
     scrollToBottom();
   }
-});
+  nextTick(() => updateScrollMarkers());
+}, { deep: true });
+
+// Scroll marker strip: keep markers updated when container size changes
+let markerResizeObserver: ResizeObserver | null = null;
+
+watch(messagesContainer, (container, _oldContainer) => {
+  if (markerResizeObserver) {
+    markerResizeObserver.disconnect();
+    markerResizeObserver = null;
+  }
+  if (container) {
+    updateScrollMarkers();
+    markerResizeObserver = new ResizeObserver(() => {
+      updateScrollMarkers();
+    });
+    markerResizeObserver.observe(container);
+  }
+}, { immediate: true });
 
 // Re-fetch the spcode status when the active session changes. Each
 // session has its own loaded project so the chip must refresh.
@@ -2029,6 +2096,113 @@ function scrollToMessage(messageId?: string | number) {
   if (index < 0) return;
   const rows = messagesContainer.value?.querySelectorAll(".message-row");
   rows?.[index]?.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+function updateScrollMarkers() {
+  const container = messagesContainer.value;
+  if (!container) {
+    scrollMarkers.value = [];
+    stripHeight.value = 0;
+    stripRightOffset.value = 0;
+    return;
+  }
+  stripHeight.value = container.clientHeight;
+  // Detect native scrollbar width so the yellow strip sits flush against
+  // its LEFT edge (no gap, no overlap). offsetWidth includes the scrollbar;
+  // clientWidth does not.
+  const scrollbarWidth = container.offsetWidth - container.clientWidth;
+  stripRightOffset.value = scrollbarWidth > 0 ? scrollbarWidth : 0;
+  const scrollable = container.scrollHeight - container.clientHeight;
+  if (scrollable <= 0) {
+    scrollMarkers.value = [];
+    return;
+  }
+  const rows = container.querySelectorAll(".message-row");
+  const containerRect = container.getBoundingClientRect();
+  const markers: Array<{
+    id: string | number;
+    topPct: number;
+    preview: string;
+  }> = [];
+  for (let i = 0; i < activeMessages.value.length; i++) {
+    const msg = activeMessages.value[i];
+    if (!isUserMessage(msg) || msg.id == null) continue;
+    const row = rows[i];
+    if (!row) continue;
+    const rowRect = row.getBoundingClientRect();
+    const offsetTop = rowRect.top - containerRect.top + container.scrollTop;
+    markers.push({
+      id: msg.id,
+      topPct: (offsetTop / scrollable) * 100,
+      preview: truncate(plainTextFromMessage(msg), 40),
+    });
+  }
+  scrollMarkers.value = markers;
+}
+
+function onStripClick(event: MouseEvent) {
+  const container = messagesContainer.value;
+  if (!container) return;
+  const strip = event.currentTarget as HTMLElement;
+  const rect = strip.getBoundingClientRect();
+  const pct = (event.clientY - rect.top) / rect.height;
+  container.scrollTop = pct * (container.scrollHeight - container.clientHeight);
+}
+
+async function onDotEnter(text: string, event: MouseEvent) {
+  const strip = (event.currentTarget as HTMLElement).closest(".scroll-marker-strip");
+  if (!strip) return;
+  const stripRect = strip.getBoundingClientRect();
+  dotTooltip.text = text;
+  // Anchor tooltip's RIGHT edge 8px to the left of the strip.
+  // Tooltip grows LEFT from the strip, so it never overflows the right
+  // page boundary (strip is always at the panel's right edge).
+  dotTooltip.right = window.innerWidth - stripRect.left + 8;
+  dotTooltip.y = event.clientY - 20;
+  dotTooltip.visible = true;
+  await nextTick();
+  const el = dotTooltipRef.value;
+  if (!el) return;
+  // Determine available horizontal space: from the tooltip's right edge
+  // to the chat panel's left edge (NOT viewport's left edge), so the
+  // tooltip can use the full chat panel width when the strip sits at the
+  // viewport's right edge (no sidebar scenario).
+  const stack = strip.closest(".conversation-stack") as HTMLElement | null;
+  const stackRect = stack?.getBoundingClientRect();
+  const minLeft = (stackRect?.left ?? 16) + 16;
+  const tooltipRightEdgeX = stripRect.left - 8;
+  const maxAllowedWidth = Math.max(120, tooltipRightEdgeX - minLeft);
+  const actualWidth = el.offsetWidth;
+  if (actualWidth > maxAllowedWidth) {
+    el.style.maxWidth = `${maxAllowedWidth}px`;
+    const inner = el.querySelector(".scroll-dot-tooltip-text") as HTMLElement;
+    if (inner) inner.style.whiteSpace = "normal";
+  }
+  // Vertical clamp: keep tooltip fully on-screen vertically.
+  const tooltipHeight = el.offsetHeight;
+  let y = event.clientY - 20;
+  const maxY = window.innerHeight - tooltipHeight - 16;
+  if (y > maxY) y = Math.max(16, maxY);
+  if (y < 16) y = 16;
+  dotTooltip.y = y;
+}
+
+function onDotMove(event: MouseEvent) {
+  const el = dotTooltipRef.value;
+  if (el) {
+    const tooltipHeight = el.offsetHeight;
+    let y = event.clientY - 20;
+    const maxY = window.innerHeight - tooltipHeight - 16;
+    if (y > maxY) y = Math.max(16, maxY);
+    if (y < 16) y = 16;
+    dotTooltip.y = y;
+  } else {
+    dotTooltip.y = event.clientY - 20;
+  }
+}
+
+function onDotLeave() {
+  dotTooltip.visible = false;
 }
 
 function openMessageEdit(message: ChatRecord) {
@@ -3316,5 +3490,76 @@ kbd {
   .project-composer-shell {
     padding: 0;
   }
+}
+
+/* Scroll marker strip — overlays the native scrollbar track */
+.scroll-marker-strip {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 14px;
+  cursor: pointer;
+  z-index: 5;
+  pointer-events: none;
+}
+.scroll-marker-strip .scroll-marker-dot {
+  position: absolute;
+  left: 1px;
+  width: 12px;
+  height: 4px;
+  border-radius: 2px;
+  background: #f5c518;
+  opacity: 0.75;
+  pointer-events: auto;
+  transition:
+    width 0.18s ease,
+    height 0.18s ease,
+    opacity 0.2s ease,
+    box-shadow 0.2s ease,
+    border-color 0.2s ease;
+  cursor: pointer;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+}
+.scroll-marker-strip .scroll-marker-dot:hover {
+  opacity: 1;
+  width: 14px;
+  height: 6px;
+  margin-left: -1px;
+  box-shadow: 0 0 0 3px rgba(124, 77, 255, 0.25);
+  border-color: rgb(var(--v-theme-primary));
+}
+.is-dark .scroll-marker-strip .scroll-marker-dot {
+  border-color: rgba(255, 255, 255, 0.15);
+}
+</style>
+
+<!-- Teleporter tooltip: 全局样式 (非 scoped, 因 Teleport 到 body) -->
+<style>
+.scroll-dot-tooltip {
+  max-width: 600px;
+  padding: 8px 12px;
+  background: #ffffff;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  pointer-events: none;
+  text-align: left;
+  box-sizing: border-box;
+}
+.scroll-dot-tooltip.is-dark {
+  background: #2d2d2d;
+  border-color: #404040;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+}
+.scroll-dot-tooltip-text {
+  display: inline-block;
+  font-size: 13px;
+  color: #333;
+  line-height: 1.5;
+  white-space: nowrap;
+  overflow: visible;
+}
+.scroll-dot-tooltip.is-dark .scroll-dot-tooltip-text {
+  color: #e0e0e0;
 }
 </style>
