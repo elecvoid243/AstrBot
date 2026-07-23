@@ -453,6 +453,7 @@
       "chipTooltip": "查看工作区文件、改动和历史",
       "title": "项目改动",
       "refreshTooltip": "刷新",
+      "bwRefreshTooltip": "刷新分支和工作树",
       "loading": "加载中…",
       "empty": "暂无文件改动",
       "truncated": "⚠ diff 已截断（仅显示前 {shown} / {max} 字节，可能不完整）",

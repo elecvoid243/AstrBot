@@ -453,6 +453,7 @@
       "chipTooltip": "Browse workspace files, changes, and history",
       "title": "Project changes",
       "refreshTooltip": "Refresh",
+      "bwRefreshTooltip": "Refresh branches & worktrees",
       "loading": "Loading…",
       "empty": "No file changes",
       "truncated": "⚠ diff truncated (showing first {shown} / {max} bytes, may be incomplete)",
