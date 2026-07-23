@@ -5255,12 +5255,30 @@ watch(
   outline-offset: 1px;
 }
 
-/* Expanded state: button is the last inline child of the branch
-   row (which is a block child of the wrapper). Source order
-   alone puts it on the right; the small left margin gives 6px
-   breathing room from the preceding tracking badges. */
-.git-diff-sidebar-bw:not(.is-collapsed) > .git-diff-sidebar-bw-refresh {
-  margin-left: 6px;
+/* Expanded state: refresh button is flush-right inside the branch
+   row. The branch row (`.git-diff-sidebar-branch-mgmt`) is already
+   `display: flex; align-items: center` so `margin-left: auto` on
+   this button eats all remaining horizontal space, pushing it to
+   the row's inner right edge. Resulting layout reads as
+   "[当前分支] [main ▾] ↑3↓2 __________ [刷新分支和工作树]"
+   with the empty middle band visually anchoring both ends.
+
+   This selector targets only the expanded-state button — it sits
+   inside `.git-diff-sidebar-branch-mgmt`, while the collapsed-state
+   button is a direct child of `.git-diff-sidebar-bw` (positioned
+   by `order: 2` in the parent, NOT by this rule).
+
+   The previous incarnation of this rule used
+   `.git-diff-sidebar-bw:not(.is-collapsed) > .git-diff-sidebar-bw-refresh`,
+   but that selector never matched anything in the current DOM
+   (expanded button is a grandchild of `.git-diff-sidebar-bw`,
+   collapsed button is excluded by `:not(.is-collapsed)`) — it
+   was dead code that visually "worked" only because the
+   parent row's `gap: 6px` already gave the spacing. The new
+   selector and `margin-left: auto` replace both the dead rule
+   and the implicit gap-based spacing. */
+.git-diff-sidebar-branch-mgmt > .git-diff-sidebar-bw-refresh {
+  margin-left: auto;
 }
 
 /* ── Worktree tabs (spec 2026-06-18 §3.4) ──────────────────── */
