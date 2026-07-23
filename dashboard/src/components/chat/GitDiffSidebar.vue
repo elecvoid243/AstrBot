@@ -1343,6 +1343,28 @@ const fileBrowserRef = ref<{ refresh: () => Promise<void> } | null>(null);
 // Same `v-if="viewMode==='diff'"` caveat: ref is null in other tabs,
 // so callers null-check before invocation.
 const gitDiffBodyRef = ref<{ clearSelection: () => void } | null>(null);
+// Spec 2026-07-23 §4.1: manual refresh for the branch + worktree
+// management row. 3-way parallel refresh (branches / worktrees /
+// git-diff) so a single click pulls the latest server state across
+// all three lists the row controls. Distinct from the top-bar
+// `mdi-restart` button (onManualRefresh, viewMode-aware) which is
+// the file-browser-aware refresh path.
+//
+// `useSpcodeGitBranches.refresh` and `useSpcodeWorktrees.refresh`
+// already return Promises; we use `Promise.allSettled` (NOT
+// `Promise.all`) so a single failure doesn't kill the other two
+// requests' UI updates — branches may 404 on a non-repo while
+// worktrees still answers, and we want both partial results
+// visible. Loading state is derived in the template from each
+// composable's `state.value.kind === 'loading'` rather than a
+// local ref.
+async function refreshBranchesAndWorktrees(): Promise<void> {
+  await Promise.allSettled([
+    branchesComposable.refresh(),
+    worktreesComposable.refresh(),
+    composable.refresh(),
+  ]);
+}
 async function onManualRefresh(): Promise<void> {
   if (isFetching.value) return;
   isFetching.value = true;
@@ -3757,7 +3779,70 @@ watch(
               >{{ currentBranchTracking.behind }}</span>
             </span>
           </span>
+          <!-- Spec 2026-07-23 §4.2.1: branch/worktree row manual
+               refresh. Expanded state: anchored to the right end of
+               the branch row. Loading state replaces the icon with
+               a progress spinner (derived from the underlying
+               composables' `state.kind === 'loading'` rather than
+               a local ref, so the spinner never lags the real
+               request). -->
+          <button
+            v-if="worktreeTabsExpanded"
+            type="button"
+            class="git-diff-sidebar-bw-refresh"
+            :title="tm('spcodeProjectLoad.diffSidebar.bwRefreshTooltip')"
+            :aria-label="tm('spcodeProjectLoad.diffSidebar.bwRefreshTooltip')"
+            :disabled="
+              branchesComposable.state.value.kind === 'loading' ||
+              worktreesComposable.state.value.kind === 'loading'
+            "
+            @click="refreshBranchesAndWorktrees"
+          >
+            <v-progress-circular
+              v-if="
+                branchesComposable.state.value.kind === 'loading' ||
+                worktreesComposable.state.value.kind === 'loading'
+              "
+              indeterminate
+              :size="14"
+              :width="2"
+            />
+            <v-icon v-else size="14">mdi-refresh</v-icon>
+          </button>
         </div>
+
+        <!-- Spec 2026-07-23 §4.2.2: collapsed-state counterpart of
+             the refresh button above. Sits as a DIRECT CHILD of
+             `.git-diff-sidebar-bw` so the collapsed flex layout
+             (`justify-content: space-between`, 3 children) can
+             park it visually in the middle. DOM order placed
+             BEFORE .git-diff-sidebar-tabs so the screen-reader
+             order matches the expanded layout (branch-related
+             controls announced first). Visual position is
+             controlled by `order: 2` in CSS. -->
+        <button
+          v-if="!worktreeTabsExpanded"
+          type="button"
+          class="git-diff-sidebar-bw-refresh"
+          :title="tm('spcodeProjectLoad.diffSidebar.bwRefreshTooltip')"
+          :aria-label="tm('spcodeProjectLoad.diffSidebar.bwRefreshTooltip')"
+          :disabled="
+            branchesComposable.state.value.kind === 'loading' ||
+            worktreesComposable.state.value.kind === 'loading'
+          "
+          @click="refreshBranchesAndWorktrees"
+        >
+          <v-progress-circular
+            v-if="
+              branchesComposable.state.value.kind === 'loading' ||
+              worktreesComposable.state.value.kind === 'loading'
+            "
+            indeterminate
+            :size="14"
+            :width="2"
+          />
+          <v-icon v-else size="14">mdi-refresh</v-icon>
+        </button>
 
         <!-- Worktree tabs (visible in BOTH views, spec 2026-06-20 §5.3) -->
         <div
