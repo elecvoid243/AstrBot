@@ -1,5 +1,6 @@
 // Author: elecvoid243
-// Date: 2026-06-30
+// Date: 2026-06-30 (updated 2026-07-23 for paths with whitespace —
+//       regression for the "中文 filename 显示异常" bug)
 // Spec: docs/superpowers/specs/2026-06-17-chatui-git-diff-sidebar-design.md §4.1.1
 //      + docs/superpowers/specs/2026-06-20-git-diff-scope-switcher-design.md §4.2
 //
@@ -274,6 +275,100 @@ test("parseSpcodeGitDiff: missing additions/deletions default to 0", () => {
   const r = parseSpcodeGitDiff(data);
   assert.equal(r.files[0].additions, 0);
   assert.equal(r.files[0].deletions, 0);
+});
+
+test("parseSpcodeGitDiff: filename with internal spaces attaches slice (regression for 中文 显示异常)", () => {
+  // User report (2026-07-23): a new file named "新建   文本文档.txt"
+  // (3 internal spaces, also non-ASCII) showed up in the sidebar's
+  // file list but the diff body rendered the "noContent" placeholder
+  // instead of the patch. Root cause: the previous regex used `\S+`,
+  // which stops at the first whitespace inside the path and then
+  // cannot find the literal ` b/` separator, so the segment header
+  // never matched and the slice stayed null.
+  //
+  // Verified with raw git output (core.quotePath=false produces a
+  // plain `a/<path> b/<path>` line for ASCII and non-ASCII alike;
+  // paths are NOT quoted and the separator is a single space).
+  const cnPath = "新建   文本文档.txt";
+  const asciiPath = "with spaces.txt";
+  const data = {
+    ...baseData,
+    diff: [
+      `diff --git a/${cnPath} b/${cnPath}`,
+      "new file mode 100644",
+      "index 0000000..52b6540",
+      "--- /dev/null",
+      `+++ b/${cnPath}\t`,
+      "@@ -0,0 +1,2 @@",
+      "+123456",
+      "+649481",
+      "\\ No newline at end of file",
+      `diff --git a/${asciiPath} b/${asciiPath}`,
+      "new file mode 100644",
+      "index 0000000..abcdef",
+      "--- /dev/null",
+      `+++ b/${asciiPath}\t`,
+      "@@ -0,0 +1,1 @@",
+      "+hello",
+      "",
+    ].join("\n"),
+    files_changed: [
+      { path: cnPath, status: "A", additions: 2, deletions: 0 },
+      { path: asciiPath, status: "A", additions: 1, deletions: 0 },
+    ],
+  };
+  const r = parseSpcodeGitDiff(data);
+  assert.equal(r.files.length, 2);
+  assert.equal(r.files[0].path, cnPath);
+  assert.equal(r.files[1].path, asciiPath);
+  // Both slices must be attached (was null before the fix).
+  assert.ok(
+    r.files[0].slice && r.files[0].slice.includes(cnPath),
+    `Chinese filename slice should be attached; got ${r.files[0].slice}`,
+  );
+  assert.ok(
+    r.files[1].slice && r.files[1].slice.includes(asciiPath),
+    `ASCII-spaces filename slice should be attached; got ${r.files[1].slice}`,
+  );
+  // Hunks reach DiffPreview, so the patch text must round-trip.
+  assert.ok(r.files[0].slice.includes("+123456"));
+  assert.ok(r.files[1].slice.includes("+hello"));
+});
+
+test("parseSpcodeGitDiff: renamed file with spaces in both names attaches slice", () => {
+  // Same root cause, rename variant: a/b paths differ but both
+  // contain internal whitespace. The non-greedy regex must still
+  // resolve the new (b/) path to the files_changed entry.
+  const oldP = "old name.txt";
+  const newP = "new name.txt";
+  const data = {
+    ...baseData,
+    diff: [
+      `diff --git a/${oldP} b/${newP}`,
+      "similarity index 90%",
+      `rename from ${oldP}`,
+      `rename to ${newP}`,
+      "index abcd..efgh 100644",
+      "--- a/old name.txt",
+      "+++ b/new name.txt",
+      "@@ -1 +1 @@",
+      "-old body",
+      "+new body",
+      "",
+    ].join("\n"),
+    files_changed: [
+      { path: newP, status: "R", additions: 1, deletions: 1 },
+    ],
+  };
+  const r = parseSpcodeGitDiff(data);
+  assert.equal(r.files.length, 1);
+  assert.equal(r.files[0].path, newP);
+  assert.equal(r.files[0].status, "R");
+  assert.ok(
+    r.files[0].slice && r.files[0].slice.includes(newP),
+    `Rename target slice should be attached; got ${r.files[0].slice}`,
+  );
+  assert.ok(r.files[0].slice.includes("+new body"));
 });
 
 test("parseSpcodeGitDiff: file missing in diff segments gets null slice but still appears", () => {

@@ -129,11 +129,20 @@ export function parseSpcodeGitDiff(
       // the backend had no patch to ship; treat that as "no slices
       // to attach" and keep the file rows with slice=null.
       const segments = (data.diff ?? "").split(/^diff --git /m);
+      // Match the "diff --git" header line and capture the *new* (b/)
+      // path. Uses non-greedy `.+?` instead of `\S+` so filenames
+      // with internal spaces — e.g. ASCII "foo bar.txt" or
+      // non-ASCII "新建   文文本档.txt" — still parse. The path is
+      // group 2 (group 1 is the old/a/ path); earlier code captured
+      // it as group 1 via `\S+`, which silently returned null for
+      // any path with whitespace and made the diff body render the
+      // "no content" placeholder.
+      const headerRe = /^diff --git a\/(.+?) b\/(.+)$/m;
       for (let i = 1; i < segments.length; i++) {
         const seg = "diff --git " + segments[i];
-        const m = seg.match(/^diff --git a\/\S+ b\/(\S+)/m);
+        const m = seg.match(headerRe);
         if (!m) continue;
-        const path = m[1];
+        const path = m[2];
         const existing = byPath.get(path);
         if (!existing) continue;
         if (seg.includes("Binary files")) {
