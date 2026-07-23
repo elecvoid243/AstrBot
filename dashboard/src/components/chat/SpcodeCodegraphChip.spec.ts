@@ -39,7 +39,7 @@ describe('SpcodeCodegraphChip (status badge, 4 states)', () => {
     expect(wrapper.text()).toContain('Codegraph 已连接')
   })
 
-  it('shows warning dot + path when paths mismatch', async () => {
+  it('shows warning dot when paths mismatch', async () => {
     mockStatuses(
       { mcpRunning: true, activeProject: '/other' },
       { loaded: true, directory: '/proj', loadedAt: null },
@@ -48,7 +48,6 @@ describe('SpcodeCodegraphChip (status badge, 4 states)', () => {
     const wrapper = mount(SpcodeCodegraphChip, { global: { mocks: { $t: (k: string) => k } } })
     expect(wrapper.find('.sp-status-badge__dot--warning').exists()).toBe(true)
     expect(wrapper.text()).toContain('Codegraph 路径不匹配')
-    expect(wrapper.find('.sp-status-badge__path').exists()).toBe(true)
   })
 
   it('shows neutral empty dot (NOT red) when MCP is not running', async () => {

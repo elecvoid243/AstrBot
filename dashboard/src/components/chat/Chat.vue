@@ -681,6 +681,7 @@ import {
 import { chatApi, providerApi } from "@/api/v1";
 import { useSpcodeProjectStatus } from "@/composables/useSpcodeProjectStatus";
 import { useSpcodeCodegraphStatus } from "@/composables/useSpcodeCodegraphStatus";
+import { useSpcodeVivadoStatus } from "@/composables/useSpcodeVivadoStatus";
 import { useSpcodePlanMode } from "@/composables/useSpcodePlanMode";
 import StyledMenu from "@/components/shared/StyledMenu.vue";
 import ProjectDialog, {
@@ -751,6 +752,7 @@ const { tm } = useModuleI18n("features/chat");
 // the plugin's HTTP API.
 const spcodeStatus = useSpcodeProjectStatus();
 const codegraphStatus = useSpcodeCodegraphStatus();
+const vivadoStatus = useSpcodeVivadoStatus();
 // Plan/build mode singleton. Mirrors the spcodeStatus lifecycle so
 // both chips stay in sync across session switches and stream-ends.
 const spcodePlanMode = useSpcodePlanMode();
@@ -1199,6 +1201,9 @@ const {
       // point — the bot has just finished processing any
       // `/codegraph start|stop|set` command the user dispatched.
       void codegraphStatus.refresh();
+      // Vivado MCP state is also global. Refresh on stream-end so the
+      // chip catches up after the bot processes any `/vivado` command.
+      void vivadoStatus.refresh();
     }
   },
 });

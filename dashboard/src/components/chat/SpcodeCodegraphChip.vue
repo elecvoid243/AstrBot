@@ -4,11 +4,14 @@
 
   SpcodeCodegraphChip — status badge for codegraph MCP server state.
 
-  Visual states (locked by spec §5.2):
+  Visual states (v2, 2026-07-23 — inline path removed to keep the
+  status row compact when the Vivado chip sits to the right):
     - mcpRunning + matched → success dot + mdi-database-check + "Codegraph 已连接"
-    - mcpRunning + mismatch → warning dot + mdi-alert-circle-outline + path
+    - mcpRunning + mismatch → warning dot + mdi-alert-circle-outline + "Codegraph 路径不匹配"
     - mcp not running → empty neutral dot (NOT RED) + mdi-database-off-outline
     - mcp running but no project → empty neutral dot + mdi-database-remove-outline
+
+  Path details are only visible via the hover tooltip.
 
   Event contract (unchanged):
     - Emits `open-codegraph-dialog` on click
@@ -37,16 +40,6 @@ const projectMatch = computed<boolean>(() => {
   return status.value.activeProject === loadedProjectDir.value;
 });
 
-function truncatePath(path: string): string {
-  if (path.length <= 48) return path;
-  return `…${path.slice(-47)}`;
-}
-
-const displayPath = computed<string>(() => {
-  if (!status.value.activeProject) return "";
-  return truncatePath(status.value.activeProject);
-});
-
 const icon = computed<string>(() => {
   if (!mcpOk.value) return "mdi-database-off-outline";
   if (!hasProject.value) return "mdi-database-remove-outline";
@@ -60,10 +53,6 @@ const label = computed<string>(() => {
   if (!projectMatch.value) return "Codegraph 路径不匹配";
   return "Codegraph 已连接";
 });
-
-const showPath = computed<boolean>(
-  () => mcpOk.value && hasProject.value && !projectMatch.value,
-);
 
 const tooltipText = computed<string>(() => {
   if (!mcpOk.value) return "MCP 未运行, codegraph 不可用";
@@ -107,13 +96,6 @@ const isEmptyState = computed<boolean>(() => !mcpOk.value || !hasProject.value);
         />
         <v-icon size="14" class="sp-status-badge__icon">{{ icon }}</v-icon>
         <span class="sp-status-badge__label">{{ label }}</span>
-        <span
-          v-if="showPath"
-          class="sp-status-badge__path"
-          :title="status.activeProject"
-        >
-          {{ displayPath }}
-        </span>
       </button>
     </template>
     <span>{{ tooltipText }}</span>
@@ -177,17 +159,6 @@ const isEmptyState = computed<boolean>(() => !mcpOk.value || !hasProject.value);
 }
 
 .sp-status-badge__label {
-  white-space: nowrap;
-}
-
-.sp-status-badge__path {
-  font-family: var(--v-font-mono, monospace);
-  font-size: 11px;
-  font-weight: 400;
-  color: var(--sp-text-path);
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 </style>

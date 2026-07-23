@@ -14,7 +14,10 @@
     <div v-if="showSpcodeIndicator" class="input-area__status-row">
       <div class="input-area__status-row__left">
         <SpcodeProjectIndicator @open-load-dialog="openLoadDialog" />
-        <SpcodeCodegraphChip @open-codegraph-dialog="openCodegraphLoadDialog" />
+        <div class="input-area__status-row__left__chips-row">
+          <SpcodeCodegraphChip @open-codegraph-dialog="openCodegraphLoadDialog" />
+          <SpcodeVivadoStatusChip />
+        </div>
       </div>
       <!--
             Right-side group: keeps the plan-mode chip visually adjacent to
@@ -455,11 +458,13 @@ import ProjectLoadMenuItem from "./ProjectLoadMenuItem.vue";
 import ProjectLoadDialog from "./ProjectLoadDialog.vue";
 import SpcodeProjectIndicator from "./SpcodeProjectIndicator.vue";
 import SpcodeCodegraphChip from "./SpcodeCodegraphChip.vue";
+import SpcodeVivadoStatusChip from "./SpcodeVivadoStatusChip.vue";
 import SpcodePlanModeChip from "./SpcodePlanModeChip.vue";
 import GitDiffChip from "./GitDiffChip.vue";
 import CommentsPreviewDialog from "./CommentsPreviewDialog.vue";
 import { useSpcodeProjectStatus } from "@/composables/useSpcodeProjectStatus";
 import { useSpcodeCodegraphStatus } from "@/composables/useSpcodeCodegraphStatus";
+import { useSpcodeVivadoStatus } from "@/composables/useSpcodeVivadoStatus";
 import { useFileComments } from "@/composables/useFileComments";
 import { useConfirmDialog } from "@/utils/confirmDialog";
 import { useSpcodeProjectLoad } from "@/composables/useSpcodeProjectLoad";
@@ -1510,6 +1515,9 @@ watch(
 // an initial fetch here so the chip has a value to render on first
 // paint when the spcode indicator becomes visible.
 const codegraphStatus = useSpcodeCodegraphStatus();
+// Singleton vivado MCP status. Follows the same pattern as codegraph:
+// authoritative refresh is driven by ``Chat.vue:onStreamEnd``.
+const vivadoStatus = useSpcodeVivadoStatus();
 // Fallback sync path for the case where another client / the bot itself
 // mutates codegraph state while this tab is in the background. When
 // the user brings the tab back to the foreground we re-query the
@@ -1519,6 +1527,7 @@ const codegraphStatus = useSpcodeCodegraphStatus();
 const onVisibilityChange = () => {
   if (document.visibilityState === "visible" && showSpcodeIndicator.value) {
     void codegraphStatus.refresh();
+    void vivadoStatus.refresh();
   }
 };
 watch(
@@ -1526,6 +1535,7 @@ watch(
   async (visible) => {
     if (visible) {
       await codegraphStatus.refresh();
+      await vivadoStatus.refresh();
     }
   },
   { immediate: false },
@@ -1629,16 +1639,26 @@ defineExpose({
 }
 
 /*
- * Left cluster: project indicator + codegraph chip. Stacked vertically
- * because both chips may carry long localized text (project path,
- * codegraph server name) that would overflow or wrap awkwardly when
- * laid out side-by-side at narrow widths.
+ * Left cluster: project indicator occupies its own row; the codegraph +
+ * vivado chips sit together in a nested flex row below it.
  */
 .input-area__status-row__left {
   align-items: flex-start;
   display: flex;
   flex-direction: column;
   gap: 0;
+  min-width: 0;
+}
+
+/*
+ * Nested row for codegraph + vivado chips. These share one line so they
+ * do not take up three rows when the plugin is fully configured.
+ */
+.input-area__status-row__left__chips-row {
+  align-items: center;
+  display: flex;
+  flex-direction: row;
+  gap: 6px;
   min-width: 0;
 }
 
