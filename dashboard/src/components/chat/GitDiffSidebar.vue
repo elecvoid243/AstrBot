@@ -5136,9 +5136,64 @@ watch(
   order: 1; /* visually left */
   margin-left: 2px; /* nudge content 2px right */
 }
+.git-diff-sidebar-bw.is-collapsed > .git-diff-sidebar-bw-refresh {
+  order: 2; /* visually middle (between worktree=1 and branch=3) */
+  /* In collapsed mode the wrapper owns the row's padding
+     (6px 14px 8px), so the button's own margin-right: 4px from
+     the base rule would over-pad. Zero it out to keep the
+     centered look tight. */
+  margin-right: 0;
+}
 .git-diff-sidebar-bw.is-collapsed > .git-diff-sidebar-branch-mgmt {
-  order: 2; /* visually right */
+  order: 3; /* visually right (was 2; bumped +1 for refresh button at order: 2) */
   margin-right: 2px; /* nudge content 2px left */
+}
+
+/* ── Branch/worktree row manual refresh button ──────────────────────
+   Spec 2026-07-23 §4.3. A 24x24 ghost button that mirrors the
+   visual weight of the existing worktree-tab "add" button
+   (.git-diff-sidebar-tab-add) so the two feel like siblings in
+   the row. Two DOM nodes share this class (one inside the
+   branch row, one as a wrapper-level child); the collapsed/
+   expanded position switch is driven by `order` in the parent
+   `.is-collapsed` rules above, NOT by this base rule. */
+
+/* Base shape + interaction states. */
+.git-diff-sidebar-bw-refresh {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  margin: 0 4px 0 0; /* breathing room from preceding element */
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: rgba(var(--v-theme-on-surface), 0.6);
+  cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+.git-diff-sidebar-bw-refresh:hover:not(:disabled) {
+  background: rgba(var(--v-theme-on-surface), 0.08);
+  color: rgba(var(--v-theme-on-surface), 0.9);
+}
+.git-diff-sidebar-bw-refresh:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+.git-diff-sidebar-bw-refresh:focus-visible {
+  outline: 2px solid rgba(var(--v-theme-primary), 0.5);
+  outline-offset: 1px;
+}
+
+/* Expanded state: button is the last inline child of the branch
+   row (which is a block child of the wrapper). Source order
+   alone puts it on the right; the small left margin gives 6px
+   breathing room from the preceding tracking badges. */
+.git-diff-sidebar-bw:not(.is-collapsed) > .git-diff-sidebar-bw-refresh {
+  margin-left: 6px;
 }
 
 /* ── Worktree tabs (spec 2026-06-18 §3.4) ──────────────────── */
