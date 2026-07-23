@@ -3798,6 +3798,9 @@ watch(
             "
             @click="refreshBranchesAndWorktrees"
           >
+            <span class="git-diff-sidebar-bw-refresh-text">
+              {{ tm("spcodeProjectLoad.diffSidebar.bwRefreshTooltip") }}
+            </span>
             <v-progress-circular
               v-if="
                 branchesComposable.state.value.kind === 'loading' ||
@@ -3832,6 +3835,9 @@ watch(
           "
           @click="refreshBranchesAndWorktrees"
         >
+          <span class="git-diff-sidebar-bw-refresh-text">
+            {{ tm("spcodeProjectLoad.diffSidebar.bwRefreshTooltip") }}
+          </span>
           <v-progress-circular
             v-if="
               branchesComposable.state.value.kind === 'loading' ||
@@ -5158,20 +5164,30 @@ watch(
    expanded position switch is driven by `order` in the parent
    `.is-collapsed` rules above, NOT by this base rule. */
 
-/* Base shape + interaction states. */
+/* Base shape + interaction states. Rectangular chip with text +
+   trailing refresh icon (rev 2026-07-23: previously icon-only
+   24×24 square; widened to a labeled button per user request so
+   the refresh action is discoverable without hover). The text
+   span inherits font/color from the button; `white-space: nowrap`
+   keeps the label on one line even on narrow sidebars. */
 .git-diff-sidebar-bw-refresh {
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
-  padding: 0;
+  gap: 6px;
+  min-height: 24px;
+  padding: 0 10px;
   margin: 0 4px 0 0; /* breathing room from preceding element */
   border: 0;
   border-radius: 4px;
   background: transparent;
   color: rgba(var(--v-theme-on-surface), 0.6);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  user-select: none;
   cursor: pointer;
   transition: background-color 0.12s ease, color 0.12s ease;
 }
