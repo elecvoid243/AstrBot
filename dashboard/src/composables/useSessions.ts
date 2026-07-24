@@ -11,6 +11,10 @@ export interface Session {
     creator: string;
     is_group: number;
     created_at: string;
+    /** Present when this session is a branch: points to the source session. */
+    branch_source: { session_id: string; message_id: number } | null;
+    /** Direct child sessions branched from this session. */
+    branches: Array<{ session_id: string; display_name: string | null }>;
 }
 
 export function useSessions(chatboxMode: boolean = false) {

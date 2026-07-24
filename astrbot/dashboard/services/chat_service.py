@@ -840,6 +840,36 @@ class ChatService:
         self.running_convs: dict[str, bool] = {}
         self.chat_runs: dict[str, ChatRunState] = {}
         self.chat_runs_by_session: dict[str, set[str]] = {}
+        # In-memory cache of branch relations derived from `branch_info`
+        # history records: child session_id -> {source_session_id, message_id}.
+        # None means "not scanned yet"; the full-table scan runs once lazily
+        # because it costs ~1s on large history tables (no content index).
+        self._branch_relations: dict[str, dict] | None = None
+
+    async def get_branch_relations(self) -> dict[str, dict]:
+        """Return cached branch relations, scanning history once on first use.
+
+        The cache is updated incrementally by `branch_session`; stale entries
+        (e.g. deleted sessions) are filtered out by callers at read time.
+        """
+        if self._branch_relations is None:
+            relations: dict[str, dict] = {}
+            for record in await self.db.get_webchat_branch_infos():
+                content = record.content
+                if (
+                    not isinstance(content, dict)
+                    or content.get("type") != "branch_info"
+                ):
+                    continue
+                source_id = content.get("source_session_id")
+                if not source_id:
+                    continue
+                relations[record.user_id] = {
+                    "source_session_id": source_id,
+                    "source_message_id": content.get("source_message_id"),
+                }
+            self._branch_relations = relations
+        return self._branch_relations
 
     async def build_user_message_parts(self, message: str | list) -> list[dict]:
         return await build_webchat_message_parts(
@@ -1702,6 +1732,36 @@ class ChatService:
                     "updated_at": to_utc_isoformat(session.updated_at),
                 }
             )
+
+        # Derive branch relations from the cached `branch_info` divider
+        # records (see `get_branch_relations`). Entries pointing to or from
+        # sessions outside the current list (e.g. deleted) are filtered out.
+        session_ids = {item["session_id"] for item in sessions_data}
+        name_by_id = {item["session_id"]: item["display_name"] for item in sessions_data}
+        relations = await self.get_branch_relations()
+        children: dict[str, list[str]] = {}
+        for child_id, relation in relations.items():
+            if child_id not in session_ids:
+                continue
+            source_id = relation["source_session_id"]
+            if source_id in session_ids:
+                children.setdefault(source_id, []).append(child_id)
+
+        for item in sessions_data:
+            sid = item["session_id"]
+            relation = relations.get(sid)
+            item["branch_source"] = (
+                {
+                    "session_id": relation["source_session_id"],
+                    "message_id": relation["source_message_id"],
+                }
+                if relation
+                else None
+            )
+            item["branches"] = [
+                {"session_id": child_id, "display_name": name_by_id.get(child_id)}
+                for child_id in children.get(sid, [])
+            ]
         return sessions_data
 
     async def get_sessions_from_dashboard_query(
@@ -2279,6 +2339,14 @@ class ChatService:
             sender_id="bot",
             sender_name="bot",
         )
+
+        # Keep the lazily-built relations cache in sync so the next session
+        # list reflects this branch without a rescan.
+        if self._branch_relations is not None:
+            self._branch_relations[new_session.session_id] = {
+                "source_session_id": session_id,
+                "source_message_id": message_id,
+            }
 
         return {
             "session_id": new_session.session_id,

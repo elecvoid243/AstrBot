@@ -186,6 +186,118 @@ async def test_branch_session_rejects_unknown_checkpoint():
 
 
 @pytest.mark.asyncio
+async def test_get_sessions_includes_branch_relations():
+    service = _make_service()
+    src_item = {
+        "session": SimpleNamespace(
+            session_id=SRC_SESSION_ID,
+            platform_id="webchat",
+            creator="alice",
+            display_name="源会话",
+            is_group=0,
+            created_at=datetime(2026, 7, 24, tzinfo=UTC),
+            updated_at=datetime(2026, 7, 24, tzinfo=UTC),
+        )
+    }
+    child_item = {
+        "session": SimpleNamespace(
+            session_id=NEW_SESSION_ID,
+            platform_id="webchat",
+            creator="alice",
+            display_name="分支 · 源会话",
+            is_group=0,
+            created_at=datetime(2026, 7, 24, 1, tzinfo=UTC),
+            updated_at=datetime(2026, 7, 24, 1, tzinfo=UTC),
+        )
+    }
+    service.db.get_platform_sessions_by_creator_paginated = AsyncMock(
+        return_value=([src_item, child_item], 2)
+    )
+    service.db.get_webchat_branch_infos = AsyncMock(
+        return_value=[
+            SimpleNamespace(
+                user_id=NEW_SESSION_ID,
+                content={
+                    "type": "branch_info",
+                    "source_session_id": SRC_SESSION_ID,
+                    "source_message_id": 2,
+                },
+            )
+        ]
+    )
+
+    result = await service.get_sessions("alice", "webchat")
+
+    src = next(s for s in result if s["session_id"] == SRC_SESSION_ID)
+    child = next(s for s in result if s["session_id"] == NEW_SESSION_ID)
+    assert src["branch_source"] is None
+    assert src["branches"] == [
+        {"session_id": NEW_SESSION_ID, "display_name": "分支 · 源会话"}
+    ]
+    assert child["branch_source"] == {"session_id": SRC_SESSION_ID, "message_id": 2}
+    assert child["branches"] == []
+
+
+@pytest.mark.asyncio
+async def test_get_sessions_filters_relations_to_listed_sessions():
+    # The cached relation points to a source session that no longer exists
+    # in the current list (e.g. deleted): the parent keeps no badge entry.
+    service = _make_service()
+    child_item = {
+        "session": SimpleNamespace(
+            session_id=NEW_SESSION_ID,
+            platform_id="webchat",
+            creator="alice",
+            display_name="分支 · 源会话",
+            is_group=0,
+            created_at=datetime(2026, 7, 24, 1, tzinfo=UTC),
+            updated_at=datetime(2026, 7, 24, 1, tzinfo=UTC),
+        )
+    }
+    service.db.get_platform_sessions_by_creator_paginated = AsyncMock(
+        return_value=([child_item], 1)
+    )
+    service.db.get_webchat_branch_infos = AsyncMock(
+        return_value=[
+            SimpleNamespace(
+                user_id=NEW_SESSION_ID,
+                content={
+                    "type": "branch_info",
+                    "source_session_id": "deleted-source",
+                    "source_message_id": 2,
+                },
+            )
+        ]
+    )
+
+    result = await service.get_sessions("alice", "webchat")
+
+    assert result[0]["branches"] == []
+    # The jump-to-source pointer is still exposed; the frontend handles a
+    # dangling jump via the existing session-load error path.
+    assert result[0]["branch_source"] == {
+        "session_id": "deleted-source",
+        "message_id": 2,
+    }
+
+
+@pytest.mark.asyncio
+async def test_branch_session_updates_relations_cache_without_rescan():
+    service = _make_service()
+    service.db.get_webchat_branch_infos = AsyncMock(return_value=[])
+
+    await service.get_branch_relations()  # warm the cache
+    await service.branch_session("alice", SRC_SESSION_ID, 2)
+    relations = await service.get_branch_relations()
+
+    assert relations[NEW_SESSION_ID] == {
+        "source_session_id": SRC_SESSION_ID,
+        "source_message_id": 2,
+    }
+    service.db.get_webchat_branch_infos.assert_awaited_once()  # no rescan
+
+
+@pytest.mark.asyncio
 async def test_branch_route_returns_ok_payload():
     from astrbot.dashboard.api.chat import branch_chat_message
 

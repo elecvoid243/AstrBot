@@ -124,7 +124,9 @@
     "action": "Branch",
     "success": "Branched session created",
     "failed": "Failed to create branched session",
-    "inherited": "{count} inherited messages"
+    "inherited": "{count} inherited messages",
+    "branches": "View branches",
+    "jumpToSource": "Jump to source session"
   },
   "thread": {
     "title": "Thread",

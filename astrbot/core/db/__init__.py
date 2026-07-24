@@ -257,6 +257,21 @@ class BaseDatabase(abc.ABC):
         ...
 
     @abc.abstractmethod
+    async def get_webchat_branch_infos(
+        self,
+    ) -> list[PlatformMessageHistory]:
+        """Get all branch_info divider records in platform message history.
+
+        This is a coarse full-table text match intended for one-time cache
+        warm-up, not per-request use. Callers must still validate
+        ``content["type"] == "branch_info"``.
+
+        Returns:
+            History records whose JSON content mentions ``branch_info``.
+        """
+        ...
+
+    @abc.abstractmethod
     async def create_webchat_thread(
         self,
         creator: str,

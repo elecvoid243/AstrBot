@@ -124,7 +124,9 @@
     "action": "分支会话",
     "success": "已创建分支会话",
     "failed": "创建分支会话失败",
-    "inherited": "已继承 {count} 条上文"
+    "inherited": "已继承 {count} 条上文",
+    "branches": "查看分支",
+    "jumpToSource": "跳转到源会话"
   },
   "thread": {
     "title": "分支",

@@ -4,7 +4,7 @@ import typing as T
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import CursorResult, Row
+from sqlalchemy import CursorResult, Row, String, cast
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, delete, desc, func, or_, select, text, update
 
@@ -646,6 +646,33 @@ class SQLiteDatabase(BaseDatabase):
             )
             result = await session.execute(query)
             return result.scalar_one_or_none()
+
+    async def get_webchat_branch_infos(
+        self,
+    ) -> list[PlatformMessageHistory]:
+        """Get all branch_info divider records in platform message history.
+
+        This is a coarse full-table text match intended for one-time cache
+        warm-up (e.g. on first session-list load), not per-request use.
+        Callers must still validate ``content["type"] == "branch_info"``.
+
+        Returns:
+            History records whose JSON content mentions ``branch_info``,
+            ordered by record ID ascending.
+        """
+        async with self.get_db() as session:
+            session: AsyncSession
+            query = (
+                select(PlatformMessageHistory)
+                .where(
+                    cast(PlatformMessageHistory.content, String).like(
+                        '%"branch_info"%'
+                    ),
+                )
+                .order_by(col(PlatformMessageHistory.id))
+            )
+            result = await session.execute(query)
+            return list(result.scalars().all())
 
     async def create_webchat_thread(
         self,

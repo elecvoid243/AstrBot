@@ -144,6 +144,9 @@
             :class="{
               active:
                 !isProviderWorkspace && currSessionId === session.session_id,
+              'has-branch-meta':
+                Boolean(session.branches?.length) ||
+                Boolean(session.branch_source),
             }"
             role="button"
             tabindex="0"
@@ -152,6 +155,55 @@
             @keydown.space.prevent="selectSession(session.session_id)"
           >
             <span class="session-title">{{ sessionTitle(session) }}</span>
+            <div
+              v-if="session.branches?.length || session.branch_source"
+              class="session-branch-meta"
+              @click.stop
+            >
+              <StyledMenu
+                v-if="session.branches?.length"
+                location="bottom start"
+                transition="none"
+                no-border
+              >
+                <template #activator="{ props: branchMenuProps }">
+                  <button
+                    v-bind="branchMenuProps"
+                    class="session-branch-badge"
+                    type="button"
+                    :title="tm('branch.branches')"
+                  >
+                    <GitBranch :size="12" />
+                    <span>{{ session.branches.length }}</span>
+                  </button>
+                </template>
+                <v-list-item
+                  v-for="branch in session.branches"
+                  :key="branch.session_id"
+                  class="styled-menu-item"
+                  rounded="md"
+                  @click="selectSession(branch.session_id)"
+                >
+                  <template #prepend>
+                    <GitBranch :size="14" />
+                  </template>
+                  <v-list-item-title>
+                    {{ branch.display_name?.trim() || tm("conversation.newConversation") }}
+                  </v-list-item-title>
+                </v-list-item>
+              </StyledMenu>
+              <v-btn
+                v-if="session.branch_source"
+                icon
+                size="x-small"
+                variant="text"
+                class="session-action-btn"
+                :title="tm('branch.jumpToSource')"
+                @click="selectSession(session.branch_source.session_id)"
+              >
+                <CornerUpLeft :size="14" />
+              </v-btn>
+            </div>
             <div class="session-actions" @click.stop>
               <v-btn
                 icon
@@ -708,6 +760,8 @@ import {
   Cable,
   Check,
   ChevronRight,
+  CornerUpLeft,
+  GitBranch,
   Languages,
   Moon,
   PanelLeft,
@@ -3154,6 +3208,40 @@ function toggleTheme() {
   opacity: 1;
   pointer-events: auto;
   visibility: visible;
+}
+
+/* Branch meta (badge + jump-to-source) sits left of the hover actions and
+   stays visible without hover. */
+.session-item.has-branch-meta {
+  padding-right: 108px;
+}
+
+.session-branch-meta {
+  position: absolute;
+  right: 52px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.session-branch-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--chat-muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.session-branch-badge:hover {
+  background: rgba(var(--v-theme-on-surface), 0.06);
+  color: rgb(var(--v-theme-on-surface));
 }
 
 .session-item:hover .session-progress,
