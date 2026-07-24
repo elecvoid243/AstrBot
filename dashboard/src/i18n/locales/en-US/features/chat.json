@@ -120,6 +120,12 @@
     "done": "Done",
     "running": "Running"
   },
+  "branch": {
+    "action": "Branch",
+    "success": "Branched session created",
+    "failed": "Failed to create branched session",
+    "inherited": "{count} inherited messages"
+  },
   "thread": {
     "title": "Thread",
     "askInThread": "Ask in thread",

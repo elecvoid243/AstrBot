@@ -682,7 +682,10 @@ export function useMessages(options: UseMessagesOptions) {
       content.message || [],
       content.reasoning || "",
     );
+    // Spread first so non-standard content types (e.g. branch_info) keep
+    // their extra fields; known keys are normalized below.
     const normalizedContent: ChatContent = {
+      ...content,
       type: content.type || (record.sender_id === "bot" ? "bot" : "user"),
       message: normalizedMessage,
       reasoning: extractReasoningText(

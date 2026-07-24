@@ -120,6 +120,12 @@
     "done": "已完成",
     "running": "运行中"
   },
+  "branch": {
+    "action": "分支会话",
+    "success": "已创建分支会话",
+    "failed": "创建分支会话失败",
+    "inherited": "已继承 {count} 条上文"
+  },
   "thread": {
     "title": "分支",
     "askInThread": "在新分支中询问",

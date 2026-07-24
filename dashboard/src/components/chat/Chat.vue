@@ -503,6 +503,7 @@
                 !Boolean(currSessionId && isSessionRunning(currSessionId))
               "
               enable-regenerate
+              enable-branch
               enable-thread-selection
               :manage-refs-sidebar="false"
               :editing-message-id="editingMessage?.id || null"
@@ -512,6 +513,7 @@
               @save-edit="saveMessageEdit"
               @regenerate="handleRegenerateMessage"
               @regenerate-with-model="handleRegenerateMessage"
+              @branch="handleBranch"
               @select-bot-text="handleBotTextSelection"
               @open-thread="openThreadPanel"
               @open-reasoning="openReasoningPanel"
@@ -2269,6 +2271,33 @@ async function handleRegenerateMessage(
     selection?.modelName || "",
     enableStreaming.value,
   );
+}
+
+async function handleBranch(message: ChatRecord) {
+  const sessionId = currSessionId.value;
+  if (!sessionId || message.id == null) return;
+  try {
+    const response = await chatApi.branchMessage(sessionId, message.id);
+    if (response.data?.status !== "ok") {
+      toast.error(response.data?.message || tm("branch.failed"));
+      return;
+    }
+    const newSessionId = response.data?.data?.session_id;
+    if (!newSessionId) {
+      toast.error(tm("branch.failed"));
+      return;
+    }
+    toast.success(tm("branch.success"));
+    await getSessions();
+    await selectSession(newSessionId);
+  } catch (error) {
+    toast.error(
+      isAxiosError(error)
+        ? error.response?.data?.message || error.message
+        : tm("branch.failed"),
+    );
+    console.error("Failed to branch session:", error);
+  }
 }
 
 function handleBotTextSelection(event: MouseEvent, message: ChatRecord) {

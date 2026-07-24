@@ -8,11 +8,15 @@
       <div
         v-for="(msg, msgIndex) in messages"
         :key="msg.id || `${msgIndex}-${msg.created_at || ''}`"
+        v-show="!isCollapsedInherited(msgIndex)"
         class="message-row"
-        :class="isUserMessage(msg) ? 'from-user' : 'from-bot'"
+        :class="[
+          isUserMessage(msg) ? 'from-user' : 'from-bot',
+          { 'branch-divider-row': isBranchDivider(msg) },
+        ]"
       >
         <v-avatar
-          v-if="!isUserMessage(msg)"
+          v-if="!isUserMessage(msg) && !isBranchDivider(msg)"
           class="bot-avatar"
           :size="avatarSize"
         >
@@ -27,6 +31,23 @@
         </v-avatar>
 
         <div class="message-stack">
+          <div v-if="isBranchDivider(msg)" class="branch-divider">
+            <button
+              type="button"
+              class="branch-divider-toggle"
+              @click="branchCollapsed = !branchCollapsed"
+            >
+              <v-icon size="14">{{
+                branchCollapsed ? "mdi-chevron-right" : "mdi-chevron-down"
+              }}</v-icon>
+              <span>{{
+                tm("branch.inherited", {
+                  count: branchDividerInfo(msg).inherited_count,
+                })
+              }}</span>
+            </button>
+          </div>
+          <template v-else>
           <div
             v-if="isUserMessage(msg) && userAttachmentParts(msg).length"
             class="sent-attachments"
@@ -334,6 +355,19 @@
               @retry-with-model="emit('regenerateWithModel', msg, $event)"
             />
             <v-btn
+              v-if="canBranchMessage(msg, msgIndex)"
+              icon="mdi-source-branch"
+              size="x-small"
+              variant="text"
+              color="grey"
+              @click="emit('branch', msg)"
+            >
+              <v-icon size="14">mdi-source-branch</v-icon>
+              <v-tooltip activator="parent" location="top">{{
+                tm("branch.action")
+              }}</v-tooltip>
+            </v-btn>
+            <v-btn
               v-if="enableCopy && !isUserMessage(msg)"
               icon="mdi-content-copy"
               size="x-small"
@@ -432,6 +466,7 @@
               />
             </div>
           </div>
+          </template>
         </div>
       </div>
     </div>
@@ -512,6 +547,7 @@ const props = withDefaults(
     variant?: "main" | "thread";
     enableEdit?: boolean;
     enableRegenerate?: boolean;
+    enableBranch?: boolean;
     enableThreadSelection?: boolean;
     enableCopy?: boolean;
     manageRefsSidebar?: boolean;
@@ -532,6 +568,7 @@ const props = withDefaults(
     variant: "main",
     enableEdit: false,
     enableRegenerate: false,
+    enableBranch: false,
     enableThreadSelection: false,
     enableCopy: true,
     manageRefsSidebar: true,
@@ -552,6 +589,7 @@ const emit = defineEmits<{
     message: ChatRecord,
     selection: RegenerateModelSelection,
   ];
+  branch: [message: ChatRecord];
   selectBotText: [event: MouseEvent, message: ChatRecord];
   openThread: [thread: ChatThread];
   openReasoning: [payload: { message: ChatRecord; blockIndex: number }];
@@ -977,6 +1015,47 @@ function canRegenerateMessage(message: ChatRecord, messageIndex: number) {
   );
 }
 
+function isBranchDivider(message: ChatRecord) {
+  return messageContent(message).type === "branch_info";
+}
+
+function canBranchMessage(message: ChatRecord, messageIndex: number) {
+  return (
+    props.enableBranch &&
+    !isUserMessage(message) &&
+    !isBranchDivider(message) &&
+    !messageContent(message).isLoading &&
+    !isMessageStreaming(message, messageIndex) &&
+    Boolean(message.llm_checkpoint_id) &&
+    message.id != null &&
+    !String(message.id).startsWith("local-")
+  );
+}
+
+// Collapsible divider for history inherited from a branched session.
+const branchCollapsed = ref(true);
+
+const branchDividerIndex = computed(() =>
+  props.messages.findIndex((message) => isBranchDivider(message)),
+);
+
+function branchDividerInfo(message: ChatRecord) {
+  const content = messageContent(message) as unknown as Record<string, unknown>;
+  return {
+    source_session_id: String(content.source_session_id || ""),
+    source_message_id: Number(content.source_message_id || 0),
+    inherited_count: Number(content.inherited_count || 0),
+  };
+}
+
+function isCollapsedInherited(messageIndex: number) {
+  return (
+    branchCollapsed.value &&
+    branchDividerIndex.value >= 0 &&
+    messageIndex < branchDividerIndex.value
+  );
+}
+
 function showMessageMeta(message: ChatRecord, messageIndex: number) {
   return (
     !messageContent(message).isLoading &&
@@ -1268,6 +1347,48 @@ function formatDuration(seconds: number) {
 
 .message-row.from-user {
   justify-content: flex-end;
+}
+
+.message-row.branch-divider-row {
+  justify-content: center;
+}
+
+.branch-divider-row .message-stack {
+  flex: 1 1 auto;
+  max-width: 100%;
+  align-items: center;
+}
+
+.branch-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  color: var(--chat-muted);
+  font-size: 12px;
+}
+
+.branch-divider::before,
+.branch-divider::after {
+  content: "";
+  flex: 1 1 0;
+  height: 1px;
+  background: var(--chat-border);
+}
+
+.branch-divider-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.branch-divider-toggle:hover {
+  background: rgba(var(--v-theme-on-surface), 0.06);
 }
 
 .message-stack {

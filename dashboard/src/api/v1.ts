@@ -871,6 +871,14 @@ export const chatApi = {
   regenerateMessageUrl(sessionId: string, messageId: string | number) {
     return `/api/v1/chat/sessions/${encodeURIComponent(sessionId)}/messages/${encodeURIComponent(String(messageId))}/regenerate`;
   },
+
+  branchMessage(sessionId: string, messageId: string | number) {
+    return typed<any>(
+      openApiV1.branchChatMessage({
+        path: { session_id: sessionId, message_id: String(messageId) },
+      }) as any,
+    );
+  },
   createThread(payload: ChatThreadCreateRequest) {
     return typed<any>(openApiV1.createChatThread({ body: payload }));
   },
