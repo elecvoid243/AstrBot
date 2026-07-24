@@ -514,6 +514,7 @@
               @regenerate="handleRegenerateMessage"
               @regenerate-with-model="handleRegenerateMessage"
               @branch="handleBranch"
+              @branch-toggle="onBranchToggle"
               @select-bot-text="handleBotTextSelection"
               @open-thread="openThreadPanel"
               @open-reasoning="openReasoningPanel"
@@ -537,6 +538,7 @@
             v-for="marker in scrollMarkers"
             :key="`sm-${marker.id}`"
             class="scroll-marker-dot"
+            :class="{ 'scroll-marker-dot--inherited': marker.inherited }"
             :style="{ top: marker.topPct + '%' }"
             @click.stop="scrollToMessage(marker.id)"
             @mouseenter="onDotEnter(marker.preview, $event)"
@@ -856,7 +858,7 @@ const savingSessionTitle = ref(false);
 const messageEditDraft = ref("");
 const editingMessage = ref<ChatRecord | null>(null);
 const savingMessageEdit = ref(false);
-const scrollMarkers = ref<Array<{id: string | number; topPct: number; preview: string}>>([]);
+const scrollMarkers = ref<Array<{id: string | number; topPct: number; preview: string; inherited: boolean}>>([]);
 const stripHeight = ref(0);
 const stripRightOffset = ref(0); // scrollbar width (px) so the yellow strip sits flush with the scrollbar's left edge
 const dotTooltip = reactive({
@@ -2125,6 +2127,7 @@ function updateScrollMarkers() {
     id: string | number;
     topPct: number;
     preview: string;
+    inherited: boolean;
   }> = [];
   for (let i = 0; i < activeMessages.value.length; i++) {
     const msg = activeMessages.value[i];
@@ -2132,14 +2135,26 @@ function updateScrollMarkers() {
     const row = rows[i];
     if (!row) continue;
     const rowRect = row.getBoundingClientRect();
+    // Skip rows hidden by the collapsed branch divider (display:none
+    // reports a zero rect, which would yield a meaningless position).
+    if (rowRect.width === 0 && rowRect.height === 0) continue;
     const offsetTop = rowRect.top - containerRect.top + container.scrollTop;
     markers.push({
       id: msg.id,
       topPct: (offsetTop / scrollable) * 100,
       preview: truncate(plainTextFromMessage(msg), 40),
+      inherited: row.classList.contains("inherited-row"),
     });
   }
   scrollMarkers.value = markers;
+}
+
+function onBranchToggle() {
+  // Branch history expand/collapse only toggles v-show inside
+  // ChatMessageList, so neither the messages watcher nor the container
+  // ResizeObserver fires. Recompute markers explicitly after the layout
+  // settles.
+  nextTick(() => updateScrollMarkers());
 }
 
 function onStripClick(event: MouseEvent) {
@@ -3548,6 +3563,9 @@ kbd {
     border-color 0.2s ease;
   cursor: pointer;
   border: 1px solid rgba(0, 0, 0, 0.1);
+}
+.scroll-marker-strip .scroll-marker-dot--inherited {
+  background: #e5484d;
 }
 .scroll-marker-strip .scroll-marker-dot:hover {
   opacity: 1;

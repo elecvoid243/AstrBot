@@ -12,7 +12,10 @@
         class="message-row"
         :class="[
           isUserMessage(msg) ? 'from-user' : 'from-bot',
-          { 'branch-divider-row': isBranchDivider(msg) },
+          {
+            'branch-divider-row': isBranchDivider(msg),
+            'inherited-row': isInheritedMessage(msgIndex),
+          },
         ]"
       >
         <v-avatar
@@ -35,7 +38,7 @@
             <button
               type="button"
               class="branch-divider-toggle"
-              @click="branchCollapsed = !branchCollapsed"
+              @click="toggleBranchCollapsed"
             >
               <v-icon size="14">{{
                 branchCollapsed ? "mdi-chevron-right" : "mdi-chevron-down"
@@ -590,6 +593,7 @@ const emit = defineEmits<{
     selection: RegenerateModelSelection,
   ];
   branch: [message: ChatRecord];
+  branchToggle: [];
   selectBotText: [event: MouseEvent, message: ChatRecord];
   openThread: [thread: ChatThread];
   openReasoning: [payload: { message: ChatRecord; blockIndex: number }];
@@ -1035,9 +1039,44 @@ function canBranchMessage(message: ChatRecord, messageIndex: number) {
 // Collapsible divider for history inherited from a branched session.
 const branchCollapsed = ref(true);
 
+function toggleBranchCollapsed() {
+  // Manual scroll anchoring: the inherited history sits above the divider,
+  // so toggling shifts the divider by the revealed/hidden height. Compensate
+  // scrollTop by the scrollHeight delta to keep the divider visually stable,
+  // otherwise expanding can push it out of the viewport entirely.
+  let scroller = listRoot.value?.parentElement ?? null;
+  while (
+    scroller &&
+    !/(auto|scroll)/.test(getComputedStyle(scroller).overflowY)
+  ) {
+    scroller = scroller.parentElement;
+  }
+  const prevScrollHeight = scroller?.scrollHeight ?? 0;
+  branchCollapsed.value = !branchCollapsed.value;
+  const scrollEl = scroller;
+  if (scrollEl) {
+    nextTick(() => {
+      scrollEl.scrollTop += scrollEl.scrollHeight - prevScrollHeight;
+    });
+  }
+  // Notify the parent so scroll markers can be recomputed against the new
+  // row geometry (the toggle only changes v-show, not `props.messages`).
+  emit("branchToggle");
+}
+
 const branchDividerIndex = computed(() =>
   props.messages.findIndex((message) => isBranchDivider(message)),
 );
+
+function isInheritedMessage(messageIndex: number) {
+  return (
+    branchDividerIndex.value >= 0 && messageIndex < branchDividerIndex.value
+  );
+}
+
+function isCollapsedInherited(messageIndex: number) {
+  return branchCollapsed.value && isInheritedMessage(messageIndex);
+}
 
 function branchDividerInfo(message: ChatRecord) {
   const content = messageContent(message) as unknown as Record<string, unknown>;
@@ -1046,14 +1085,6 @@ function branchDividerInfo(message: ChatRecord) {
     source_message_id: Number(content.source_message_id || 0),
     inherited_count: Number(content.inherited_count || 0),
   };
-}
-
-function isCollapsedInherited(messageIndex: number) {
-  return (
-    branchCollapsed.value &&
-    branchDividerIndex.value >= 0 &&
-    messageIndex < branchDividerIndex.value
-  );
 }
 
 function showMessageMeta(message: ChatRecord, messageIndex: number) {
