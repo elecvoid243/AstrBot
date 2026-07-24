@@ -245,6 +245,18 @@ async def regenerate_chat_message(
     )
 
 
+@router.post("/chat/sessions/{session_id}/messages/{message_id}/branch")
+async def branch_chat_message(
+    session_id: str,
+    message_id: str,
+    auth: AuthContext = Depends(require_chat_scope),
+    service: ChatService = Depends(get_service),
+):
+    return await _run(
+        lambda: service.branch_session(auth.username, session_id, message_id)
+    )
+
+
 @router.get("/chat/configs")
 async def chat_configs(
     request: Request,

@@ -1329,6 +1329,23 @@ paths:
         "200":
           description: Server-sent chat stream or an error envelope
 
+  /api/v1/chat/sessions/{session_id}/messages/{message_id}/branch:
+    post:
+      tags: [Chat]
+      summary: Branch a webchat session from a bot message
+      operationId: branchChatMessage
+      x-astrbot-scope: chat
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+        - name: message_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+
   /api/v1/chat/configs:
     get:
       tags: [Chat]

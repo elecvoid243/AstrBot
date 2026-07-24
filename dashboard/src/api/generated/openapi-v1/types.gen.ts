@@ -1438,6 +1438,17 @@ export type RegenerateChatMessageResponse = (unknown);
 
 export type RegenerateChatMessageError = unknown;
 
+export type BranchChatMessageData = {
+    path: {
+        message_id: string;
+        session_id: string;
+    };
+};
+
+export type BranchChatMessageResponse = (SuccessEnvelope);
+
+export type BranchChatMessageError = unknown;
+
 export type ListChatConfigsResponse = (SuccessEnvelope);
 
 export type ListChatConfigsError = unknown;

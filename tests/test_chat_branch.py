@@ -183,3 +183,41 @@ async def test_branch_session_rejects_unknown_checkpoint():
     )
     with pytest.raises(ChatServiceError, match="Linked checkpoint not found"):
         await service.branch_session("alice", SRC_SESSION_ID, 2)
+
+
+@pytest.mark.asyncio
+async def test_branch_route_returns_ok_payload():
+    from astrbot.dashboard.api.chat import branch_chat_message
+
+    service = SimpleNamespace(
+        branch_session=AsyncMock(
+            return_value={
+                "session_id": NEW_SESSION_ID,
+                "display_name": "分支 · 源会话",
+                "inherited_count": 2,
+            }
+        )
+    )
+    auth = SimpleNamespace(username="alice")
+
+    response = await branch_chat_message(SRC_SESSION_ID, "2", auth, service)
+
+    # `_run` wraps the result via `ok()` which returns a plain dict.
+    assert response["status"] == "ok"
+    assert response["data"]["session_id"] == NEW_SESSION_ID
+    service.branch_session.assert_awaited_once_with("alice", SRC_SESSION_ID, "2")
+
+
+@pytest.mark.asyncio
+async def test_branch_route_surfaces_service_error():
+    from astrbot.dashboard.api.chat import branch_chat_message
+
+    service = SimpleNamespace(
+        branch_session=AsyncMock(side_effect=ChatServiceError("Permission denied"))
+    )
+    auth = SimpleNamespace(username="alice")
+
+    response = await branch_chat_message(SRC_SESSION_ID, "2", auth, service)
+
+    assert response["status"] == "error"
+    assert response["message"] == "Permission denied"
