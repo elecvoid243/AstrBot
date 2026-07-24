@@ -2167,6 +2167,125 @@ class ChatService:
             self._dashboard_payload(payload),
         )
 
+    async def branch_session(
+        self,
+        username: str,
+        session_id: str,
+        message_id: int | str,
+    ) -> dict:
+        """Create a new session inheriting context up to a given bot message.
+
+        Snapshots the source session: truncates the LLM conversation history
+        at the message's checkpoint (inclusive), copies platform display
+        history up to the message, and appends a ``branch_info`` divider
+        record so the dashboard can render the inherited part collapsible.
+
+        Args:
+            username: Dashboard username; must own the source session.
+            session_id: Source webchat session ID.
+            message_id: Platform message history ID of the bot message to
+                branch at.
+
+        Returns:
+            Dict with ``session_id``, ``display_name`` and ``inherited_count``
+            of the newly created session.
+
+        Raises:
+            ChatServiceError: On validation failures (missing session or
+                message, wrong owner, non-bot message, missing checkpoint).
+        """
+        try:
+            message_id = int(message_id)
+        except (TypeError, ValueError) as exc:
+            raise ChatServiceError("Invalid key: message_id") from exc
+
+        session = await self.db.get_platform_session_by_id(session_id)
+        if not session:
+            raise ChatServiceError(f"Session {session_id} not found")
+        if session.creator != username:
+            raise ChatServiceError("Permission denied")
+
+        target_record = await self.db.get_platform_message_history_by_id(message_id)
+        if not target_record:
+            raise ChatServiceError(f"Message {message_id} not found")
+        if (
+            target_record.platform_id != session.platform_id
+            or target_record.user_id != session_id
+        ):
+            raise ChatServiceError("Message does not belong to the session")
+        if not isinstance(target_record.content, dict):
+            raise ChatServiceError("Invalid message content")
+        if target_record.content.get("type") != "bot":
+            raise ChatServiceError("Only bot messages can be branched")
+
+        checkpoint_id = target_record.llm_checkpoint_id
+        if not checkpoint_id:
+            raise ChatServiceError("Message is not linked to LLM history")
+
+        conversation_id, history = await self.load_current_conversation_history(session)
+        checkpoint_index = find_checkpoint_index(history, checkpoint_id)
+        if not conversation_id or checkpoint_index is None:
+            raise ChatServiceError("Linked checkpoint not found")
+
+        source_conversation = await self.conv_mgr.get_conversation(
+            unified_msg_origin=build_webchat_unified_msg_origin(session),
+            conversation_id=conversation_id,
+        )
+
+        source_title = (
+            session.display_name
+            or (source_conversation.title if source_conversation else None)
+            or "新对话"
+        )
+        new_session = await self.db.create_platform_session(
+            creator=username,
+            platform_id=session.platform_id,
+            is_group=session.is_group,
+            display_name=f"分支 · {source_title}",
+        )
+
+        await self.conv_mgr.new_conversation(
+            build_webchat_unified_msg_origin(new_session),
+            platform_id=session.platform_id,
+            content=deepcopy(history[: checkpoint_index + 1]),
+            title=source_conversation.title if source_conversation else None,
+            persona_id=source_conversation.persona_id if source_conversation else None,
+        )
+
+        platform_history = await self.get_sorted_platform_history(session)
+        inherited_count = 0
+        for item in platform_history:
+            if item.id is None or item.id > target_record.id:
+                break
+            await self.platform_history_mgr.insert(
+                platform_id=session.platform_id,
+                user_id=new_session.session_id,
+                content=deepcopy(item.content),
+                sender_id=item.sender_id,
+                sender_name=item.sender_name,
+                llm_checkpoint_id=item.llm_checkpoint_id,
+            )
+            inherited_count += 1
+
+        await self.platform_history_mgr.insert(
+            platform_id=session.platform_id,
+            user_id=new_session.session_id,
+            content={
+                "type": "branch_info",
+                "source_session_id": session_id,
+                "source_message_id": message_id,
+                "inherited_count": inherited_count,
+            },
+            sender_id="bot",
+            sender_name="bot",
+        )
+
+        return {
+            "session_id": new_session.session_id,
+            "display_name": new_session.display_name,
+            "inherited_count": inherited_count,
+        }
+
     async def update_session_display_name(
         self,
         username: str,
