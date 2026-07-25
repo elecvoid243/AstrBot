@@ -227,7 +227,10 @@
               </v-btn>
             </div>
             <v-progress-circular
-              v-if="isSessionRunning(session.session_id)"
+              v-if="
+                isSessionRunning(session.session_id) ||
+                hasLiveSystemRecord(session.session_id)
+              "
               class="session-progress"
               indeterminate
               size="16"
@@ -419,7 +422,11 @@
             :enable-streaming="enableStreaming"
             :is-recording="isRecording"
             :is-running="
-              Boolean(currSessionId && isSessionRunning(currSessionId))
+              Boolean(
+                currSessionId &&
+                  (isSessionRunning(currSessionId) ||
+                    hasLiveSystemRecord(currSessionId)),
+              )
             "
             :token-usage="tokenUsageIndicator"
             :session-id="currSessionId || null"
@@ -549,10 +556,18 @@
               :current-umo="currentUmo ?? undefined"
               :is-dark="isDark"
               :is-streaming="
-                Boolean(currSessionId && isSessionRunning(currSessionId))
+                Boolean(
+                  currSessionId &&
+                    (isSessionRunning(currSessionId) ||
+                      hasLiveSystemRecord(currSessionId)),
+                )
               "
               :enable-edit="
-                !Boolean(currSessionId && isSessionRunning(currSessionId))
+                !Boolean(
+                  currSessionId &&
+                    (isSessionRunning(currSessionId) ||
+                      hasLiveSystemRecord(currSessionId)),
+                )
               "
               enable-regenerate
               enable-branch
@@ -610,7 +625,11 @@
             :enable-streaming="enableStreaming"
             :is-recording="isRecording"
             :is-running="
-              Boolean(currSessionId && isSessionRunning(currSessionId))
+              Boolean(
+                currSessionId &&
+                  (isSessionRunning(currSessionId) ||
+                    hasLiveSystemRecord(currSessionId)),
+              )
             "
             :token-usage="tokenUsageIndicator"
             :session-id="currSessionId || null"
@@ -1250,6 +1269,7 @@ const {
   sessionProjects,
   activeMessages,
   isSessionRunning,
+  hasLiveSystemRecord,
   isUserMessage,
   messageParts,
   loadSessionMessages,

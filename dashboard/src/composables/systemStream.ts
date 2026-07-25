@@ -420,6 +420,12 @@ export function processSystemPayload(
   }
 
   if (type === "plain") {
+    // Mirror the primary path's `markMessageStarted(botRecord)`: the
+    // first content-bearing payload ends the "加载中" placeholder so
+    // streamed chunks render live. Previously isLoading was only
+    // cleared on complete/end, which kept the whole goal-loop turn
+    // hidden behind the loading div until the final flush.
+    entry.record.content.isLoading = false;
     dispatchPlainPayload(entry, chainType, data, streaming);
     return true;
   }
@@ -451,7 +457,22 @@ export function processSystemPayload(
   }
   syncReasoningField(entry);
   if (typeof payload?.reasoning === "string" && payload.reasoning) {
+    // 2026-07-25 fix: webchat's `send_streaming` always carries the
+    // full aggregated reasoning on the final `complete` payload. Mirror
+    // it both into the `reasoning` field (kept for the side bar) and
+    // into a fresh `think` part when the per-chain reasoning payloads
+    // never produced one — otherwise the goal-loop turn has no thinking
+    // block to render and the ReasoningTimeline stays closed.
     entry.record.content.reasoning = payload.reasoning;
+    const hasThink = entry.record.content.message.some(
+      (part) => part.type === "think",
+    );
+    if (!hasThink) {
+      entry.record.content.message.unshift({
+        type: "think",
+        think: payload.reasoning,
+      });
+    }
   }
   entry.record.content.isLoading = false;
   delete state.liveBySession[sessionId][key];

@@ -36,7 +36,11 @@ test("non-streaming plain creates a live bot record with the text", () => {
   assert.equal(records.length, 1);
   const record = records[0];
   assert.equal(record.content.type, "bot");
-  assert.equal(record.content.isLoading, true);
+  // 2026-07-25 fix: the first content-bearing payload clears the "加载中"
+  // placeholder (mirrors `markMessageStarted` in the primary path), so
+  // streaming content renders live instead of staying hidden behind the
+  // loading div until complete/end.
+  assert.equal(record.content.isLoading, false);
   assert.deepEqual(record.content.message, [
     { type: "plain", text: "goal turn output" },
   ]);
@@ -60,6 +64,36 @@ test("streaming plain chunks append into the same record", () => {
   assert.deepEqual(records[0].content.message, [
     { type: "plain", text: "Hello, world" },
   ]);
+});
+
+test("first streaming chunk clears isLoading while the turn stays live", () => {
+  // 2026-07-25 fix: goal-loop turns previously showed "加载中" for the
+  // whole turn (isLoading only cleared on complete/end), hiding the
+  // streamed chunks behind the loading div. The first chunk must flip
+  // the flag so content renders live; live tracking itself is only
+  // released by complete/end.
+  const state = createSystemStreamState();
+  const records = makeRecords();
+
+  processSystemPayload(state, "s1", records, {
+    type: "plain",
+    data: "partial",
+    streaming: true,
+    message_id: "orphan-loading",
+  });
+
+  assert.equal(records[0].content.isLoading, false);
+  assert.ok(state.liveBySession["s1"]["orphan-loading"]);
+
+  // A reasoning chunk after the first plain must not re-arm the flag.
+  processSystemPayload(state, "s1", records, {
+    type: "plain",
+    chain_type: "reasoning",
+    data: "thinking",
+    streaming: true,
+    message_id: "orphan-loading",
+  });
+  assert.equal(records[0].content.isLoading, false);
 });
 
 test("two orphan turns map to separate records by message_id", () => {
@@ -108,6 +142,70 @@ test("complete finalizes the record and clears live tracking", () => {
   assert.equal(state.liveBySession["s1"]?.["orphan-3"], undefined);
 });
 
+test("complete with reasoning synthesises a think part when none exists", () => {
+  // 2026-07-25 fix: webchat's `send_streaming` accumulates the full
+  // reasoning string into the final `complete` payload's `reasoning`
+  // field. Previously the leaf only mirrored it into `content.reasoning`
+  // without creating a `think` part, so `messageBlocks` had no thinking
+  // block to render and the ReasoningTimeline never opened. Synthesise
+  // the missing think part so goal-loop turns surface their reasoning.
+  const state = createSystemStreamState();
+  const records = makeRecords();
+
+  processSystemPayload(state, "s1", records, {
+    type: "complete",
+    data: "final answer",
+    reasoning: "thinking about the poem",
+    streaming: true,
+    message_id: "orphan-complete-reasoning",
+  });
+
+  const parts = records[0].content.message;
+  const thinkParts = parts.filter(
+    (p) => p.type === "think",
+  );
+  assert.equal(thinkParts.length, 1);
+  assert.equal(thinkParts[0].think, "thinking about the poem");
+  // Final answer is still pushed as a plain part.
+  assert.equal(records[0].content.message.some(
+    (p) => p.type === "plain" && p.text === "final answer",
+  ), true);
+  assert.equal(records[0].content.isLoading, false);
+});
+
+test("complete with reasoning does not duplicate an existing think part", () => {
+  // If the per-chain reasoning payload already created a think part
+  // (e.g. the LLM streamed reasoning), the `complete` payload's
+  // aggregated reasoning must NOT append a duplicate. The record also
+  // shows the pre-existing dedup: the `complete` payload's plain data
+  // is dropped when the record is non-empty (the streaming path
+  // already delivered the text).
+  const state = createSystemStreamState();
+  const records = makeRecords();
+
+  processSystemPayload(state, "s1", records, {
+    type: "plain",
+    chain_type: "reasoning",
+    data: "thinking about the poem",
+    streaming: false,
+    message_id: "orphan-dup",
+  });
+  processSystemPayload(state, "s1", records, {
+    type: "complete",
+    data: "final answer",
+    reasoning: "thinking about the poem",
+    streaming: true,
+    message_id: "orphan-dup",
+  });
+
+  const thinkParts = records[0].content.message.filter(
+    (p) => p.type === "think",
+  );
+  assert.equal(thinkParts.length, 1);
+  assert.equal(records[0].content.message.length, 1);
+  assert.equal(records[0].content.isLoading, false);
+});
+
 test("complete without preceding plain still surfaces the final text", () => {
   const state = createSystemStreamState();
   const records = makeRecords();
@@ -120,7 +218,11 @@ test("complete without preceding plain still surfaces the final text", () => {
     message_id: "orphan-4",
   });
 
+  // 2026-07-25 fix: a `complete` carrying reasoning now also synthesises
+  // a `think` part so the ReasoningTimeline can render it (see the
+  // "complete with reasoning synthesises a think part" test).
   assert.deepEqual(records[0].content.message, [
+    { type: "think", think: "thoughts" },
     { type: "plain", text: "late subscriber text" },
   ]);
   assert.equal(records[0].content.reasoning, "thoughts");

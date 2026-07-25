@@ -255,7 +255,15 @@ export function useMessages(options: UseMessagesOptions) {
   );
   // System event stream (goal-loop orphan turns): one long-lived SSE per
   // active session, feeding live records through the systemStream leaf.
-  const systemStreamState = createSystemStreamState();
+  // Wrap with `reactive` so that (1) record mutations made via the raw
+  // `entry.record` reference inside the leaf go through the proxy and
+  // trigger renders (otherwise `last.text = ...` bypasses the proxy
+  // because the record is also stored in the live-tracking map, and Vue
+  // reactivity is only notified via proxy traps), and (2) `liveBySession`
+  // key changes drive `hasLiveSystemRecord` so the ChatMessageList can
+  // mark the in-flight system record as streaming (engaging the
+  // markstream incremental/ typewriter path instead of `final=true`).
+  const systemStreamState = reactive(createSystemStreamState());
   const systemConnections: Record<string, AbortController> = {};
 
   const activeMessages = computed(() =>
@@ -349,6 +357,16 @@ export function useMessages(options: UseMessagesOptions) {
     return Object.values(activeConnections).some(
       (connection) => connection.sessionId === sessionId,
     );
+  }
+
+  function hasLiveSystemRecord(sessionId: string): boolean {
+    // Drives `props.isStreaming` on the chat list so an in-flight goal-loop
+    // (system-stream) turn is rendered with `final=false` and gets the
+    // spinner, instead of being treated as a fully-finalised bubble. Reads
+    // through the reactive `systemStreamState`, so the call site must be
+    // inside a tracked context (computed / template binding).
+    const bucket = systemStreamState.liveBySession[sessionId];
+    return bucket ? Object.keys(bucket).length > 0 : false;
   }
 
   function isUserMessage(msg: ChatRecord) {
@@ -1636,6 +1654,7 @@ export function useMessages(options: UseMessagesOptions) {
     sessionProjects,
     activeMessages,
     isSessionRunning,
+    hasLiveSystemRecord,
     isUserMessage,
     isMessageStreaming,
     messageContent,
