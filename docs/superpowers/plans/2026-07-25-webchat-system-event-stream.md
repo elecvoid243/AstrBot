@@ -10,6 +10,12 @@
 
 **Spec:** `docs/superpowers/specs/2026-07-25-webchat-system-event-stream-design.md`（同分支，commit `d6e16c3`）
 
+## 开发过程修正记录（执行阶段发现）
+
+1. **执行环境**：shell 全局 `PYTHONPATH=F:\github\Astrbot` 会让 worktree 内 pytest 解析到主仓代码，所有 `uv run` 命令前需 `set "PYTHONPATH=" &&`。
+2. **路由文件位置**：实际在 `astrbot/dashboard/api/chat.py`（FastAPI APIRouter），非计划所写的 `astrbot/dashboard/routes/chat.py`（Quart 蓝图，已不存在）。路由实现按 FastAPI 现状适配（`Depends(require_chat_scope)` + `StreamingResponse`），路径不变：`GET /api/chat/sessions/{session_id}/system-stream`。
+3. **前端架构漂移（重要）**：规划依据的 codegraph 索引对 `dashboard/src` 是陈旧快照。当前 master 的 `useMessages.ts` 已重构为 `ActiveConnection` + SSE/WebSocket 双传输架构，**不存在** `isRunning` / `currCid` / `watch(currCid)` / `appendPersistedSystemMessage` / `useMessages.system.test.ts`。Task 5 实现按真实架构适配：系统流作为 per-composable 独立 SSE 连接，在 `useMessages` 内 `watch(options.currentSessionId)` 管理生命周期，专用 `processSystemPayload` 生成/更新 ChatRecord。设计目标（孤儿事件实时上屏 + 历史持久化）不变。
+
 **Worktree:** `F:\github\Astrbot\.worktrees\feat-webchat-system-stream`（分支 `feat/webchat-system-stream`）。**所有命令在该目录下执行。**
 
 ## Global Constraints
@@ -17,6 +23,7 @@
 - 仅本地提交，**禁止 push 远端、禁止 PR**
 - 注释与日志用 **English**；docstring 用 Google 格式（`Args:`/`Returns:`/`Raises:`）
 - 路径用 `pathlib.Path`；后端测试命令 `uv run pytest tests/<file> -v`（worktree 根目录）
+- **执行环境陷阱**：本机 shell 全局 `PYTHONPATH=F:\github\Astrbot` 会让 pytest 把 `astrbot` 包解析到主仓而非 worktree——所有 `uv run` 命令前必须加 `set "PYTHONPATH=" &&`（cmd）清空
 - 前端测试命令 `cd dashboard && pnpm vitest run <file>`
 - 提交信息用 conventional commits（`feat:`/`test:`/`fix:`/`docs:`）
 - 每个 Task 完成后运行 `uv run ruff format <改动文件> && uv run ruff check <改动文件>`

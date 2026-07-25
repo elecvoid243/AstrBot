@@ -1,7 +1,12 @@
-import { computed, onBeforeUnmount, reactive, ref, type Ref } from "vue";
+import { computed, onBeforeUnmount, reactive, ref, watch, type Ref } from "vue";
 import { chatApi, fileApi } from "@/api/v1";
 import { fetchWithAuth } from "@/api/http";
 import { useInteractiveChoiceStore } from "@/stores/interactiveChoice";
+import {
+  createSystemStreamState,
+  finalizeSystemSession,
+  processSystemPayload,
+} from "./systemStream";
 import {
   isInteractiveChoicePayload,
   validateInteractiveChoice,
@@ -248,6 +253,10 @@ export function useMessages(options: UseMessagesOptions) {
   const sessionProjects = reactive<Record<string, ChatSessionProject | null>>(
     {},
   );
+  // System event stream (goal-loop orphan turns): one long-lived SSE per
+  // active session, feeding live records through the systemStream leaf.
+  const systemStreamState = createSystemStreamState();
+  const systemConnections: Record<string, AbortController> = {};
 
   const activeMessages = computed(() =>
     options.currentSessionId.value
@@ -262,6 +271,79 @@ export function useMessages(options: UseMessagesOptions) {
     }
     attachmentBlobCache.clear();
   });
+
+  // The system stream follows the currently open conversation.
+  watch(
+    () => options.currentSessionId.value,
+    (sessionId, previousSessionId) => {
+      if (previousSessionId && previousSessionId !== sessionId) {
+        stopSystemStream(previousSessionId);
+      }
+      if (sessionId) {
+        startSystemStream(sessionId);
+      }
+    },
+    { immediate: true },
+  );
+
+  function startSystemStream(sessionId: string) {
+    if (!sessionId || systemConnections[sessionId]) return;
+    const abort = new AbortController();
+    systemConnections[sessionId] = abort;
+
+    void (async () => {
+      for (
+        let attempt = 0;
+        attempt < 5 && !abort.signal.aborted;
+        attempt += 1
+      ) {
+        try {
+          const response = await fetchWithAuth(
+            chatApi.systemStreamUrl(sessionId),
+            {
+              headers: { Accept: "text/event-stream" },
+              signal: abort.signal,
+            },
+          );
+          const contentType = response.headers.get("content-type") || "";
+          if (
+            !response.ok ||
+            !response.body ||
+            !contentType.includes("text/event-stream")
+          ) {
+            // Feature disabled or unavailable: stay silent, no retry.
+            return;
+          }
+          await readSseStream(response.body, (payload) => {
+            messagesBySession[sessionId] = messagesBySession[sessionId] || [];
+            const consumed = processSystemPayload(
+              systemStreamState,
+              sessionId,
+              messagesBySession[sessionId],
+              payload,
+            );
+            if (consumed) options.onStreamUpdate?.(sessionId);
+          });
+        } catch (error) {
+          if (abort.signal.aborted) return;
+          console.error("System event stream failed:", error);
+        }
+        if (abort.signal.aborted) return;
+        // Server closed the stream: back off briefly, then reconnect.
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
+    })().finally(() => {
+      if (systemConnections[sessionId] === abort) {
+        delete systemConnections[sessionId];
+      }
+    });
+  }
+
+  function stopSystemStream(sessionId: string) {
+    systemConnections[sessionId]?.abort();
+    delete systemConnections[sessionId];
+    finalizeSystemSession(systemStreamState, sessionId);
+  }
 
   function isSessionRunning(sessionId: string) {
     return Object.values(activeConnections).some(
@@ -673,6 +755,13 @@ export function useMessages(options: UseMessagesOptions) {
     });
     Object.keys(chatWebSockets).forEach((sessionId) => {
       delete chatWebSockets[sessionId];
+    });
+    Object.values(systemConnections).forEach((abort) => {
+      abort.abort();
+    });
+    Object.keys(systemConnections).forEach((sessionId) => {
+      finalizeSystemSession(systemStreamState, sessionId);
+      delete systemConnections[sessionId];
     });
   }
 
