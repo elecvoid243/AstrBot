@@ -106,12 +106,15 @@ class WebChatAdapter(Platform):
             return
 
         for request_id in target_request_ids:
+            # Proactive messages have their own broadcast + persistence path;
+            # skip the system event mirror to avoid duplicate history records.
             await WebChatMessageEvent._send(
                 request_id,
                 message_chain,
                 session.session_id,
                 streaming=True,
                 emit_complete=True,
+                mirror_system=False,
             )
 
         # If only passive subscription queues exist for this conversation,

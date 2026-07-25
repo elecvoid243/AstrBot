@@ -15,7 +15,7 @@ from astrbot.core.utils.media_utils import (
     detect_image_mime_type_async,
 )
 
-from .webchat_queue_mgr import webchat_queue_mgr
+from .webchat_queue_mgr import _extract_conversation_id, webchat_queue_mgr
 
 attachments_dir = os.path.join(get_astrbot_data_path(), "attachments")
 
@@ -26,53 +26,69 @@ class WebChatMessageEvent(AstrMessageEvent):
         os.makedirs(attachments_dir, exist_ok=True)
 
     @staticmethod
+    async def _mirror_system(system_cid: str | None, payload: dict) -> None:
+        """Mirror one payload to the conversation-level system event channel.
+
+        Args:
+            system_cid: Raw conversation id, or None to skip mirroring.
+            payload: The exact payload dict also written to the back queue.
+        """
+        if system_cid is not None:
+            await webchat_queue_mgr.put_system_event(system_cid, payload)
+
+    @staticmethod
     async def _send(
         message_id: str,
         message: MessageChain | None,
         session_id: str,
         streaming: bool = False,
         emit_complete: bool = False,
+        mirror_system: bool = True,
     ) -> str | None:
         request_id = str(message_id)
+        system_cid = _extract_conversation_id(session_id) if mirror_system else None
         if not message:
-            await webchat_queue_mgr.put_back_queue(
-                request_id,
-                {
-                    "type": "end",
-                    "data": "",
-                    "streaming": False,
-                    "message_id": message_id,
-                },  # end means this request is finished
-            )
+            payload = {
+                "type": "end",
+                "data": "",
+                "streaming": False,
+                "message_id": message_id,
+            }  # end means this request is finished
+            await webchat_queue_mgr.put_back_queue(request_id, payload)
+            await WebChatMessageEvent._mirror_system(system_cid, payload)
             return
 
         data = ""
         for comp in message.chain:
             if isinstance(comp, Plain):
                 data = comp.text
+                payload = {
+                    "type": "plain",
+                    "data": data,
+                    "streaming": streaming,
+                    "chain_type": message.type,
+                    "message_id": message_id,
+                }
                 accepted = await webchat_queue_mgr.put_back_queue(
                     request_id,
-                    {
-                        "type": "plain",
-                        "data": data,
-                        "streaming": streaming,
-                        "chain_type": message.type,
-                        "message_id": message_id,
-                    },
+                    payload,
                 )
+                await WebChatMessageEvent._mirror_system(system_cid, payload)
                 if not accepted:
                     return None
             elif isinstance(comp, Json):
+                payload = {
+                    "type": "plain",
+                    "data": json.dumps(comp.data, ensure_ascii=False),
+                    "streaming": streaming,
+                    "chain_type": message.type,
+                    "message_id": message_id,
+                }
                 accepted = await webchat_queue_mgr.put_back_queue(
                     request_id,
-                    {
-                        "type": "plain",
-                        "data": json.dumps(comp.data, ensure_ascii=False),
-                        "streaming": streaming,
-                        "chain_type": message.type,
-                        "message_id": message_id,
-                    },
+                    payload,
                 )
+                await WebChatMessageEvent._mirror_system(system_cid, payload)
                 if not accepted:
                     return None
             elif isinstance(comp, Image):
@@ -88,15 +104,17 @@ class WebChatMessageEvent(AstrMessageEvent):
                 path = os.path.join(attachments_dir, filename)
                 await asyncio.to_thread(Path(path).write_bytes, image_bytes)
                 data = f"[IMAGE]{filename}"
+                payload = {
+                    "type": "image",
+                    "data": data,
+                    "streaming": streaming,
+                    "message_id": message_id,
+                }
                 accepted = await webchat_queue_mgr.put_back_queue(
                     request_id,
-                    {
-                        "type": "image",
-                        "data": data,
-                        "streaming": streaming,
-                        "message_id": message_id,
-                    },
+                    payload,
                 )
+                await WebChatMessageEvent._mirror_system(system_cid, payload)
                 if not accepted:
                     return None
             elif isinstance(comp, Record):
@@ -107,15 +125,17 @@ class WebChatMessageEvent(AstrMessageEvent):
                 record_bytes = base64.b64decode(record_base64)
                 await asyncio.to_thread(Path(path).write_bytes, record_bytes)
                 data = f"[RECORD]{filename}"
+                payload = {
+                    "type": "record",
+                    "data": data,
+                    "streaming": streaming,
+                    "message_id": message_id,
+                }
                 accepted = await webchat_queue_mgr.put_back_queue(
                     request_id,
-                    {
-                        "type": "record",
-                        "data": data,
-                        "streaming": streaming,
-                        "message_id": message_id,
-                    },
+                    payload,
                 )
+                await WebChatMessageEvent._mirror_system(system_cid, payload)
                 if not accepted:
                     return None
             elif isinstance(comp, File):
@@ -134,31 +154,32 @@ class WebChatMessageEvent(AstrMessageEvent):
                 dest_path = os.path.join(attachments_dir, filename)
                 shutil.copy2(file_path, dest_path)
                 data = f"[FILE]{filename}|{original_name}"
+                payload = {
+                    "type": "file",
+                    "data": data,
+                    "streaming": streaming,
+                    "message_id": message_id,
+                }
                 accepted = await webchat_queue_mgr.put_back_queue(
                     request_id,
-                    {
-                        "type": "file",
-                        "data": data,
-                        "streaming": streaming,
-                        "message_id": message_id,
-                    },
+                    payload,
                 )
+                await WebChatMessageEvent._mirror_system(system_cid, payload)
                 if not accepted:
                     return None
             else:
                 logger.debug(f"webchat 忽略: {comp.type}")
 
         if emit_complete:
-            await webchat_queue_mgr.put_back_queue(
-                request_id,
-                {
-                    "type": "complete",
-                    "data": data,
-                    "streaming": streaming,
-                    "chain_type": message.type,
-                    "message_id": message_id,
-                },
-            )
+            payload = {
+                "type": "complete",
+                "data": data,
+                "streaming": streaming,
+                "chain_type": message.type,
+                "message_id": message_id,
+            }
+            await webchat_queue_mgr.put_back_queue(request_id, payload)
+            await WebChatMessageEvent._mirror_system(system_cid, payload)
 
         return data
 
@@ -167,14 +188,15 @@ class WebChatMessageEvent(AstrMessageEvent):
         follow_up_capture = self.get_extra("_follow_up_captured")
         if message is None and isinstance(follow_up_capture, dict):
             request_id = str(message_id)
-            await webchat_queue_mgr.put_back_queue(
-                request_id,
-                {
-                    "type": "follow_up_captured",
-                    "data": follow_up_capture,
-                    "streaming": False,
-                    "message_id": message_id,
-                },
+            payload = {
+                "type": "follow_up_captured",
+                "data": follow_up_capture,
+                "streaming": False,
+                "message_id": message_id,
+            }
+            await webchat_queue_mgr.put_back_queue(request_id, payload)
+            await WebChatMessageEvent._mirror_system(
+                _extract_conversation_id(self.session_id), payload
             )
         await WebChatMessageEvent._send(message_id, message, session_id=self.session_id)
         await super().send(MessageChain([]))
@@ -183,14 +205,15 @@ class WebChatMessageEvent(AstrMessageEvent):
         """Emit a run-start signal before an independent LLM request."""
         message_id = self.message_obj.message_id
         request_id = str(message_id)
-        await webchat_queue_mgr.put_back_queue(
-            request_id,
-            {
-                "type": "run_started",
-                "data": {"run_id": request_id},
-                "streaming": False,
-                "message_id": message_id,
-            },
+        payload = {
+            "type": "run_started",
+            "data": {"run_id": request_id},
+            "streaming": False,
+            "message_id": message_id,
+        }
+        await webchat_queue_mgr.put_back_queue(request_id, payload)
+        await WebChatMessageEvent._mirror_system(
+            _extract_conversation_id(self.session_id), payload
         )
 
     async def send_streaming(self, generator, use_fallback: bool = False) -> None:
@@ -221,6 +244,9 @@ class WebChatMessageEvent(AstrMessageEvent):
                     payload["text"] = text
 
                 accepted = await webchat_queue_mgr.put_back_queue(request_id, payload)
+                await WebChatMessageEvent._mirror_system(
+                    _extract_conversation_id(self.session_id), payload
+                )
                 if not accepted:
                     return
                 continue
@@ -250,14 +276,15 @@ class WebChatMessageEvent(AstrMessageEvent):
             else:
                 final_data += r
 
-        await webchat_queue_mgr.put_back_queue(
-            request_id,
-            {
-                "type": "complete",  # complete means we return the final result
-                "data": final_data,
-                "reasoning": reasoning_content,
-                "streaming": True,
-                "message_id": message_id,
-            },
+        payload = {
+            "type": "complete",  # complete means we return the final result
+            "data": final_data,
+            "reasoning": reasoning_content,
+            "streaming": True,
+            "message_id": message_id,
+        }
+        await webchat_queue_mgr.put_back_queue(request_id, payload)
+        await WebChatMessageEvent._mirror_system(
+            _extract_conversation_id(self.session_id), payload
         )
         await super().send_streaming(generator, use_fallback)

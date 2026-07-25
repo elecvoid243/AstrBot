@@ -7,6 +7,9 @@ import asyncio
 
 import pytest
 
+from astrbot.api.event import MessageChain
+from astrbot.api.message_components import Plain
+from astrbot.core.platform.sources.webchat.webchat_event import WebChatMessageEvent
 from astrbot.core.platform.sources.webchat.webchat_queue_mgr import (
     WebChatQueueMgr,
     _extract_conversation_id,
@@ -68,3 +71,44 @@ class TestSystemEventPubSub:
         )
         assert accepted is True
         assert queue.qsize() == queue.maxsize
+
+
+class TestSendMirroring:
+    @pytest.mark.asyncio
+    async def test_send_mirrors_to_system_subscribers(self):
+        from astrbot.core.platform.sources.webchat.webchat_queue_mgr import (
+            webchat_queue_mgr,
+        )
+
+        queue = webchat_queue_mgr.subscribe_system("conv-mirror")
+        try:
+            await WebChatMessageEvent._send(
+                "req-1",
+                MessageChain(chain=[Plain("hi")]),
+                "webchat!user!conv-mirror",
+            )
+            mirrored = queue.get_nowait()
+            assert mirrored["type"] == "plain"
+            assert mirrored["message_id"] == "req-1"
+        finally:
+            webchat_queue_mgr.unsubscribe_system("conv-mirror", queue)
+            webchat_queue_mgr.remove_back_queue("req-1")
+
+    @pytest.mark.asyncio
+    async def test_send_mirror_disabled_writes_nothing(self):
+        from astrbot.core.platform.sources.webchat.webchat_queue_mgr import (
+            webchat_queue_mgr,
+        )
+
+        queue = webchat_queue_mgr.subscribe_system("conv-nomirror")
+        try:
+            await WebChatMessageEvent._send(
+                "req-2",
+                MessageChain(chain=[Plain("hi")]),
+                "webchat!user!conv-nomirror",
+                mirror_system=False,
+            )
+            assert queue.empty()
+        finally:
+            webchat_queue_mgr.unsubscribe_system("conv-nomirror", queue)
+            webchat_queue_mgr.remove_back_queue("req-2")
