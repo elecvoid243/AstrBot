@@ -1439,6 +1439,91 @@ class ChatService:
                 subscriber.put_nowait(None)
             run.subscribers.clear()
 
+    async def build_system_stream(
+        self,
+        username: str,
+        session_id: str,
+    ) -> AsyncIterator[str]:
+        """Stream system-driven (non-user-initiated) webchat events.
+
+        Consumes the conversation-level system event queue mirrored by the
+        webchat platform adapter. Payloads whose ``message_id`` belongs to an
+        active primary chat run are skipped (the primary SSE already serves
+        and persists them). Orphan turns (goal-loop synthetic turns and
+        future system flows) are streamed live and persisted with the same
+        accumulate-then-flush policy as ``_consume_chat_run``.
+
+        Args:
+            username: Dashboard username owning the connection.
+            session_id: Raw webchat conversation id.
+
+        Returns:
+            SSE iterator yielding ``data: {json}\\n\\n`` chunks.
+        """
+        queue = webchat_queue_mgr.subscribe_system(session_id)
+        accumulators: dict[str, BotMessageAccumulator] = {}
+
+        async def flush(message_id: str) -> None:
+            acc = accumulators.pop(message_id, None)
+            if acc is None or not acc.has_content():
+                return
+            parts = acc.build_message_parts(include_pending_tool_calls=True)
+            try:
+                await self.save_bot_message(
+                    session_id,
+                    parts,
+                    {},
+                    {},
+                    None,
+                    "webchat",
+                )
+            except Exception as exc:
+                logger.error(
+                    f"Failed to persist system event turn {message_id}: {exc}",
+                    exc_info=True,
+                )
+
+        async def stream():
+            try:
+                while True:
+                    payload = await queue.get()
+                    if not isinstance(payload, dict):
+                        continue
+                    message_id = payload.get("message_id")
+                    if not message_id or message_id in self.chat_runs:
+                        # Primary run stream owns this message_id.
+                        continue
+                    yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+                    msg_type = payload.get("type")
+                    streaming = bool(payload.get("streaming"))
+                    chain_type = payload.get("chain_type")
+                    acc = accumulators.setdefault(message_id, BotMessageAccumulator())
+                    if msg_type == "plain":
+                        acc.add_plain(
+                            payload.get("data", ""),
+                            chain_type=chain_type,
+                            streaming=streaming,
+                        )
+                    elif msg_type in ("complete", "end"):
+                        if (
+                            msg_type == "complete"
+                            and not streaming
+                            and payload.get("data")
+                        ):
+                            acc.add_plain(
+                                payload["data"],
+                                chain_type=chain_type,
+                                streaming=False,
+                            )
+                        await flush(message_id)
+            finally:
+                for pending_id in list(accumulators):
+                    await flush(pending_id)
+                webchat_queue_mgr.unsubscribe_system(session_id, queue)
+
+        return stream()
+
     async def build_chat_stream(
         self,
         username: str,
@@ -1737,7 +1822,9 @@ class ChatService:
         # records (see `get_branch_relations`). Entries pointing to or from
         # sessions outside the current list (e.g. deleted) are filtered out.
         session_ids = {item["session_id"] for item in sessions_data}
-        name_by_id = {item["session_id"]: item["display_name"] for item in sessions_data}
+        name_by_id = {
+            item["session_id"]: item["display_name"] for item in sessions_data
+        }
         relations = await self.get_branch_relations()
         children: dict[str, list[str]] = {}
         for child_id, relation in relations.items():
