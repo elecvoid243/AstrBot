@@ -13,7 +13,7 @@
 
       <div class="sidebar-header">
         <h3 class="sidebar-title">
-          <v-icon size="18" class="title-icon">mdi-format-list-checks</v-icon>
+          <v-icon size="17" class="title-icon">mdi-format-list-checks</v-icon>
           <span>{{ tm("todo.sidebarTitle") }}</span>
         </h3>
         <v-btn
@@ -30,23 +30,27 @@
              Sidebar acts as a live monitor for the active session's
              todo snapshot, so per-item collapse is on by default to
              keep noise low. TodoListResult (tool result echo) keeps
-             the full uncollapsed view via collapsible=false. -->
+             the full uncollapsed view via collapsible=false. The
+             sidebar already has its own header, so the panel's raw
+             list title (usually the umo) is hidden. -->
         <TodoListPanel
           v-if="list && stats"
           :list="list"
           :stats="stats"
           :attention-items="attentionItems"
           collapsible
+          :show-header="false"
         />
 
         <!-- Empty state -->
         <div v-else class="empty-state">
-          <v-icon size="36" class="empty-icon">mdi-clipboard-text-outline</v-icon>
+          <v-icon size="40" class="empty-icon">mdi-clipboard-text-outline</v-icon>
           <div class="empty-text">{{ tm("todo.empty") }}</div>
         </div>
       </div>
 
       <div v-if="list?.updated_at" class="sidebar-footer">
+        <v-icon size="12" class="footer-icon">mdi-clock-outline</v-icon>
         {{ tm("todo.updatedAt", { time: formatUpdatedAt(list.updated_at) }) }}
       </div>
     </div>
@@ -173,8 +177,11 @@ onBeforeUnmount(() => {
      --chat-panel-top-offset is defined by the parent .chat-ui. */
   height: calc(100% - var(--chat-panel-top-offset, 0px));
   margin-top: var(--chat-panel-top-offset, 0px);
-  background-color: rgb(var(--v-theme-surface));
-  border-left: 1px solid rgba(var(--v-border-color), 0.16);
+  /* Reuse the ChatUI page tokens (same as ReasoningSidebar /
+     RefsSidebar) so the panel blends into the chat surface
+     instead of reading as a foreign card. */
+  background: var(--chat-page-bg, rgb(var(--v-theme-surface)));
+  border-left: 1px solid var(--chat-border, rgba(var(--v-border-color), 0.16));
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
@@ -221,16 +228,15 @@ onBeforeUnmount(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 14px 16px 10px;
+  padding: 14px 16px 8px;
   flex-shrink: 0;
-  border-bottom: 1px solid rgba(var(--v-border-color), 0.08);
 }
 
 .sidebar-title {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
   color: rgb(var(--v-theme-on-surface));
   line-height: 1.4;
@@ -238,23 +244,29 @@ onBeforeUnmount(() => {
 }
 
 .title-icon {
-  color: rgba(var(--v-theme-on-surface), 0.65);
+  color: rgb(var(--v-theme-primary));
 }
 
 .sidebar-body {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 14px 16px;
+  padding: 10px 14px 14px;
 }
 
 .sidebar-footer {
+  display: flex;
+  align-items: center;
+  gap: 5px;
   flex-shrink: 0;
-  padding: 8px 16px 12px;
+  padding: 8px 16px 10px;
   font-size: 11px;
-  color: rgba(var(--v-theme-on-surface), 0.5);
-  font-style: italic;
-  border-top: 1px solid rgba(var(--v-border-color), 0.08);
+  color: rgba(var(--v-theme-on-surface), 0.45);
+  border-top: 1px solid var(--chat-border, rgba(var(--v-border-color), 0.08));
+}
+
+.footer-icon {
+  color: rgba(var(--v-theme-on-surface), 0.35);
 }
 
 .empty-state {
@@ -262,20 +274,21 @@ onBeforeUnmount(() => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 10px;
+  gap: 12px;
   height: 100%;
   padding: 40px 12px;
   text-align: center;
 }
 
 .empty-icon {
-  color: rgba(var(--v-theme-on-surface), 0.25);
+  color: rgba(var(--v-theme-on-surface), 0.18);
 }
 
 .empty-text {
   font-size: 13px;
-  color: rgba(var(--v-theme-on-surface), 0.55);
-  line-height: 1.5;
+  color: rgba(var(--v-theme-on-surface), 0.5);
+  line-height: 1.6;
+  max-width: 220px;
 }
 
 @media (max-width: 760px) {

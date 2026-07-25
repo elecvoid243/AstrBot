@@ -235,7 +235,11 @@
     "empty": "Задач пока нет. Попросите Агента составить план.",
     "close": "Закрыть",
     "updatedAt": "Обновлено в {time}",
-    "attentionHint": "{count} элемент(ов) требуют внимания"
+    "attentionHint": "{count} элемент(ов) требуют внимания",
+    "statsLine": "{done}/{total} выполнено · {pct}%",
+    "statsInProgress": "· {count} в работе",
+    "expandAll": "Развернуть",
+    "collapseAll": "Свернуть"
   },
   "connection": {
     "title": "Статус подключения",

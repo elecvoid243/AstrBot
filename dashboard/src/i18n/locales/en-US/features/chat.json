@@ -235,7 +235,11 @@
     "empty": "No tasks yet. Ask the Agent to plan some for you.",
     "close": "Close",
     "updatedAt": "Updated at {time}",
-    "attentionHint": "{count} item(s) need attention"
+    "attentionHint": "{count} item(s) need attention",
+    "statsLine": "{done}/{total} complete · {pct}%",
+    "statsInProgress": "· {count} in progress",
+    "expandAll": "Expand",
+    "collapseAll": "Collapse"
   },
   "connection": {
     "title": "Connection Status Notice",

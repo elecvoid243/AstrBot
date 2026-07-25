@@ -235,7 +235,11 @@
     "empty": "暂无任务,让 Agent 帮你规划一下吧",
     "close": "关闭",
     "updatedAt": "更新于 {time}",
-    "attentionHint": "{count} 项需关注"
+    "attentionHint": "{count} 项需关注",
+    "statsLine": "{done}/{total} 完成 · {pct}%",
+    "statsInProgress": "· {count} 进行中",
+    "expandAll": "展开",
+    "collapseAll": "收起"
   },
   "connection": {
     "title": "连接状态提醒",

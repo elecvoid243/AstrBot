@@ -1,7 +1,13 @@
 <template>
     <div class="todo-list-panel">
-        <!-- 进度条 -->
-        <div class="progress-bar">
+        <!-- 列表标题(umo 形式的原始 ID 不展示,由 displayTitle 过滤) -->
+        <div v-if="showHeader && displayTitle" class="list-header">
+            <v-icon size="14">mdi-format-list-checks</v-icon>
+            <span class="list-title">{{ displayTitle }}</span>
+        </div>
+
+        <!-- 进度条:细圆角轨道 + 柔和分段色,与 ChatUI 的克制配色一致 -->
+        <div class="progress-track">
             <div
                 class="progress-segment done"
                 :style="{ width: progressWidths.done }"
@@ -24,32 +30,38 @@
             ></div>
         </div>
 
-        <!-- 标题 -->
-        <div class="list-header">
-            <v-icon size="14">mdi-format-list-checks</v-icon>
-            <span class="list-title">{{ list?.title || 'Todo List' }}</span>
-        </div>
-
-        <!-- 批量折叠 / 展开工具栏(collapsible 模式才有意义) -->
-        <div v-if="collapsible" class="bulk-toggle-row">
-            <button
-                type="button"
-                class="bulk-toggle-btn"
-                :disabled="!hasExpandableItems"
-                @click="expandAll"
-            >
-                <v-icon size="12">mdi-unfold-more-horizontal</v-icon>
-                <span>Expand all</span>
-            </button>
-            <button
-                type="button"
-                class="bulk-toggle-btn"
-                :disabled="!hasExpandableItems"
-                @click="collapseAll"
-            >
-                <v-icon size="12">mdi-unfold-less-horizontal</v-icon>
-                <span>Collapse all</span>
-            </button>
+        <!-- 统计行 + 批量折叠/展开(合并原 stats-footer,减少纵向噪音) -->
+        <div class="panel-meta">
+            <span class="meta-stats">
+                {{ tm("todo.statsLine", {
+                    done: stats?.done || 0,
+                    total: stats?.effective_total || 0,
+                    pct: stats?.progress_pct || 0,
+                }) }}
+                <template v-if="stats?.in_progress">
+                    {{ " " + tm("todo.statsInProgress", { count: stats.in_progress }) }}
+                </template>
+            </span>
+            <div v-if="collapsible" class="bulk-toggles">
+                <button
+                    type="button"
+                    class="bulk-toggle-btn"
+                    :disabled="!hasExpandableItems"
+                    @click="expandAll"
+                >
+                    <v-icon size="12">mdi-unfold-more-horizontal</v-icon>
+                    <span>{{ tm("todo.expandAll") }}</span>
+                </button>
+                <button
+                    type="button"
+                    class="bulk-toggle-btn"
+                    :disabled="!hasExpandableItems"
+                    @click="collapseAll"
+                >
+                    <v-icon size="12">mdi-unfold-less-horizontal</v-icon>
+                    <span>{{ tm("todo.collapseAll") }}</span>
+                </button>
+            </div>
         </div>
 
         <!-- Items -->
@@ -73,16 +85,16 @@
                     mdi-chevron-right
                 </v-icon>
                 <v-icon
-                    size="13"
+                    size="14"
                     class="item-check"
                 >
                     {{ statusIcon(item.status) }}
                 </v-icon>
-                <span class="item-id">({{ item.id }})</span>
+                <span class="item-id">{{ item.id }}</span>
                 <span class="item-title">{{ item.title }}</span>
                 <v-icon
                     v-if="item.attention"
-                    size="11"
+                    size="12"
                     class="attention-icon"
                     title="Needs attention"
                 >
@@ -94,20 +106,12 @@
                 >{{ item.notes }}</span>
             </div>
         </div>
-
-        <!-- 底部统计 -->
-        <div class="stats-footer">
-            {{ stats?.done || 0 }}/{{ stats?.effective_total || 0 }} complete
-            ({{ stats?.progress_pct || 0 }}%)
-            <template v-if="stats?.in_progress">
-                · {{ stats.in_progress }} in progress
-            </template>
-        </div>
     </div>
 </template>
 
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
+import { useModuleI18n } from "@/i18n/composables";
 
 /**
  * TodoListPanel — 复用组件：渲染 todo_list 工具回传的完整列表视图（进度条 + items + 统计）。
@@ -116,8 +120,11 @@ import { computed, ref, watch } from "vue";
  * 接受的是已经剥离 envelope 后的 {list, stats, attention_items},由调用方保证。
  *
  * collapsible: 侧边栏等"实时监控"场景下,默认折叠每条 item,只露出状态/标题/ID,
- * 点击行(或 chevron)展开 notes。配合上方的 Expand all / Collapse all
+ * 点击行(或 chevron)展开 notes。配合统计行右侧的 Expand / Collapse
  * 按钮可批量切换。TodoListResult(工具结果回显)继续走 false,行为不变。
+ *
+ * showHeader: 是否展示列表标题行。侧边栏自身已有标题,传 false 隐藏;
+ * 工具结果回显保留默认 true。标题为 umo 形式(含 "!")时不展示。
  */
 const props = withDefaults(
     defineProps<{
@@ -125,12 +132,16 @@ const props = withDefaults(
         stats: any;
         attentionItems?: number[];
         collapsible?: boolean;
+        showHeader?: boolean;
     }>(),
     {
         attentionItems: () => [],
         collapsible: false,
+        showHeader: true,
     },
 );
+
+const { tm } = useModuleI18n("features/chat");
 
 /** 已展开的 item id 集合。仅在 collapsible=true 时使用。 */
 const expandedIds = ref<Set<string | number>>(new Set());
@@ -142,6 +153,18 @@ watch(
         expandedIds.value = new Set();
     },
 );
+
+/**
+ * 展示用标题。后端在未显式指定 title 时会用 umo 兜底
+ * (如 webchat:FriendMessage:webchat!user!cid),这类原始 ID 噪声大,
+ * 直接不展示;只有用户/Agent 显式命名的标题才渲染。
+ */
+const displayTitle = computed(() => {
+    const title: string = props.list?.title || "";
+    if (!title) return "";
+    if (title.includes("!") || /^[\w-]+:[\w-]+:/.test(title)) return "";
+    return title;
+});
 
 /** 单条 item 的 notes 是否存在(决定是否可折叠,以及是否显示 chevron)。 */
 function hasNotes(item: any): boolean {
@@ -210,19 +233,29 @@ const progressWidths = computed(() => {
 
 <style scoped>
 .todo-list-panel {
-    font-size: 12px;
+    font-size: 12.5px;
     width: 100%;
     box-sizing: border-box;
 }
 
-/* Progress bar */
-.progress-bar {
+/* 列表标题 */
+.list-header {
     display: flex;
-    height: 6px;
-    border-radius: 3px;
-    background: rgba(var(--v-theme-on-surface), 0.06);
+    align-items: center;
+    gap: 6px;
+    margin: 0 0 10px;
+    font-size: 12px;
+    font-weight: 600;
+    color: rgba(var(--v-theme-on-surface), 0.75);
+}
+
+/* 进度条:细圆角轨道,分段色取自 Vuetify 主题,自动适配明暗 */
+.progress-track {
+    display: flex;
+    height: 5px;
+    border-radius: 999px;
+    background: rgba(var(--v-theme-on-surface), 0.07);
     overflow: hidden;
-    margin-bottom: 8px;
     width: 100%;
     box-sizing: border-box;
 }
@@ -231,35 +264,68 @@ const progressWidths = computed(() => {
     min-width: 0;
     flex-shrink: 1;
 }
-.progress-segment.done { background: #2da44e; }
-.progress-segment.in-progress { background: #b58400; }
-.progress-segment.pending { background: rgba(0, 100, 200, 0.4); }
-.progress-segment.cancelled { background: rgba(var(--v-theme-on-surface), 0.2); }
+.progress-segment.done { background: rgba(var(--v-theme-success), 0.85); }
+.progress-segment.in-progress { background: rgba(var(--v-theme-warning), 0.95); }
+.progress-segment.pending { background: rgba(var(--v-theme-on-surface), 0.14); }
+.progress-segment.cancelled { background: rgba(var(--v-theme-on-surface), 0.08); }
 
-/* List */
-.list-header {
+/* 统计行 + 批量操作 */
+.panel-meta {
     display: flex;
     align-items: center;
-    gap: 6px;
-    margin: 4px 0 6px;
-    font-size: 12px;
-    font-weight: 600;
-    color: rgba(var(--v-theme-on-surface), 0.8);
+    justify-content: space-between;
+    gap: 8px;
+    margin: 8px 0 8px;
 }
+.meta-stats {
+    font-size: 11.5px;
+    color: rgba(var(--v-theme-on-surface), 0.55);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+.bulk-toggles {
+    display: flex;
+    gap: 2px;
+    flex-shrink: 0;
+}
+.bulk-toggle-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 2px 6px;
+    font-size: 11px;
+    line-height: 1.5;
+    color: rgba(var(--v-theme-on-surface), 0.5);
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.12s ease, color 0.12s ease;
+}
+.bulk-toggle-btn:hover:not(:disabled) {
+    background: rgba(var(--v-theme-on-surface), 0.06);
+    color: rgba(var(--v-theme-on-surface), 0.85);
+}
+.bulk-toggle-btn:disabled {
+    opacity: 0.35;
+    cursor: default;
+}
+
+/* Items:无底色净行,hover 才浮现背景,贴近 ChatUI 的留白风格 */
 .items-list {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 1px;
 }
 .todo-item {
     display: flex;
     align-items: baseline;
     flex-wrap: wrap;
     gap: 6px;
-    padding: 4px 8px;
-    border-radius: 4px;
-    background: rgba(var(--v-theme-on-surface), 0.03);
-    font-size: 11.5px;
+    padding: 5px 8px;
+    border-radius: 6px;
+    font-size: 12.5px;
+    line-height: 1.55;
     user-select: none;
 }
 .todo-item.is-clickable {
@@ -267,82 +333,64 @@ const progressWidths = computed(() => {
     transition: background 0.12s ease;
 }
 .todo-item.is-clickable:hover {
-    background: rgba(var(--v-theme-on-surface), 0.06);
-}
-
-/* 批量展开/折叠工具栏 */
-.bulk-toggle-row {
-    display: flex;
-    justify-content: flex-end;
-    gap: 6px;
-    margin: 2px 0 6px;
-}
-.bulk-toggle-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 2px 8px;
-    font-size: 11px;
-    line-height: 1.4;
-    color: rgba(var(--v-theme-on-surface), 0.65);
-    background: transparent;
-    border: 1px solid rgba(var(--v-border-color), 0.16);
-    border-radius: 4px;
-    cursor: pointer;
-    transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
-}
-.bulk-toggle-btn:hover:not(:disabled) {
-    background: rgba(var(--v-theme-on-surface), 0.06);
-    color: rgba(var(--v-theme-on-surface), 0.85);
-    border-color: rgba(var(--v-border-color), 0.32);
-}
-.bulk-toggle-btn:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
+    background: rgba(var(--v-theme-on-surface), 0.045);
 }
 
 /* Chevron 旋转 */
 .item-chevron {
-    color: rgba(var(--v-theme-on-surface), 0.4);
+    color: rgba(var(--v-theme-on-surface), 0.35);
     transition: transform 0.18s ease;
     flex-shrink: 0;
+    align-self: center;
 }
 .item-chevron.is-expanded {
     transform: rotate(90deg);
-    color: rgba(var(--v-theme-on-surface), 0.7);
+    color: rgba(var(--v-theme-on-surface), 0.65);
 }
-.status-done .item-check { color: #2da44e; }
-.status-in_progress .item-check { color: #b58400; }
+
+/* 状态图标配色:与进度条分段同源 */
+.status-done .item-check { color: rgb(var(--v-theme-success)); }
+.status-in_progress .item-check { color: rgb(var(--v-theme-warning)); }
 .status-cancelled .item-check { color: rgba(var(--v-theme-on-surface), 0.3); }
+.status-pending .item-check { color: rgba(var(--v-theme-on-surface), 0.3); }
+
+/* 已完成条目降透明度,让未完成项成为视觉焦点 */
+.status-done .item-title,
+.status-done .item-id {
+    opacity: 0.5;
+}
 .status-cancelled .item-title {
     text-decoration: line-through;
-    opacity: 0.6;
+    opacity: 0.45;
 }
-.status-pending .item-check { color: rgba(var(--v-theme-on-surface), 0.3); }
+
 .item-id {
     font-family: ui-monospace, monospace;
     font-size: 10.5px;
-    color: rgba(var(--v-theme-on-surface), 0.5);
+    color: rgba(var(--v-theme-on-surface), 0.45);
+    min-width: 12px;
+    text-align: right;
+}
+.item-id::after {
+    content: ".";
 }
 .item-title {
     flex: 1;
     min-width: 0;
-    color: rgba(var(--v-theme-on-surface), 0.85);
+    color: rgba(var(--v-theme-on-surface), 0.87);
 }
-.attention-icon { color: #b58400; }
+.attention-icon { color: rgb(var(--v-theme-warning)); }
+
+/* notes:左侧竖线引用块,替代原来的斜体灰字 */
 .item-notes {
     flex-basis: 100%;
-    padding-left: 20px;
-    font-size: 10.5px;
-    color: rgba(var(--v-theme-on-surface), 0.5);
-    font-style: italic;
-}
-.has-notes { padding-bottom: 4px; }
-.stats-footer {
-    margin-top: 8px;
-    padding: 4px 8px;
-    font-size: 11px;
+    margin: 1px 0 2px;
+    padding: 2px 0 2px 10px;
+    border-left: 2px solid rgba(var(--v-theme-on-surface), 0.12);
+    font-size: 11.5px;
+    line-height: 1.5;
     color: rgba(var(--v-theme-on-surface), 0.55);
-    font-style: italic;
+    white-space: pre-wrap;
+    word-break: break-word;
 }
 </style>
