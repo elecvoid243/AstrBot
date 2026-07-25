@@ -310,6 +310,19 @@ class BotMessageAccumulator:
         self.pending_text = ""
         self.pending_tool_calls: dict[str, dict] = {}
         # Author: elecvoid243
+        # Date: 2026-07-25
+        # Plan: orphan goal-loop turn agent_stats persistence fix.
+        # The primary `_consume_chat_run` path decouples `run.agent_stats`
+        # from this accumulator (it stores on `ChatRunState` directly and
+        # never calls `add_plain(chain_type="agent_stats")`). The system
+        # event stream path (orphan goal-loop turns) DOES route
+        # `chain_type="agent_stats"` payloads through `add_plain`, so the
+        # accumulator needs its own slot to remember the latest stats
+        # until `flush()` passes it to `save_bot_message`. Initialised
+        # here as a purely additive field — Normal turn flow never reads
+        # or writes it, so behavior is unchanged.
+        self.pending_agent_stats: dict = {}
+        # Author: elecvoid243
         # Date: 2026-07-05
         # Plan: docs/superpowers/plans/2026-07-05-interactive-choice-history-roundtrip.md
         # §2.2 Amendment F — `ask_user_choice` is rendered exclusively as an
@@ -324,7 +337,21 @@ class BotMessageAccumulator:
         self._filtered_tool_call_ids: set[str] = set()
 
     def has_content(self) -> bool:
-        return bool(self.parts or self.pending_text or self.pending_tool_calls)
+        # Author: elecvoid243
+        # Date: 2026-07-25
+        # Plan: orphan goal-loop turn agent_stats persistence fix.
+        # Include `pending_agent_stats` so orphan turns that consist
+        # solely of `agent_stats` events (no plain text, no tool calls)
+        # still flush. Safe for the primary path: Normal turn never
+        # calls `add_plain(chain_type="agent_stats")`, so the
+        # accumulator's `pending_agent_stats` stays `{}` (falsy) and
+        # the OR-chain resolves identically to before this change.
+        return bool(
+            self.parts
+            or self.pending_text
+            or self.pending_tool_calls
+            or self.pending_agent_stats
+        )
 
     def add_plain(
         self,
@@ -360,6 +387,34 @@ class BotMessageAccumulator:
         if chain_type == "interactive_choice":
             self._flush_pending_text()
             self._store_interactive_choice(result_text)
+            return
+
+        # Author: elecvoid243
+        # Date: 2026-07-25
+        # Plan: orphan goal-loop turn agent_stats persistence fix.
+        # The system event stream forwards every payload (including
+        # `type:"plain" + chain_type:"agent_stats"`) verbatim to
+        # `add_plain`. Without this branch the JSON stats blob would
+        # fall through to the default streaming/pending_text path and
+        # end up as a literal `{"type":"plain","text":"{...}"}` part
+        # on the persisted bot record. Parse it into a dict and stash
+        # on the accumulator; `flush()` (system stream only) passes it
+        # to `save_bot_message`.
+        #
+        # Normal turn path is unaffected: the primary `_consume_chat_run`
+        # in this same module does `continue` on `chain_type=="agent_stats"`
+        # BEFORE reaching `add_plain`, so this branch is dead code there.
+        if chain_type == "agent_stats":
+            try:
+                self.pending_agent_stats = (
+                    json.loads(result_text) if result_text else {}
+                )
+            except (TypeError, json.JSONDecodeError):
+                # Better to drop a malformed stats blob than persist
+                # a JSON literal as plain text. Mirrors the existing
+                # `json.JSONDecodeError` handling in
+                # `_consume_chat_run` (run.agent_stats = {} on failure).
+                self.pending_agent_stats = {}
             return
 
         if streaming:
@@ -1476,11 +1531,28 @@ class ChatService:
             if acc is None or not acc.has_content():
                 return
             parts = acc.build_message_parts(include_pending_tool_calls=True)
+            # Author: elecvoid243
+            # Date: 2026-07-25
+            # Plan: orphan goal-loop turn agent_stats persistence fix.
+            # Forward the per-accumulator `pending_agent_stats` (captured
+            # by `BotMessageAccumulator.add_plain(chain_type="agent_stats")`)
+            # to `save_bot_message` instead of the previous hard-coded
+            # `{}`. The frontend `normalizeHistoryRecord` reads this
+            # exact field as `content.agent_stats` to drive the hover
+            # token-usage card, so a missing value here means the card
+            # disappears after a hard refresh.
+            #
+            # The primary `_consume_chat_run` path is unaffected: it
+            # never instantiates a `BotMessageAccumulator` inside
+            # `build_system_stream` (different function, different
+            # queue, different persistence call). Normal turn goes
+            # through `save_bot_message(..., pending_agent_stats, ...)`
+            # with the outer variable, completely separate.
             try:
                 await self.save_bot_message(
                     session_id,
                     parts,
-                    {},
+                    acc.pending_agent_stats,
                     {},
                     None,
                     "webchat",

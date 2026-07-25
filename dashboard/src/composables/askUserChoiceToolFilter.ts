@@ -30,8 +30,12 @@ export function isAskUserChoiceToolCall(value: unknown): boolean {
 /**
  * Structural shape of a `ChatRecord` for the result predicate. Kept
  * inline so this module stays free of any `useMessages` import.
+ *
+ * Exported so peer leaves (e.g. `systemStream.ts`) can build a
+ * structurally-compatible RecordLike without pulling in the heavier
+ * `useMessages` types.
  */
-interface ToolCallPartLike {
+export interface ToolCallPartLike {
   type?: unknown;
   tool_calls?: unknown;
 }
@@ -40,7 +44,7 @@ interface ToolCallPartLike {
  * Structural shape of a `ChatRecord` we walk over to find a
  * previously-inserted `tool_call` part.
  */
-interface RecordLike {
+export interface RecordLike {
   content: { message: ToolCallPartLike[] };
 }
 
@@ -69,9 +73,7 @@ export function isAskUserChoiceToolCallResult(
       continue;
     for (const tc of part.tool_calls) {
       if (tc && (tc as { id?: unknown }).id === callId) {
-        return (
-          (tc as { name?: unknown }).name === ASK_USER_CHOICE_TOOL_NAME
-        );
+        return (tc as { name?: unknown }).name === ASK_USER_CHOICE_TOOL_NAME;
       }
     }
   }

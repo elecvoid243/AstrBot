@@ -156,3 +156,308 @@ test("finalizeSystemSession stops spinners of interrupted turns", () => {
   assert.equal(records[0].content.isLoading, false);
   assert.equal(state.liveBySession["s1"], undefined);
 });
+
+// ── 2026-07-25 chain_type dispatch (Bug fix, see user report)
+// Before this fix, the leaf only recognised `type ∈ {"plain","complete",
+// "end"}` and appended every payload as plain text. Goal-loop turns that
+// emit tool_call / tool_call_result / reasoning / agent_stats /
+// interactive_choice events therefore rendered their JSON wire payloads
+// inline in the chat bubble, never forming the "思考了 X 次，使用了 Y 次
+// 工具" reasoning block. The tests below cover the new dispatch.
+
+test("tool_call chain_type produces a tool_call part with the parsed JSON", () => {
+  const state = createSystemStreamState();
+  const records = makeRecords();
+
+  processSystemPayload(state, "s1", records, {
+    type: "plain",
+    chain_type: "tool_call",
+    data: JSON.stringify({
+      id: "call_019f98283c347770a06a7835",
+      name: "astrbot_file_write_tool",
+      args: { content: "hello" },
+      ts: 1784964201.97,
+    }),
+    streaming: false,
+    message_id: "orphan-tool",
+  });
+
+  const parts = records[0].content.message;
+  assert.equal(parts.length, 1);
+  const part = parts[0] as {
+    type: string;
+    tool_calls?: Array<Record<string, unknown>>;
+  };
+  assert.equal(part.type, "tool_call");
+  assert.ok(Array.isArray(part.tool_calls));
+  const tc0 = part.tool_calls![0];
+  assert.equal(tc0.id, "call_019f98283c347770a06a7835");
+  assert.equal(tc0.name, "astrbot_file_write_tool");
+  assert.deepEqual(tc0.args, { content: "hello" });
+});
+
+test("tool_call_result merges into the matching tool_call by id", () => {
+  const state = createSystemStreamState();
+  const records = makeRecords();
+
+  processSystemPayload(state, "s1", records, {
+    type: "plain",
+    chain_type: "tool_call",
+    data: JSON.stringify({
+      id: "call_1",
+      name: "read_file",
+      args: { path: "/tmp/x" },
+      ts: 1.0,
+    }),
+    streaming: false,
+    message_id: "orphan-merge",
+  });
+  processSystemPayload(state, "s1", records, {
+    type: "plain",
+    chain_type: "tool_call_result",
+    data: JSON.stringify({
+      id: "call_1",
+      result: "contents",
+      ts: 1.5,
+    }),
+    streaming: false,
+    message_id: "orphan-merge",
+  });
+  processSystemPayload(state, "s1", records, {
+    type: "complete",
+    streaming: false,
+    message_id: "orphan-merge",
+  });
+
+  const parts = records[0].content.message;
+  // The single tool_call part carries both args and result. No raw JSON
+  // plain text leaks through.
+  assert.equal(parts.length, 1);
+  const part = parts[0] as {
+    type: string;
+    tool_calls?: Array<Record<string, unknown>>;
+  };
+  assert.equal(part.type, "tool_call");
+  assert.equal(part.tool_calls!.length, 1);
+  const tc0 = part.tool_calls![0];
+  assert.equal(tc0.id, "call_1");
+  assert.equal(tc0.result, "contents");
+  assert.equal(tc0.finished_ts, 1.5);
+});
+
+test("tool_call_result without a prior tool_call still produces a part", () => {
+  const state = createSystemStreamState();
+  const records = makeRecords();
+
+  processSystemPayload(state, "s1", records, {
+    type: "plain",
+    chain_type: "tool_call_result",
+    data: JSON.stringify({
+      id: "call_orphan",
+      result: "still rendered",
+      ts: 2.0,
+    }),
+    streaming: false,
+    message_id: "orphan-orphan-result",
+  });
+  processSystemPayload(state, "s1", records, {
+    type: "complete",
+    streaming: false,
+    message_id: "orphan-orphan-result",
+  });
+
+  const parts = records[0].content.message;
+  assert.equal(parts.length, 1);
+  const part = parts[0] as {
+    type: string;
+    tool_calls?: Array<Record<string, unknown>>;
+  };
+  assert.equal(part.type, "tool_call");
+  const tc0 = part.tool_calls![0];
+  assert.equal(tc0.id, "call_orphan");
+  assert.equal(tc0.result, "still rendered");
+});
+
+test("reasoning chain_type produces a think part and sets the side-bar field", () => {
+  const state = createSystemStreamState();
+  const records = makeRecords();
+
+  processSystemPayload(state, "s1", records, {
+    type: "plain",
+    chain_type: "reasoning",
+    data: "thinking about the poem",
+    streaming: false,
+    message_id: "orphan-reasoning",
+  });
+  processSystemPayload(state, "s1", records, {
+    type: "plain",
+    chain_type: "reasoning",
+    data: " (continued)",
+    streaming: true,
+    message_id: "orphan-reasoning",
+  });
+
+  const parts = records[0].content.message;
+  // Multiple reasoning chunks should merge into a single `think` part so
+  // the "思考了 X 次" counter stays at 1.
+  assert.equal(parts.length, 1);
+  assert.equal(parts[0].type, "think");
+  assert.equal(parts[0].think, "thinking about the poem (continued)");
+  assert.equal(
+    records[0].content.reasoning,
+    "thinking about the poem (continued)",
+  );
+});
+
+test("agent_stats chain_type stores on the record and does not leak JSON", () => {
+  const state = createSystemStreamState();
+  const records = makeRecords();
+
+  processSystemPayload(state, "s1", records, {
+    type: "plain",
+    chain_type: "agent_stats",
+    data: JSON.stringify({
+      token_usage: { input_other: 227, output: 50 },
+    }),
+    streaming: false,
+    message_id: "orphan-stats",
+  });
+  processSystemPayload(state, "s1", records, {
+    type: "plain",
+    data: "response text",
+    streaming: false,
+    message_id: "orphan-stats",
+  });
+
+  // agent_stats must NOT create a plain part containing the raw JSON.
+  assert.equal(records[0].content.message.length, 1);
+  assert.equal(records[0].content.message[0].type, "plain");
+  assert.equal(records[0].content.message[0].text, "response text");
+  assert.deepEqual(records[0].content.agentStats, {
+    token_usage: { input_other: 227, output: 50 },
+  });
+});
+
+test("top-level agent_stats event sets the same field", () => {
+  // The primary consumer republishes agent_stats as
+  // `{type: "agent_stats", data: {...}}` (no chain_type). Make sure the
+  // leaf accepts that shape too.
+  const state = createSystemStreamState();
+  const records = makeRecords();
+
+  processSystemPayload(state, "s1", records, {
+    type: "agent_stats",
+    data: { token_usage: { input_other: 999 } },
+    message_id: "orphan-stats-top",
+  });
+
+  assert.equal(records[0].content.message.length, 0);
+  assert.deepEqual(records[0].content.agentStats, {
+    token_usage: { input_other: 999 },
+  });
+});
+
+test("interactive_choice chain_type pushes an interactive_choice part", () => {
+  const state = createSystemStreamState();
+  const records = makeRecords();
+
+  processSystemPayload(state, "s1", records, {
+    type: "plain",
+    chain_type: "interactive_choice",
+    data: JSON.stringify({
+      request_id: "req-123",
+      spec: {
+        type: "interactive_choice",
+        prompt: "Pick a color",
+        options: [
+          { id: "red", label: "Red" },
+          { id: "blue", label: "Blue" },
+        ],
+      },
+      expires_at: 1800000000,
+    }),
+    streaming: false,
+    message_id: "orphan-choice",
+  });
+
+  const parts = records[0].content.message;
+  assert.equal(parts.length, 1);
+  assert.equal(parts[0].type, "interactive_choice");
+  assert.equal(parts[0].request_id, "req-123");
+  assert.equal(parts[0].prompt, "Pick a color");
+});
+
+test("ask_user_choice tool_call is filtered and its result is dropped", () => {
+  // Mirrors the primary-path filter (Plan 2026-07-05 §2.4 Amendment F).
+  // Without this, the dashboard shows a phantom "tool" entry next to the
+  // InteractiveChoiceBox because `mergeToolCallResult` would synthesise a
+  // name-less part on miss.
+  const state = createSystemStreamState();
+  const records = makeRecords();
+
+  processSystemPayload(state, "s1", records, {
+    type: "plain",
+    chain_type: "tool_call",
+    data: JSON.stringify({
+      id: "call_ask_1",
+      name: "ask_user_choice",
+      args: { prompt: "Pick", options: [] },
+      ts: 1.0,
+    }),
+    streaming: false,
+    message_id: "orphan-ask",
+  });
+  processSystemPayload(state, "s1", records, {
+    type: "plain",
+    chain_type: "tool_call_result",
+    data: JSON.stringify({
+      id: "call_ask_1",
+      result: "ok",
+      ts: 1.5,
+    }),
+    streaming: false,
+    message_id: "orphan-ask",
+  });
+  processSystemPayload(state, "s1", records, {
+    type: "complete",
+    streaming: false,
+    message_id: "orphan-ask",
+  });
+
+  // Both filtered — no plain JSON, no synthesised tool_call part.
+  assert.equal(records[0].content.message.length, 0);
+});
+
+test("plain text flushes before a non-plain part so the order matches the wire", () => {
+  // Plain text arrives before a tool_call. The plain part should be
+  // pushed first, then the tool_call part. This is what the rendering
+  // code expects (text → tool card).
+  const state = createSystemStreamState();
+  const records = makeRecords();
+
+  processSystemPayload(state, "s1", records, {
+    type: "plain",
+    data: "I'll write a poem",
+    streaming: false,
+    message_id: "orphan-order",
+  });
+  processSystemPayload(state, "s1", records, {
+    type: "plain",
+    chain_type: "tool_call",
+    data: JSON.stringify({ id: "c1", name: "write", args: {}, ts: 1 }),
+    streaming: false,
+    message_id: "orphan-order",
+  });
+
+  const parts = records[0].content.message;
+  assert.equal(parts.length, 2);
+  const plain = parts[0] as { type: string; text?: string };
+  assert.equal(plain.type, "plain");
+  assert.equal(plain.text, "I'll write a poem");
+  const toolPart = parts[1] as {
+    type: string;
+    tool_calls?: Array<Record<string, unknown>>;
+  };
+  assert.equal(toolPart.type, "tool_call");
+  assert.equal(toolPart.tool_calls![0].id, "c1");
+});
