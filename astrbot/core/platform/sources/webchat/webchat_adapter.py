@@ -26,16 +26,11 @@ from .message_parts_helper import (
 )
 from .request_flags import resolve_webchat_request_flags
 from .webchat_event import WebChatMessageEvent
-from .webchat_queue_mgr import WebChatQueueMgr, webchat_queue_mgr
-
-
-def _extract_conversation_id(session_id: str) -> str:
-    """Extract raw webchat conversation id from event/session id."""
-    if session_id.startswith("webchat!"):
-        parts = session_id.split("!", 2)
-        if len(parts) == 3:
-            return parts[2]
-    return session_id
+from .webchat_queue_mgr import (
+    WebChatQueueMgr,
+    _extract_conversation_id,
+    webchat_queue_mgr,
+)
 
 
 class QueueListener:

@@ -3,6 +3,18 @@ from collections.abc import Awaitable, Callable
 
 from astrbot import logger
 
+SYSTEM_SUBSCRIBER_QUEUE_SIZE = 256
+"""Max buffered system-event payloads per subscriber; overflow is dropped."""
+
+
+def _extract_conversation_id(session_id: str) -> str:
+    """Extract raw webchat conversation id from event/session id."""
+    if session_id.startswith("webchat!"):
+        parts = session_id.split("!", 2)
+        if len(parts) == 3:
+            return parts[2]
+    return session_id
+
 
 class WebChatQueueMgr:
     def __init__(self, queue_maxsize: int = 128, back_queue_maxsize: int = 512) -> None:
@@ -18,6 +30,8 @@ class WebChatQueueMgr:
         self._listener_callback: Callable[[tuple], Awaitable[None]] | None = None
         self.queue_maxsize = queue_maxsize
         self.back_queue_maxsize = back_queue_maxsize
+        self.system_subscribers: dict[str, set[asyncio.Queue]] = {}
+        """Conversation ID to system-event subscriber queues (fan-out)."""
 
     def get_or_create_queue(self, conversation_id: str) -> asyncio.Queue:
         """Get or create a queue for the given conversation ID"""
@@ -96,6 +110,58 @@ class WebChatQueueMgr:
                 request_ids.discard(request_id)
                 if not request_ids:
                     self._conversation_back_requests.pop(conversation_id, None)
+
+    def subscribe_system(self, conversation_id: str) -> asyncio.Queue:
+        """Register a system-event subscriber queue for a conversation.
+
+        Args:
+            conversation_id: Raw webchat conversation id.
+
+        Returns:
+            A new bounded queue receiving mirrored event payloads.
+        """
+        queue: asyncio.Queue = asyncio.Queue(maxsize=SYSTEM_SUBSCRIBER_QUEUE_SIZE)
+        self.system_subscribers.setdefault(conversation_id, set()).add(queue)
+        return queue
+
+    def unsubscribe_system(self, conversation_id: str, queue: asyncio.Queue) -> None:
+        """Remove a system-event subscriber; cleans up the empty bucket."""
+        subscribers = self.system_subscribers.get(conversation_id)
+        if not subscribers:
+            return
+        subscribers.discard(queue)
+        if not subscribers:
+            self.system_subscribers.pop(conversation_id, None)
+
+    def has_system_subscribers(self, conversation_id: str) -> bool:
+        """Return True when at least one system-event subscriber exists."""
+        return bool(self.system_subscribers.get(conversation_id))
+
+    async def put_system_event(self, conversation_id: str, payload: dict) -> bool:
+        """Mirror one event payload to all system-event subscribers.
+
+        Zero-cost no-op when nobody subscribes. A full subscriber queue drops
+        the payload (chat display is best-effort) and never blocks the sender.
+
+        Args:
+            conversation_id: Raw webchat conversation id.
+            payload: The exact payload dict also written to the back queue.
+
+        Returns:
+            True when at least one subscriber existed, False otherwise.
+        """
+        subscribers = self.system_subscribers.get(conversation_id)
+        if not subscribers:
+            return False
+        for subscriber in list(subscribers):
+            try:
+                subscriber.put_nowait(payload)
+            except asyncio.QueueFull:
+                logger.debug(
+                    f"System event subscriber queue full for {conversation_id}, "
+                    "dropping payload"
+                )
+        return True
 
     def remove_queues(self, conversation_id: str) -> None:
         """Remove queues for the given conversation ID"""
