@@ -1439,6 +1439,14 @@ class ChatService:
                 subscriber.put_nowait(None)
             run.subscribers.clear()
 
+    def system_stream_enabled(self) -> bool:
+        """Return whether the conversation-level system event stream is on."""
+        return bool(
+            self.core_lifecycle.astrbot_config.get("dashboard", {}).get(
+                "system_stream_enabled", True
+            )
+        )
+
     async def build_system_stream(
         self,
         username: str,

@@ -200,6 +200,27 @@ async def resume_chat_run(
     )
 
 
+@router.get("/chat/sessions/{session_id}/system-stream")
+async def system_event_stream(
+    session_id: str,
+    auth: AuthContext = Depends(require_chat_scope),
+    service: ChatService = Depends(get_service),
+):
+    if not service.system_stream_enabled():
+        return JSONResponse(error("System event stream is disabled"))
+
+    stream = await service.build_system_stream(auth.username, session_id)
+    return StreamingResponse(
+        stream,
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Transfer-Encoding": "chunked",
+            "Connection": "keep-alive",
+        },
+    )
+
+
 @router.patch("/chat/sessions/{session_id}/messages/{message_id}")
 async def update_chat_message(
     session_id: str,

@@ -152,3 +152,17 @@ class TestBuildSystemStream:
             await asyncio.gather(pump, return_exceptions=True)
             await stream.aclose()
         service.save_bot_message.assert_awaited_once()
+
+
+class TestSystemStreamConfigGate:
+    def test_enabled_by_default(self):
+        service = _make_service()
+        service.core_lifecycle.astrbot_config = {"dashboard": {}}
+        assert service.system_stream_enabled() is True
+
+    def test_disabled_via_config(self):
+        service = _make_service()
+        service.core_lifecycle.astrbot_config = {
+            "dashboard": {"system_stream_enabled": False}
+        }
+        assert service.system_stream_enabled() is False

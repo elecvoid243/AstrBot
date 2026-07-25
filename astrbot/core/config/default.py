@@ -301,6 +301,7 @@ DEFAULT_CONFIG = {
         "port": 6185,
         "disable_access_log": True,
         "trust_proxy_headers": False,
+        "system_stream_enabled": True,
         "auth_rate_limit": {
             "enable": True,
             "average_interval": 1.0,
