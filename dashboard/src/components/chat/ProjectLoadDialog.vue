@@ -64,27 +64,38 @@ function removeFromPathHistory(path: string): void {
 /**
  * Compose the final chat input text for the load/set command.
  *
- * When ``commandMode === 'codegraph'`` the command becomes
- * ``/codegraph set <path>``; otherwise it stays ``/project load <path>``.
+ * Args:
+ *   wakePrefix: Wake prefix configured for chat commands.
+ *   path: User-entered project path.
+ *   cmdMode: Project-load or Codegraph-set command mode.
+ *   loadAgentsMd: Whether the project load should run AGENTS.md steps.
+ *   loadCodegraph: Whether the project load should run Codegraph steps.
  *
- * Falls back to ``"/"`` if ``wakePrefix`` is empty so an empty
- * ``wakePrefixes`` does not produce ``"undefinedcodegraph set ..."``.
+ * Returns:
+ *   The complete command string to submit through ChatInput.
  */
 function buildLoadCommand(
   wakePrefix: string,
   path: string,
-  cmdMode: 'project' | 'codegraph',
+  cmdMode: "project" | "codegraph",
+  loadAgentsMd: boolean,
+  loadCodegraph: boolean,
 ): string {
   const prefix = wakePrefix || "/";
   const trimmed = path.trim();
-  // Auto-wrap in double quotes when the path contains whitespace and isn't
-  // already fully quoted, so users don't have to remember the quoting rule.
   const alreadyQuoted =
     trimmed.startsWith('"') && trimmed.endsWith('"') && trimmed.length >= 2;
   const needsQuoting = !alreadyQuoted && /\s/.test(trimmed);
   const finalPath = needsQuoting ? `"${trimmed}"` : trimmed;
-  const verb = cmdMode === 'codegraph' ? 'codegraph set' : 'project load';
-  return `${prefix}${verb} ${finalPath}`;
+  const verb = cmdMode === "codegraph" ? "codegraph set" : "project load";
+  const flags =
+    cmdMode === "project"
+      ? [
+          loadAgentsMd ? "" : "no_agentsmd",
+          loadCodegraph ? "" : "no_codegraph",
+        ].filter(Boolean)
+      : [];
+  return `${prefix}${verb} ${[finalPath, ...flags].join(" ")}`;
 }
 
 // ── Props / Emits ───────────────────────────────────────────────────────
@@ -120,6 +131,8 @@ const dialogTitle = computed(() =>
 // ── Reactive state ──────────────────────────────────────────────────────
 const dialogOpen = ref(false);
 const path = ref("");
+const loadAgentsMd = ref(true);
+const loadCodegraph = ref(true);
 
 // In-memory reactive source of truth for history; mirrors localStorage.
 const pathHistory = ref<string[]>(getPathHistory());
@@ -133,6 +146,8 @@ const canSubmit = computed(() => path.value.trim().length > 0);
 watch(dialogOpen, (open) => {
   if (open) {
     path.value = "";
+    loadAgentsMd.value = true;
+    loadCodegraph.value = true;
   }
 });
 
@@ -162,6 +177,8 @@ function onConfirm(): void {
     props.wakePrefixes[0] || "/",
     trimmed,
     props.commandMode,
+    loadAgentsMd.value,
+    loadCodegraph.value,
   );
   emit("submit", text);
   dialogOpen.value = false;
@@ -210,6 +227,26 @@ function onUnload(): void {
             clearable
             @keydown.esc="dialogOpen = false"
           />
+          <div
+            v-if="props.commandMode === 'project'"
+            class="load-steps mb-2"
+          >
+            <div class="text-caption text-medium-emphasis mb-1">
+              {{ tm("spcodeProjectLoad.dialog.loadStepsLabel") }}
+            </div>
+            <v-checkbox
+              v-model="loadAgentsMd"
+              :label="tm('spcodeProjectLoad.dialog.loadAgentsMd')"
+              density="compact"
+              hide-details
+            />
+            <v-checkbox
+              v-model="loadCodegraph"
+              :label="tm('spcodeProjectLoad.dialog.loadCodegraph')"
+              density="compact"
+              hide-details
+            />
+          </div>
           <div v-if="recentPaths.length" class="mt-2">
             <div class="text-caption text-medium-emphasis mb-1">
               {{ tm("spcodeProjectLoad.dialog.historyLabel") }}
