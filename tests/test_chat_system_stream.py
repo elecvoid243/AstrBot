@@ -9,6 +9,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from astrbot.api.event import MessageChain
+from astrbot.api.message_components import Plain
 from astrbot.core.platform.sources.webchat.webchat_queue_mgr import (
     webchat_queue_mgr,
 )
@@ -166,3 +168,70 @@ class TestSystemStreamConfigGate:
             "dashboard": {"system_stream_enabled": False}
         }
         assert service.system_stream_enabled() is False
+
+
+class TestSendToSystemStreamIntegration:
+    """Cross-layer: WebChatMessageEvent._send mirror → build_system_stream."""
+
+    @pytest.mark.asyncio
+    async def test_event_send_reaches_system_stream_and_persists(self):
+        from astrbot.core.platform.sources.webchat.webchat_event import (
+            WebChatMessageEvent,
+        )
+
+        service = _make_service()
+        session_id = f"conv-{id(self)}-int"
+        stream = await service.build_system_stream("tester", session_id)
+        sink: list = []
+        pump = asyncio.create_task(_pump(stream, sink))
+        try:
+            await _wait_until(
+                lambda: webchat_queue_mgr.has_system_subscribers(session_id)
+            )
+            webchat_queue_mgr.get_or_create_back_queue("req-int-1", session_id)
+            await WebChatMessageEvent._send(
+                "req-int-1",
+                MessageChain(chain=[Plain("orphan turn")]),
+                f"webchat!user!{session_id}",
+                emit_complete=True,
+            )
+            await _wait_until(lambda: service.save_bot_message.await_count == 1)
+            assert [e["type"] for e in sink] == ["plain", "complete"]
+            assert sink[0]["data"] == "orphan turn"
+            assert sink[0]["message_id"] == "req-int-1"
+        finally:
+            pump.cancel()
+            await asyncio.gather(pump, return_exceptions=True)
+            await stream.aclose()
+            webchat_queue_mgr.remove_back_queue("req-int-1")
+
+    @pytest.mark.asyncio
+    async def test_send_by_session_style_call_does_not_leak(self):
+        from astrbot.core.platform.sources.webchat.webchat_event import (
+            WebChatMessageEvent,
+        )
+
+        service = _make_service()
+        session_id = f"conv-{id(self)}-int2"
+        stream = await service.build_system_stream("tester", session_id)
+        sink: list = []
+        pump = asyncio.create_task(_pump(stream, sink))
+        try:
+            await _wait_until(
+                lambda: webchat_queue_mgr.has_system_subscribers(session_id)
+            )
+            webchat_queue_mgr.get_or_create_back_queue("req-int-2", session_id)
+            await WebChatMessageEvent._send(
+                "req-int-2",
+                MessageChain(chain=[Plain("proactive")]),
+                session_id,
+                emit_complete=True,
+                mirror_system=False,
+            )
+            await asyncio.sleep(0.1)
+            assert sink == []
+        finally:
+            pump.cancel()
+            await asyncio.gather(pump, return_exceptions=True)
+            await stream.aclose()
+            webchat_queue_mgr.remove_back_queue("req-int-2")
