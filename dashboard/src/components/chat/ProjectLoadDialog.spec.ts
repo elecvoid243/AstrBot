@@ -36,6 +36,7 @@ const checkboxStub = defineComponent({
       <input
         type="checkbox"
         :checked="modelValue"
+        :data-compact="$attrs['data-compact']"
         @change="$emit('update:modelValue', $event.target.checked)"
       />
       <span>{{ label }}</span>
@@ -159,6 +160,19 @@ describe("ProjectLoadDialog load-step options", () => {
     expect(labels.length).toBeGreaterThan(0);
     for (const label of labels) {
       expect(label.classes()).toContain("text-body-2");
+    }
+  });
+
+  it("shrinks advanced checkbox inputs to a compact icon size", async () => {
+    const wrapper = mountDialog();
+    await openDialog(wrapper);
+
+    const checkboxes = wrapper.findAll<HTMLInputElement>(
+      '.load-steps input[type="checkbox"]',
+    );
+    expect(checkboxes.length).toBeGreaterThan(0);
+    for (const checkbox of checkboxes) {
+      expect(checkbox.element.dataset.compact).toBe("true");
     }
   });
 

@@ -246,6 +246,7 @@ function onUnload(): void {
                   density="compact"
                   hide-details
                   class="text-body-2"
+                  data-compact="true"
                 />
                 <v-checkbox
                   v-model="loadCodegraph"
@@ -253,6 +254,7 @@ function onUnload(): void {
                   density="compact"
                   hide-details
                   class="text-body-2"
+                  data-compact="true"
                 />
               </v-expansion-panel-text>
             </v-expansion-panel>
@@ -328,5 +330,30 @@ function onUnload(): void {
   font-size: 12px;
   word-break: break-all;
   white-space: normal;
+}
+
+/*
+ * Compact rendering for the two load-step checkboxes tucked under the
+ * "Advanced settings" expansion panel. They must read at the same size
+ * as the "Recent" rows above (font-size: 12px, checkbox box ~18px)
+ * instead of Vuetify's default 24px checkbox and 14px label.
+ */
+.load-steps :deep(.v-selection-control) {
+  min-height: 28px;
+}
+
+.load-steps :deep(.v-label) {
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.load-steps :deep(.v-selection-control__wrapper) {
+  width: 18px;
+  height: 18px;
+}
+
+.load-steps :deep(input[type="checkbox"]) {
+  width: 18px;
+  height: 18px;
 }
 </style>
