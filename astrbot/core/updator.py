@@ -9,11 +9,11 @@ import psutil
 
 from astrbot.core import logger
 from astrbot.core.config.default import VERSION
+from astrbot.core.config.update_config import UpdateConfig
 from astrbot.core.desktop_runtime import (
     DESKTOP_MANAGED_RESTART_MESSAGE,
     is_desktop_managed_backend,
 )
-from astrbot.core.config.update_config import UpdateConfig
 from astrbot.core.utils.astrbot_path import get_astrbot_path
 from astrbot.core.utils.io import ensure_dir
 
