@@ -293,6 +293,7 @@
       "pathLabel": "Project Path",
       "pathPlaceholder": "e.g. /Users/me/projects/my-app",
       "loadStepsLabel": "Load steps",
+      "advancedSettings": "Advanced settings",
       "loadAgentsMd": "Load AGENTS.md",
       "loadCodegraph": "Load Codegraph",
       "historyLabel": "Recent",

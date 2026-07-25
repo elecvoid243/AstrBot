@@ -133,6 +133,7 @@ const dialogOpen = ref(false);
 const path = ref("");
 const loadAgentsMd = ref(true);
 const loadCodegraph = ref(true);
+const advancedOpen = ref<string[]>([]);
 
 // In-memory reactive source of truth for history; mirrors localStorage.
 const pathHistory = ref<string[]>(getPathHistory());
@@ -148,6 +149,7 @@ watch(dialogOpen, (open) => {
     path.value = "";
     loadAgentsMd.value = true;
     loadCodegraph.value = true;
+    advancedOpen.value = [];
   }
 });
 
@@ -227,26 +229,34 @@ function onUnload(): void {
             clearable
             @keydown.esc="dialogOpen = false"
           />
-          <div
+          <v-expansion-panels
             v-if="props.commandMode === 'project'"
+            v-model="advancedOpen"
             class="load-steps mb-2"
+            elevation="0"
           >
-            <div class="text-caption text-medium-emphasis mb-1">
-              {{ tm("spcodeProjectLoad.dialog.loadStepsLabel") }}
-            </div>
-            <v-checkbox
-              v-model="loadAgentsMd"
-              :label="tm('spcodeProjectLoad.dialog.loadAgentsMd')"
-              density="compact"
-              hide-details
-            />
-            <v-checkbox
-              v-model="loadCodegraph"
-              :label="tm('spcodeProjectLoad.dialog.loadCodegraph')"
-              density="compact"
-              hide-details
-            />
-          </div>
+            <v-expansion-panel value="advanced">
+              <v-expansion-panel-title class="text-body-2">
+                {{ tm("spcodeProjectLoad.dialog.advancedSettings") }}
+              </v-expansion-panel-title>
+              <v-expansion-panel-text eager>
+                <v-checkbox
+                  v-model="loadAgentsMd"
+                  :label="tm('spcodeProjectLoad.dialog.loadAgentsMd')"
+                  density="compact"
+                  hide-details
+                  class="text-body-2"
+                />
+                <v-checkbox
+                  v-model="loadCodegraph"
+                  :label="tm('spcodeProjectLoad.dialog.loadCodegraph')"
+                  density="compact"
+                  hide-details
+                  class="text-body-2"
+                />
+              </v-expansion-panel-text>
+            </v-expansion-panel>
+          </v-expansion-panels>
           <div v-if="recentPaths.length" class="mt-2">
             <div class="text-caption text-medium-emphasis mb-1">
               {{ tm("spcodeProjectLoad.dialog.historyLabel") }}

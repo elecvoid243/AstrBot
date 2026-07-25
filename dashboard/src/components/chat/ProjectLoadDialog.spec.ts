@@ -32,7 +32,7 @@ const checkboxStub = defineComponent({
   },
   emits: ["update:modelValue"],
   template: `
-    <label>
+    <label class="v-label">
       <input
         type="checkbox"
         :checked="modelValue"
@@ -70,6 +70,23 @@ const stubs = {
   "v-list": { template: "<div><slot /></div>" },
   "v-list-item": { template: "<div><slot /></div>" },
   "v-list-item-title": { template: "<div><slot /></div>" },
+  "v-expansion-panels": {
+    props: {
+      modelValue: { type: Array, default: () => [] },
+    },
+    emits: ["update:modelValue"],
+    template: "<div><slot /></div>",
+  },
+  "v-expansion-panel": {
+    props: { value: { type: String, default: "" } },
+    emits: ["group:selected"],
+    template: "<div :data-panel-value=\"value\"><slot /></div>",
+  },
+  "v-expansion-panel-title": { template: "<div><slot /></div>" },
+  "v-expansion-panel-text": {
+    props: { eager: { type: Boolean, default: false } },
+    template: "<div :data-eager=\"eager\"><slot /></div>",
+  },
 };
 
 function mountDialog(commandMode: "project" | "codegraph" = "project") {
@@ -116,6 +133,33 @@ describe("ProjectLoadDialog load-step options", () => {
     ]);
     expect(wrapper.text()).toContain("加载 AGENTS.md");
     expect(wrapper.text()).toContain("加载 Codegraph");
+  });
+
+  it("collapses advanced settings by default and renders them eagerly", async () => {
+    const wrapper = mountDialog();
+    await openDialog(wrapper);
+
+    const panelText = wrapper.find(
+      '[data-panel-value="advanced"] [data-eager="true"]',
+    );
+    expect(panelText.exists()).toBe(true);
+    const checkboxes = wrapper.findAll<HTMLInputElement>(
+      '.load-steps input[type="checkbox"]',
+    );
+    expect(checkboxes).toHaveLength(2);
+    expect(checkboxes[0].element.checked).toBe(true);
+    expect(checkboxes[1].element.checked).toBe(true);
+  });
+
+  it("keeps advanced checkbox labels at body text size", async () => {
+    const wrapper = mountDialog();
+    await openDialog(wrapper);
+
+    const labels = wrapper.findAll(".load-steps .v-label");
+    expect(labels.length).toBeGreaterThan(0);
+    for (const label of labels) {
+      expect(label.classes()).toContain("text-body-2");
+    }
   });
 
   it.each([
