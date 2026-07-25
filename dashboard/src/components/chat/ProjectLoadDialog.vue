@@ -64,27 +64,38 @@ function removeFromPathHistory(path: string): void {
 /**
  * Compose the final chat input text for the load/set command.
  *
- * When ``commandMode === 'codegraph'`` the command becomes
- * ``/codegraph set <path>``; otherwise it stays ``/project load <path>``.
+ * Args:
+ *   wakePrefix: Wake prefix configured for chat commands.
+ *   path: User-entered project path.
+ *   cmdMode: Project-load or Codegraph-set command mode.
+ *   loadAgentsMd: Whether the project load should run AGENTS.md steps.
+ *   loadCodegraph: Whether the project load should run Codegraph steps.
  *
- * Falls back to ``"/"`` if ``wakePrefix`` is empty so an empty
- * ``wakePrefixes`` does not produce ``"undefinedcodegraph set ..."``.
+ * Returns:
+ *   The complete command string to submit through ChatInput.
  */
 function buildLoadCommand(
   wakePrefix: string,
   path: string,
-  cmdMode: 'project' | 'codegraph',
+  cmdMode: "project" | "codegraph",
+  loadAgentsMd: boolean,
+  loadCodegraph: boolean,
 ): string {
   const prefix = wakePrefix || "/";
   const trimmed = path.trim();
-  // Auto-wrap in double quotes when the path contains whitespace and isn't
-  // already fully quoted, so users don't have to remember the quoting rule.
   const alreadyQuoted =
     trimmed.startsWith('"') && trimmed.endsWith('"') && trimmed.length >= 2;
   const needsQuoting = !alreadyQuoted && /\s/.test(trimmed);
   const finalPath = needsQuoting ? `"${trimmed}"` : trimmed;
-  const verb = cmdMode === 'codegraph' ? 'codegraph set' : 'project load';
-  return `${prefix}${verb} ${finalPath}`;
+  const verb = cmdMode === "codegraph" ? "codegraph set" : "project load";
+  const flags =
+    cmdMode === "project"
+      ? [
+          loadAgentsMd ? "" : "no_agentsmd",
+          loadCodegraph ? "" : "no_codegraph",
+        ].filter(Boolean)
+      : [];
+  return `${prefix}${verb} ${[finalPath, ...flags].join(" ")}`;
 }
 
 // ── Props / Emits ───────────────────────────────────────────────────────
@@ -120,6 +131,9 @@ const dialogTitle = computed(() =>
 // ── Reactive state ──────────────────────────────────────────────────────
 const dialogOpen = ref(false);
 const path = ref("");
+const loadAgentsMd = ref(true);
+const loadCodegraph = ref(true);
+const advancedOpen = ref<string[]>([]);
 
 // In-memory reactive source of truth for history; mirrors localStorage.
 const pathHistory = ref<string[]>(getPathHistory());
@@ -133,6 +147,9 @@ const canSubmit = computed(() => path.value.trim().length > 0);
 watch(dialogOpen, (open) => {
   if (open) {
     path.value = "";
+    loadAgentsMd.value = true;
+    loadCodegraph.value = true;
+    advancedOpen.value = [];
   }
 });
 
@@ -162,6 +179,8 @@ function onConfirm(): void {
     props.wakePrefixes[0] || "/",
     trimmed,
     props.commandMode,
+    loadAgentsMd.value,
+    loadCodegraph.value,
   );
   emit("submit", text);
   dialogOpen.value = false;
@@ -210,6 +229,39 @@ function onUnload(): void {
             clearable
             @keydown.esc="dialogOpen = false"
           />
+          <v-expansion-panels
+            v-if="props.commandMode === 'project'"
+            v-model="advancedOpen"
+            class="load-steps mb-2"
+            elevation="0"
+          >
+            <v-expansion-panel value="advanced">
+              <v-expansion-panel-title
+                class="text-body-2"
+                data-spacing="tight"
+              >
+                {{ tm("spcodeProjectLoad.dialog.advancedSettings") }}
+              </v-expansion-panel-title>
+              <v-expansion-panel-text eager>
+                <v-checkbox
+                  v-model="loadAgentsMd"
+                  :label="tm('spcodeProjectLoad.dialog.loadAgentsMd')"
+                  density="compact"
+                  hide-details
+                  class="text-body-2"
+                  data-compact="true"
+                />
+                <v-checkbox
+                  v-model="loadCodegraph"
+                  :label="tm('spcodeProjectLoad.dialog.loadCodegraph')"
+                  density="compact"
+                  hide-details
+                  class="text-body-2"
+                  data-compact="true"
+                />
+              </v-expansion-panel-text>
+            </v-expansion-panel>
+          </v-expansion-panels>
           <div v-if="recentPaths.length" class="mt-2">
             <div class="text-caption text-medium-emphasis mb-1">
               {{ tm("spcodeProjectLoad.dialog.historyLabel") }}
@@ -281,5 +333,40 @@ function onUnload(): void {
   font-size: 12px;
   word-break: break-all;
   white-space: normal;
+}
+
+/*
+ * Compact rendering for the two load-step checkboxes tucked under the
+ * "Advanced settings" expansion panel. They must read at the same size
+ * as the "Recent" rows above (font-size: 12px, checkbox box ~18px)
+ * instead of Vuetify's default 24px checkbox and 14px label.
+ */
+.load-steps :deep(.v-selection-control) {
+  min-height: 24px;
+}
+
+.load-steps :deep(.v-expansion-panel-text) {
+  padding-top: 0;
+  padding-bottom: 4px;
+}
+
+.load-steps :deep(.v-expansion-panel-title[data-spacing="tight"]) {
+  min-height: 32px;
+  padding-block: 4px;
+}
+
+.load-steps :deep(.v-label) {
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.load-steps :deep(.v-selection-control__wrapper) {
+  width: 18px;
+  height: 18px;
+}
+
+.load-steps :deep(input[type="checkbox"]) {
+  width: 18px;
+  height: 18px;
 }
 </style>
