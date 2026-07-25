@@ -83,7 +83,9 @@ const stubs = {
     emits: ["group:selected"],
     template: "<div :data-panel-value=\"value\"><slot /></div>",
   },
-  "v-expansion-panel-title": { template: "<div><slot /></div>" },
+  "v-expansion-panel-title": {
+    template: '<div class="v-expansion-panel-title"><slot /></div>',
+  },
   "v-expansion-panel-text": {
     props: { eager: { type: Boolean, default: false } },
     template: "<div :data-eager=\"eager\"><slot /></div>",
@@ -174,6 +176,14 @@ describe("ProjectLoadDialog load-step options", () => {
     for (const checkbox of checkboxes) {
       expect(checkbox.element.dataset.compact).toBe("true");
     }
+  });
+
+  it("pulls advanced checkboxes close to the panel title", async () => {
+    const wrapper = mountDialog();
+    await openDialog(wrapper);
+
+    const title = wrapper.get('[data-panel-value="advanced"] .v-expansion-panel-title');
+    expect(title.attributes("data-spacing")).toBe("tight");
   });
 
   it.each([

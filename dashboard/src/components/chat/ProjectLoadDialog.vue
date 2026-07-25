@@ -236,7 +236,10 @@ function onUnload(): void {
             elevation="0"
           >
             <v-expansion-panel value="advanced">
-              <v-expansion-panel-title class="text-body-2">
+              <v-expansion-panel-title
+                class="text-body-2"
+                data-spacing="tight"
+              >
                 {{ tm("spcodeProjectLoad.dialog.advancedSettings") }}
               </v-expansion-panel-title>
               <v-expansion-panel-text eager>
@@ -339,7 +342,17 @@ function onUnload(): void {
  * instead of Vuetify's default 24px checkbox and 14px label.
  */
 .load-steps :deep(.v-selection-control) {
-  min-height: 28px;
+  min-height: 24px;
+}
+
+.load-steps :deep(.v-expansion-panel-text) {
+  padding-top: 0;
+  padding-bottom: 4px;
+}
+
+.load-steps :deep(.v-expansion-panel-title[data-spacing="tight"]) {
+  min-height: 32px;
+  padding-block: 4px;
 }
 
 .load-steps :deep(.v-label) {
