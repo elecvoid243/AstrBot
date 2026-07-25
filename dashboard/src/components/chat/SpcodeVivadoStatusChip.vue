@@ -37,11 +37,15 @@ const isNotRunning = computed<boolean>(
   () => status.value.overall === "not_running",
 );
 const isDisabled = computed<boolean>(() => status.value.overall === "disabled");
+const isToolchainMissing = computed<boolean>(
+  () => status.value.overall === "toolchain_missing",
+);
 
 const dotClass = computed<Record<string, boolean>>(() => ({
   "sp-status-badge__dot--success": isOk.value,
   "sp-status-badge__dot--warning": isDegraded.value,
-  "sp-status-badge__dot--error": isNotInstalled.value,
+  "sp-status-badge__dot--error":
+    isNotInstalled.value || isToolchainMissing.value,
   "sp-status-badge__dot--neutral": isNotRunning.value || isDisabled.value,
 }));
 
@@ -49,6 +53,7 @@ const icon = computed<string>(() => {
   if (isOk.value) return "mdi-chip";
   if (isDegraded.value) return "mdi-alert-circle-outline";
   if (isNotInstalled.value) return "mdi-package-variant-closed";
+  if (isToolchainMissing.value) return "mdi-tools";
   if (isNotRunning.value) return "mdi-server-off";
   return "mdi-server-off-outline";
 });
@@ -57,6 +62,7 @@ const label = computed<string>(() => {
   if (isOk.value) return "Vivado 已就绪";
   if (isDegraded.value) return "会话数据暂不可用";
   if (isNotInstalled.value) return "vivado-mcp 未安装";
+  if (isToolchainMissing.value) return "Vivado 工具链未找到";
   if (isNotRunning.value) return "Vivado 未启动";
   return "Vivado 未启用";
 });

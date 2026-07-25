@@ -28,6 +28,7 @@ export type VivadoOverallStatus =
   | 'disabled'
   | 'not_installed'
   | 'not_running'
+  | 'toolchain_missing'
 
 export interface VivadoStatus {
   /** Derived overall status. */
@@ -89,6 +90,17 @@ function inferVivadoStatus(data: {
     return {
       overall: 'not_running',
       message: 'vivado MCP 服务未运行（启动中或启动失败）',
+    }
+  }
+  if (!data.vivado_path) {
+    // MCP 服务能跑起来说明包已装 (install_missing 已先短路),
+    // 但 vivado_path 还是空 → find_vivado_executable 三层 fallback
+    // (配置 / VIVADO_PATH env / vivado_mcp 默认路径) 全失败
+    // → Vivado 工具链本身未在用户机器上。提示要装 Vivado IDE。
+    return {
+      overall: 'toolchain_missing',
+      message:
+        '未找到 Vivado 工具链。请安装 Vivado IDE 并配置 VIVADO_PATH 环境变量（或在 spcode 插件配置中指定 vivado.executable）',
     }
   }
   if (data.degraded) {

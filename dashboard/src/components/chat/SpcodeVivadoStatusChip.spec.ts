@@ -109,6 +109,31 @@ describe('SpcodeVivadoStatusChip (status badge, 5 states)', () => {
     expect(wrapper.text()).toContain('vivado-mcp 未安装')
   })
 
+  it('renders error dot for toolchain_missing state (mcp running but vivado_path empty)', async () => {
+    // 场景: vivado-mcp 包装了且服务跑起来了 (mcpRunning=true), 但用户没装 Vivado IDE
+    // → 后端 find_vivado_executable 三层 fallback 全失败 → vivado_path="" → 应提示工具链缺失
+    mockStatuses({
+      overall: 'toolchain_missing',
+      enabled: true,
+      mcpRunning: true,
+      installMissing: false,
+      vivadoPath: '',
+      message:
+        '未找到 Vivado 工具链。请安装 Vivado IDE 并配置 VIVADO_PATH 环境变量（或在 spcode 插件配置中指定 vivado.executable）',
+    })
+    const { default: Cmp } = await import('./SpcodeVivadoStatusChip.vue')
+    const wrapper = mount(Cmp, { global: { mocks: { $t: (k: string) => k } } })
+    // 错误态: 实心红圆点, NOT success / neutral / empty
+    expect(wrapper.find('.sp-status-badge__dot--error').exists()).toBe(true)
+    expect(wrapper.find('.sp-status-badge__dot--success').exists()).toBe(false)
+    expect(wrapper.find('.sp-status-badge__dot--warning').exists()).toBe(false)
+    expect(wrapper.find('.sp-status-badge__dot--neutral').exists()).toBe(false)
+    expect(wrapper.find('.sp-status-badge--empty').exists()).toBe(false)
+    // 文案区分 (NOT 同 not_installed 的 "vivado-mcp 未安装")
+    expect(wrapper.text()).toContain('Vivado 工具链未找到')
+    expect(wrapper.text()).not.toContain('vivado-mcp 未安装')
+  })
+
   it('renders neutral empty dot for disabled state', async () => {
     mockStatuses({
       overall: 'disabled',
