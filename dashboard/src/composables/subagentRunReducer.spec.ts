@@ -49,7 +49,14 @@ describe("applySubAgentEvent", () => {
     expect(part.text).toBe("Final answer");
     expect(part.reasoning).toBe("hmm");
     expect(part.tool_calls).toEqual([
-      { id: "c1", name: "web_search", args: {}, result: "found" },
+      {
+        id: "c1",
+        name: "web_search",
+        args: {},
+        result: "found",
+        ts: 1,
+        finished_ts: 1,
+      },
     ]);
     // Intermediate text stays in the chronological activity log; the final
     // turn's streamed text is dropped (it lives in part.text).
@@ -58,7 +65,14 @@ describe("applySubAgentEvent", () => {
       { kind: "think", text: "hmm" },
       {
         kind: "tool_call",
-        call: { id: "c1", name: "web_search", args: {}, result: "found" },
+        call: {
+          id: "c1",
+          name: "web_search",
+          args: {},
+          result: "found",
+          ts: 1,
+          finished_ts: 1,
+        },
       },
     ]);
     expect(part.status).toBe("completed");
@@ -77,6 +91,23 @@ describe("applySubAgentEvent", () => {
       { kind: "text", text: "A" },
     ]);
     expect((parts[1] as SubAgentRunPart).agent_name).toBe("writer");
+  });
+
+  it("stamps tool call start/finish times from event ts", () => {
+    const parts: MessagePart[] = [];
+    applySubAgentEvent(parts, {
+      ...ev("sa_t", "tool_call", { id: "c1", name: "t1" }),
+      ts: 10,
+    });
+    applySubAgentEvent(parts, {
+      ...ev("sa_t", "tool_call_result", { id: "c1", result: "ok" }),
+      ts: 12.5,
+    });
+    const part = parts[0] as SubAgentRunPart;
+    // ToolCallCard renders elapsed time from ts->finished_ts; without these
+    // stamps every call looks permanently "running".
+    expect(part.tool_calls[0].ts).toBe(10);
+    expect(part.tool_calls[0].finished_ts).toBe(12.5);
   });
 
   it("marks failure kinds and keeps error", () => {
@@ -385,10 +416,13 @@ describe("normalizeMessageParts subagent_run passthrough", () => {
     const part = parts[0] as unknown as SubAgentRunPart;
     expect(part.activity).toEqual([
       { kind: "think", text: "think1 " },
-      { kind: "tool_call", call: { id: "c1", name: "t1", result: "r1" } },
+      {
+        kind: "tool_call",
+        call: { id: "c1", name: "t1", ts: 1.0, result: "r1", finished_ts: 1.0 },
+      },
       { kind: "think", text: "think2 " },
-      { kind: "tool_call", call: { id: "c2", name: "t2" } },
-      { kind: "tool_call", call: { id: "c3", name: "t3" } },
+      { kind: "tool_call", call: { id: "c2", name: "t2", ts: 1.0 } },
+      { kind: "tool_call", call: { id: "c3", name: "t3", ts: 1.0 } },
       { kind: "think", text: "think3" },
     ]);
   });

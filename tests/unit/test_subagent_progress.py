@@ -88,7 +88,14 @@ class TestAccumulator:
         assert part["text"] == "Final answer"
         assert part["reasoning"] == "hmm"
         assert part["tool_calls"] == [
-            {"id": "c1", "name": "web_search", "args": {}, "result": "found"}
+            {
+                "id": "c1",
+                "name": "web_search",
+                "args": {},
+                "result": "found",
+                "ts": 1.0,
+                "finished_ts": 1.0,
+            }
         ]
         # Intermediate text stays in the chronological activity log; the
         # final turn's streamed text is dropped (it lives in part["text"]).
@@ -97,10 +104,36 @@ class TestAccumulator:
             {"kind": "think", "text": "hmm"},
             {
                 "kind": "tool_call",
-                "call": {"id": "c1", "name": "web_search", "args": {}, "result": "found"},
+                "call": {
+                    "id": "c1",
+                    "name": "web_search",
+                    "args": {},
+                    "result": "found",
+                    "ts": 1.0,
+                    "finished_ts": 1.0,
+                },
             },
         ]
         assert part["execution_time"] == 3.0
+
+    def test_tool_calls_carry_event_timestamps(self):
+        acc = BotMessageAccumulator()
+        acc.add_subagent_event(
+            {**_event("sa_1", "tool_call", {"id": "c1", "name": "t1"})["data"], "ts": 10.0}
+        )
+        acc.add_subagent_event(
+            {
+                **_event("sa_1", "tool_call_result", {"id": "c1", "result": "ok"})[
+                    "data"
+                ],
+                "ts": 12.5,
+            }
+        )
+        (part,) = acc.build_message_parts()
+        # ToolCallCard renders elapsed time from ts->finished_ts; without
+        # these stamps every call looks permanently "running".
+        assert part["tool_calls"][0]["ts"] == 10.0
+        assert part["tool_calls"][0]["finished_ts"] == 12.5
 
     def test_part_position_follows_event_order(self):
         acc = BotMessageAccumulator()

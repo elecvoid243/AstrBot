@@ -114,6 +114,7 @@ export function applySubAgentEvent(parts: MessagePart[], data: unknown): void {
         Object.assign(existing, payload);
       } else {
         const call = { ...payload } as SubAgentToolCall;
+        if (event.ts != null) call.ts = event.ts;
         part.tool_calls.push(call);
         part.activity.push({ kind: "tool_call", call });
       }
@@ -123,8 +124,10 @@ export function applySubAgentEvent(parts: MessagePart[], data: unknown): void {
     const existing = part.tool_calls.find((t) => t.id === callId);
     if (existing) {
       existing.result = String(payload.result ?? "");
+      if (event.ts != null) existing.finished_ts = event.ts;
     } else if (callId != null) {
       const call = { ...payload } as SubAgentToolCall;
+      if (event.ts != null) call.finished_ts = event.ts;
       part.tool_calls.push(call);
       part.activity.push({ kind: "tool_call", call });
     }

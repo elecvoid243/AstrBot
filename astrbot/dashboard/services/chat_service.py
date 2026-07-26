@@ -507,6 +507,8 @@ class BotMessageAccumulator:
                     existing.update(payload)
                 else:
                     call = dict(payload)
+                    if data.get("ts") is not None:
+                        call["ts"] = data["ts"]
                     part["tool_calls"].append(call)
                     part["activity"].append({"kind": "tool_call", "call": call})
         elif kind == "tool_call_result":
@@ -516,8 +518,12 @@ class BotMessageAccumulator:
             )
             if existing:
                 existing["result"] = payload.get("result", "")
+                if data.get("ts") is not None:
+                    existing["finished_ts"] = data["ts"]
             elif call_id is not None:
                 call = dict(payload)
+                if data.get("ts") is not None:
+                    call["finished_ts"] = data["ts"]
                 part["tool_calls"].append(call)
                 part["activity"].append({"kind": "tool_call", "call": call})
         elif kind == "completed":
