@@ -244,6 +244,9 @@ class Context:
                 stream: bool - whether to stream the LLM response
                 agent_hooks: BaseAgentRunHooks[AstrAgentContext] - hooks to run during agent execution
                 agent_context: AstrAgentContext - context to use for the agent
+                response_sink: Callable[[AgentResponse], Awaitable[None]] | None - optional
+                    observer invoked with every AgentResponse produced by the runner
+                    (used to stream subagent progress to webchat).
 
                 other kwargs will be DIRECTLY passed to the runner.reset() method
 
@@ -298,7 +301,7 @@ class Context:
         other_kwargs = {
             k: v
             for k, v in kwargs.items()
-            if k not in ["stream", "agent_hooks", "agent_context"]
+            if k not in ["stream", "agent_hooks", "agent_context", "response_sink"]
         }
 
         # 从 provider_settings 注入「连续工具调用提醒」的默认配置，
@@ -346,8 +349,10 @@ class Context:
             streaming=streaming,
             **other_kwargs,
         )
-        async for _ in agent_runner.step_until_done(max_steps):
-            pass
+        response_sink = kwargs.get("response_sink")
+        async for resp in agent_runner.step_until_done(max_steps):
+            if response_sink is not None:
+                await response_sink(resp)
         llm_resp = agent_runner.get_final_llm_resp()
         if not llm_resp:
             raise Exception("Agent did not produce a final LLM response")
