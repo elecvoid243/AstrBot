@@ -56,6 +56,11 @@ export function normalizeMessageParts(parts: unknown): MessagePart[] {
         think: String(part.think ?? part.text ?? ""),
       };
     }
+    // Author: elecvoid243, 2026-07-26
+    // Plan: docs/superpowers/plans/2026-07-26-subagent-chatui-progress.md
+    // `subagent_run` parts are already structured (live reducer output or
+    // persisted history) and intentionally fall through to the verbatim
+    // `{ ...part }` passthrough below.
     // ① v1.0 schema:InteractiveChoicePart 已通过 SSE 顶层 type 到达,
     //    不再解 plain 文本/拆 tool_call(见 parseInteractiveChoice 模块注释)。
     // ② 校验 + 截断(防御性兜底,后端已截过一遍)

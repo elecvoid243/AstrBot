@@ -141,6 +141,7 @@ DEFAULT_CONFIG = {
         "streaming_response": False,
         "show_tool_use_status": False,
         "show_tool_call_result": False,
+        "show_subagent_progress": True,
         "buffer_intermediate_messages": False,
         "sanitize_context_by_modalities": False,
         "max_quoted_fallback_images": 20,
@@ -2930,6 +2931,9 @@ CONFIG_METADATA_2 = {
                     "show_tool_call_result": {
                         "type": "bool",
                     },
+                    "show_subagent_progress": {
+                        "type": "bool",
+                    },
                     "buffer_intermediate_messages": {
                         "type": "bool",
                     },
@@ -3829,6 +3833,14 @@ CONFIG_METADATA_3 = {
                         "condition": {
                             "provider_settings.agent_runner_type": "local",
                             "provider_settings.show_tool_use_status": True,
+                        },
+                    },
+                    "provider_settings.show_subagent_progress": {
+                        "description": "展示子代理执行过程",
+                        "type": "bool",
+                        "hint": "仅在 WebChat 生效，在对话中实时展示 SubAgent 的文本流与工具调用过程。",
+                        "condition": {
+                            "provider_settings.agent_runner_type": "local",
                         },
                     },
                     "provider_settings.buffer_intermediate_messages": {

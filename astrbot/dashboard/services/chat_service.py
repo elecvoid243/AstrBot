@@ -335,6 +335,14 @@ class BotMessageAccumulator:
         # a name-less "tool" entry that renders next to the
         # InteractiveChoiceBox after a hard refresh).
         self._filtered_tool_call_ids: set[str] = set()
+        # Author: elecvoid243
+        # Date: 2026-07-26
+        # Plan: docs/superpowers/plans/2026-07-26-subagent-chatui-progress.md
+        # Task 4 — persist subagent execution progress as a structured
+        # `subagent_run` part so a hard refresh restores the block.
+        # run_id -> the SAME dict object appended to self.parts, mutated
+        # in place as further events arrive.
+        self.subagent_runs: dict[str, dict] = {}
 
     def has_content(self) -> bool:
         # Author: elecvoid243
@@ -351,6 +359,7 @@ class BotMessageAccumulator:
             or self.pending_text
             or self.pending_tool_calls
             or self.pending_agent_stats
+            or self.subagent_runs
         )
 
     def add_plain(
@@ -427,6 +436,80 @@ class BotMessageAccumulator:
             return
         self._flush_pending_text()
         self.parts.append(part)
+
+    def add_subagent_event(self, data: dict) -> None:
+        """Fold one ``subagent_event`` payload into a ``subagent_run`` part.
+
+        The part is appended to ``self.parts`` on first sight (preserving
+        chronological position relative to plain text) and mutated in place
+        afterwards, so ``build_message_parts`` always reflects the latest
+        run state.
+
+        Args:
+            data: The ``data`` field of a ``subagent_event`` payload.
+        """
+        if not isinstance(data, dict):
+            return
+        run_id = str(data.get("subagent_run_id") or "")
+        if not run_id:
+            return
+        kind = str(data.get("kind") or "")
+        payload = data.get("payload")
+        payload = payload if isinstance(payload, dict) else {}
+
+        part = self.subagent_runs.get(run_id)
+        if part is None:
+            self._flush_pending_text()
+            part = {
+                "type": "subagent_run",
+                "subagent_run_id": run_id,
+                "agent_name": str(data.get("agent_name") or ""),
+                "status": "running",
+                "input_preview": "",
+                "text": "",
+                "reasoning": "",
+                "tool_calls": [],
+                "started_ts": data.get("ts"),
+                "execution_time": None,
+            }
+            self.subagent_runs[run_id] = part
+            self.parts.append(part)
+
+        if kind == "started":
+            part["input_preview"] = str(payload.get("input_preview") or "")
+        elif kind == "text_delta":
+            part["text"] += str(payload.get("text") or "")
+        elif kind == "reasoning_delta":
+            part["reasoning"] += str(payload.get("text") or "")
+        elif kind == "tool_call":
+            call_id = payload.get("id")
+            if call_id is not None:
+                existing = next(
+                    (t for t in part["tool_calls"] if t.get("id") == call_id), None
+                )
+                if existing:
+                    existing.update(payload)
+                else:
+                    part["tool_calls"].append(dict(payload))
+        elif kind == "tool_call_result":
+            call_id = payload.get("id")
+            existing = next(
+                (t for t in part["tool_calls"] if t.get("id") == call_id), None
+            )
+            if existing:
+                existing["result"] = payload.get("result", "")
+            elif call_id is not None:
+                part["tool_calls"].append(dict(payload))
+        elif kind == "completed":
+            part["status"] = "completed"
+            if not part["text"] and payload.get("result_text"):
+                part["text"] = str(payload["result_text"])
+            if isinstance(payload.get("execution_time"), int | float):
+                part["execution_time"] = payload["execution_time"]
+        elif kind in ("failed", "timeout"):
+            part["status"] = kind
+            if payload.get("error"):
+                part["error"] = str(payload["error"])
 
     def build_message_parts(
         self, *, include_pending_tool_calls: bool = False
@@ -1377,7 +1460,15 @@ class ChatService:
                     continue
 
                 attachment_saved_payload = None
-                if msg_type == "plain":
+                if msg_type == "subagent_event":
+                    # Structured subagent progress: not plain text, so it
+                    # bypasses add_plain and folds into a dedicated part.
+                    # The payload is still published verbatim below.
+                    event_data = result.get("data")
+                    if isinstance(event_data, dict):
+                        for accumulator in (pending_accumulator, display_accumulator):
+                            accumulator.add_subagent_event(event_data)
+                elif msg_type == "plain":
                     for accumulator in (pending_accumulator, display_accumulator):
                         accumulator.add_plain(
                             result_text,

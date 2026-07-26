@@ -116,6 +116,12 @@
       "error": "error"
     }
   },
+  "subagentStatus": {
+    "running": "Running",
+    "completed": "Completed",
+    "failed": "Failed",
+    "timeout": "Timed out"
+  },
   "toolStatus": {
     "done": "Done",
     "running": "Running"
@@ -587,8 +593,8 @@
           "startPoint": "Start point",
           "startPointHint": "Defaults to HEAD",
           "submit": "Create",
-                    "cancel": "Cancel",
-                    "success": "Created branch {name}",
+          "cancel": "Cancel",
+          "success": "Created branch {name}",
           "error": {
             "branch_exists": "Branch {name} already exists",
             "invalid_branch": "Invalid branch name",
