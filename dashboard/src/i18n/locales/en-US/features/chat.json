@@ -392,9 +392,11 @@
       "editor": {
         "edit": "Edit",
         "save": "Save",
+        "saveHint": "Save (Ctrl/⌘+S)",
         "cancel": "Cancel",
         "discardConfirm": "You have unsaved changes. Discard them?",
         "saveError": "Save failed",
+        "saveSuccess": "Saved",
         "encodingNotice": "This file is {encoding}-encoded; it will be saved as UTF-8",
         "rename": "Rename",
         "renameDialogTitle": "Rename file",
@@ -1006,6 +1008,7 @@
         "filenameExists": "A file with that name already exists",
         "edit": "Edit",
         "save": "Save",
+        "saveHint": "Save (Ctrl/⌘+S)",
         "saving": "Saving",
         "cancel": "Cancel",
         "cancelDirty": "You have unsaved changes. Discard them?",
@@ -1015,6 +1018,7 @@
         "deleteConfirmTitle": "Delete document?",
         "deleteConfirmBody": "Will permanently delete {path}",
         "saveError": "Save failed",
+        "saveSuccess": "Saved",
         "deleteError": "Delete failed"
       },
       "fullscreen": {

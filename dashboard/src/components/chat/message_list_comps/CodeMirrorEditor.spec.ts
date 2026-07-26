@@ -63,4 +63,18 @@ describe("CodeMirrorEditor (textarea fallback)", () => {
     const w = await mountEditor("x");
     expect(() => w.vm.focus()).not.toThrow();
   });
+
+  it("setBaseline() flips dirty false without changing modelValue", async () => {
+    const w = await mountEditor("ab");
+    const ta = w.find("textarea");
+    await ta.setValue("abc");
+    expect(w.emitted("dirty-change")?.at(-1)).toEqual([true]);
+    // Pin the post-save buffer as the new dirty baseline.
+    w.vm.setBaseline();
+    expect(w.emitted("dirty-change")?.at(-1)).toEqual([false]);
+    // modelValue is unchanged — the next keystroke transitions
+    // back to dirty against the original (pre-save) baseline.
+    await ta.setValue("abcd");
+    expect(w.emitted("dirty-change")?.at(-1)).toEqual([true]);
+  });
 });

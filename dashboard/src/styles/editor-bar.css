@@ -1,0 +1,63 @@
+/* Author: elecvoid243, 2026-07-26
+   Shared styles for the in-file editor action bar (save / cancel /
+   rename / delete buttons). Extracted from <DocumentEditor> so the
+   workspace tab's <FileBrowserFilePreview> can render the same
+   compact, borderless button look without duplicating CSS. */
+
+/* The action bar container — kept here because both editors use
+   the same gap/padding rhythm; consumers still own layout-specific
+   rules (e.g. .preview-editor-toolbar adds a bottom border). */
+.editor-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.editor-bar__spacer {
+  flex: 1 1 auto;
+}
+
+.editor-bar__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
+  padding: 3px 8px;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.15);
+  background: transparent;
+  border-radius: 4px;
+  color: rgba(var(--v-theme-on-surface), 0.75);
+  cursor: pointer;
+}
+
+.editor-bar__btn:hover:not(:disabled) {
+  border-color: rgba(var(--v-theme-primary), 0.4);
+  color: rgb(var(--v-theme-primary));
+}
+
+.editor-bar__btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.editor-bar__btn--primary {
+  background: rgba(var(--v-theme-primary), 0.12);
+  border-color: rgba(var(--v-theme-primary), 0.4);
+  color: rgb(var(--v-theme-primary));
+}
+
+.editor-bar__btn--primary:disabled {
+  background: rgba(var(--v-theme-on-surface), 0.04);
+  color: rgba(var(--v-theme-on-surface), 0.4);
+}
+
+.editor-bar__btn--danger {
+  color: rgb(var(--v-theme-error));
+  border-color: rgba(var(--v-theme-error), 0.4);
+}
+
+.editor-bar__btn--danger:hover:not(:disabled) {
+  background: rgba(var(--v-theme-error), 0.08);
+}

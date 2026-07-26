@@ -19,7 +19,13 @@
      - modelValue is the authoritative baseline: external replacements
        are adopted; own echoes (=== lastEmitted) are ignored.
      - If the CM core modules fail to load, the component silently
-       degrades to a plain textarea implementing the same contract. -->
+       degrades to a plain textarea implementing the same contract.
+     - setBaseline() (exposed): pin the current buffer as the new
+       dirty baseline without remounting. Parents call it after a
+       successful save so the save button disables and the next
+       keystroke correctly transitions back to dirty. props.modelValue
+       is NOT changed — it stays the authoritative external baseline
+       (e.g. the file contents the editor was opened with). -->
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useTheme } from "vuetify";
@@ -228,7 +234,19 @@ function focus(): void {
   if (view) view.focus();
   else textareaRef.value?.focus();
 }
-defineExpose({ focus, getValue });
+
+// 2026-07-26 toolbar parity: post-save baseline pin. Mirrors the
+// `editBuffer.value = content` reset that DocumentManager does on
+// successful save — here we can't reassign props.modelValue (it
+// tracks the file's original content, not the saved buffer), so we
+// just flip lastDirty to false and let checkDirty re-transition
+// naturally on the next keystroke.
+function setBaseline(): void {
+  if (!lastDirty) return;
+  lastDirty = false;
+  emit("dirty-change", false);
+}
+defineExpose({ focus, getValue, setBaseline });
 
 onBeforeUnmount(() => {
   destroyed = true;

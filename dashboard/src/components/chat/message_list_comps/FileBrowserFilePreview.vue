@@ -337,10 +337,25 @@ onBeforeUnmount(() => {
     clearTimeout(copyResetTimer);
     copyResetTimer = null;
   }
+  // 2026-07-26 save-success-toast: drop the dismiss timer so it
+  // can't fire against destroyed refs after the component is
+  // gone (otherwise we'd see a "set on unmounted" warning on
+  // hot-reload or route change).
+  if (saveSuccessTimer) {
+    clearTimeout(saveSuccessTimer);
+    saveSuccessTimer = null;
+  }
+  document.removeEventListener("keydown", onKeyDown, true);
   fileWrite.dispose();
   fileRename.dispose();
   fileRemove.dispose();
 });
+
+// 2026-07-26 keyboard shortcut: register the Ctrl/Cmd+S listener
+// after mount and tear it down in onBeforeUnmount above. Mount-time
+// registration keeps the listener scope tight to the open preview
+// (it dies when the user navigates to a different file).
+onMounted(() => document.addEventListener("keydown", onKeyDown, true));
 
 // ── Markdown rendering (2026-07-17 workspace-md-render) ─────────
 // .md/.markdown files can be viewed rendered (reuses the shared
@@ -392,6 +407,17 @@ const editInitialContent = ref("");
 const editorRef = ref<InstanceType<typeof CodeMirrorEditor> | null>(null);
 const isEditDirty = ref(false);
 const saveError = ref<string | null>(null);
+// 2026-07-26 save-success-toast: flipped to a localized "Saved"
+// string after fileWrite.save resolves r.ok, then auto-cleared
+// after SAVE_SUCCESS_TTL_MS so the inline green confirmation in
+// the editor toolbar disappears on its own. Cleared on editMode
+// exit and on file/revision switch so it never bleeds across
+// targets.
+const saveSuccessMessage = ref<string | null>(null);
+let saveSuccessTimer: ReturnType<typeof setTimeout> | null = null;
+/** Display duration for the save-success toast. Long enough to
+ *  register at a glance, short enough to not block the toolbar. */
+const SAVE_SUCCESS_TTL_MS = 2500;
 
 /** The save endpoint rejects content > 2 MB (backend
  *  MAX_CONTENT_BYTES); hide the edit affordance for such files
@@ -446,18 +472,61 @@ function onStartEdit(): void {
 
 async function onSaveEdit(): Promise<void> {
   if (!isEditDirty.value || fileWrite.isSaving.value) return;
+  const savedContent = editorRef.value?.getValue() ?? "";
   const r = await fileWrite.save({
     path: props.fileRelativePath ?? "",
-    content: editorRef.value?.getValue() ?? "",
+    content: savedContent,
   });
   if (r.ok) {
-    editMode.value = false;
+    // 2026-07-26 toolbar parity: stay in edit mode after save (matches
+    // DocumentManager's onSave). The save button stays available for
+    // further edits; cancel still exits the editor. Two flips are
+    // needed for a clean post-save state:
+    //   1. editor.setBaseline() — CodeMirrorEditor's internal lastDirty
+    //      resets to clean, emits dirty-change false → the parent's
+    //      isEditDirty (which gates the save button) drops to false.
+    //   2. The next keystroke naturally re-transitions to dirty
+    //      because props.modelValue is still the pre-save baseline.
+    // emit("saved") bubbles up so the parent refresh() pulls the
+    // post-save bytes back into currentContent for the read view
+    // (matches DocumentManager's treeRef.refresh() / fileBrowser.refresh()
+    // on save).
+    editorRef.value?.setBaseline();
     saveError.value = null;
     emit("saved");
+    // 2026-07-26 save-success-toast: surface a transient green
+    // "Saved" confirmation in the editor toolbar. We cancel any
+    // in-flight dismiss timer before scheduling a new one so
+    // rapid back-to-back saves don't get their toast clipped
+    // short by the previous schedule.
+    saveSuccessMessage.value = tm(
+      "spcodeProjectLoad.fileBrowser.editor.saveSuccess",
+    );
+    if (saveSuccessTimer) clearTimeout(saveSuccessTimer);
+    saveSuccessTimer = setTimeout(() => {
+      saveSuccessMessage.value = null;
+      saveSuccessTimer = null;
+    }, SAVE_SUCCESS_TTL_MS);
   } else {
     saveError.value = `${tm(
       "spcodeProjectLoad.fileBrowser.editor.saveError",
     )}: ${r.reason}`;
+  }
+}
+
+// 2026-07-26 keyboard shortcut: Ctrl/Cmd+S triggers save when the
+// inline editor is open. Same contract as DocumentEditor's onKeyDown:
+// preventDefault to suppress the browser save dialog, stopPropagation
+// to keep FileBrowserView's capture-phase handler from also consuming
+// the chord. The isEditDirty / isSaving gate inside onSaveEdit makes
+// repeated presses no-ops once the post-save baseline is pinned.
+function onKeyDown(e: KeyboardEvent): void {
+  if (!editMode.value) return;
+  const isMod = e.metaKey || e.ctrlKey;
+  if (isMod && (e.key === "s" || e.key === "S")) {
+    e.preventDefault();
+    e.stopPropagation();
+    void onSaveEdit();
   }
 }
 
@@ -470,6 +539,23 @@ function onCancelEdit(): void {
   }
   editMode.value = false;
   saveError.value = null;
+  // 2026-07-26 save-success-toast: drop the in-flight "Saved"
+  // message and its dismiss timer when the user exits the editor
+  // (cancel / switch) so the green confirmation does not linger
+  // against an empty toolbar.
+  saveSuccessMessage.value = null;
+  if (saveSuccessTimer) {
+    clearTimeout(saveSuccessTimer);
+    saveSuccessTimer = null;
+  }
+}
+
+// 2026-07-26 toolbar parity: copy the live editor buffer to the
+// system clipboard — mirrors DocumentEditor.onCopyRaw. The preview's
+// read-only copy button reads from the snapshot, so the editor copy
+// has to read the up-to-date CodeMirror contents.
+function onCopyEdit(): void {
+  void copyToClipboard(editorRef.value?.getValue() ?? "");
 }
 
 // ── 2026-07-18 rename / delete (editor toolbar parity) ──────────
@@ -1078,54 +1164,6 @@ function onDeleteComment(commentId: string): void {
                Rendered before every read-only branch so it wins over
                the current-file code view. -->
           <div v-if="editMode" class="preview-editor">
-            <div class="preview-editor-toolbar">
-              <span class="preview-editor-notice">{{
-                encodingNotice ?? ""
-              }}</span>
-              <span v-if="saveError" class="preview-editor-error">{{
-                saveError
-              }}</span>
-              <v-btn
-                size="x-small"
-                variant="text"
-                color="primary"
-                prepend-icon="mdi-content-save-outline"
-                :disabled="!isEditDirty || fileWrite.isSaving.value"
-                :loading="fileWrite.isSaving.value"
-                @click="onSaveEdit"
-              >
-                {{ tm("spcodeProjectLoad.fileBrowser.editor.save") }}
-              </v-btn>
-              <v-btn
-                size="x-small"
-                variant="text"
-                prepend-icon="mdi-close"
-                :disabled="fileWrite.isSaving.value"
-                @click="onCancelEdit"
-              >
-                {{ tm("spcodeProjectLoad.fileBrowser.editor.cancel") }}
-              </v-btn>
-              <v-btn
-                size="x-small"
-                variant="text"
-                prepend-icon="mdi-rename-outline"
-                :disabled="fileWrite.isSaving.value"
-                @click="onRenameClick"
-              >
-                {{ tm("spcodeProjectLoad.fileBrowser.editor.rename") }}
-              </v-btn>
-              <v-spacer />
-              <v-btn
-                size="x-small"
-                variant="text"
-                color="error"
-                prepend-icon="mdi-delete-outline"
-                :disabled="fileWrite.isSaving.value"
-                @click="onDeleteClick"
-              >
-                {{ tm("spcodeProjectLoad.fileBrowser.editor.delete") }}
-              </v-btn>
-            </div>
             <CodeMirrorEditor
               ref="editorRef"
               :model-value="editInitialContent"
@@ -1133,6 +1171,78 @@ function onDeleteComment(commentId: string): void {
               class="preview-editor-body"
               @dirty-change="onEditDirtyChange"
             />
+            <div class="preview-editor-toolbar editor-bar">
+              <span class="preview-editor-notice">{{
+                encodingNotice ?? ""
+              }}</span>
+              <span v-if="saveError" class="preview-editor-error">{{
+                saveError
+              }}</span>
+              <button
+                type="button"
+                class="editor-bar__btn editor-bar__btn--primary"
+                :title="tm('spcodeProjectLoad.fileBrowser.editor.saveHint')"
+                :disabled="!isEditDirty || fileWrite.isSaving.value"
+                @click="onSaveEdit"
+              >
+                <v-icon size="14">mdi-content-save-outline</v-icon>
+                {{ tm("spcodeProjectLoad.fileBrowser.editor.save") }}
+              </button>
+              <button
+                type="button"
+                class="editor-bar__btn"
+                :disabled="fileWrite.isSaving.value"
+                @click="onCancelEdit"
+              >
+                <v-icon size="14">mdi-close</v-icon>
+                {{ tm("spcodeProjectLoad.fileBrowser.editor.cancel") }}
+              </button>
+              <button
+                type="button"
+                class="editor-bar__btn"
+                :disabled="fileWrite.isSaving.value"
+                @click="onRenameClick"
+              >
+                <v-icon size="14">mdi-rename-outline</v-icon>
+                {{ tm("spcodeProjectLoad.fileBrowser.editor.rename") }}
+              </button>
+              <button
+                type="button"
+                class="editor-bar__btn"
+                :title="tm('spcodeProjectLoad.fileBrowser.preview.copy')"
+                :disabled="fileWrite.isSaving.value"
+                @click="onCopyEdit"
+              >
+                <v-icon size="14">mdi-content-copy</v-icon>
+              </button>
+              <!-- 2026-07-26 save-success-toast: green inline
+                   confirmation that lives in the dead space between
+                   the copy button and the right-aligned delete.
+                   Fades in when fileWrite.save resolves r.ok and
+                   back out when the local auto-dismiss timer clears
+                   the ref. -->
+              <Transition name="preview-editor__success-fade">
+                <span
+                  v-if="saveSuccessMessage"
+                  class="preview-editor__save-success"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <v-icon size="14" color="success">mdi-check-circle-outline</v-icon>
+                  {{ saveSuccessMessage }}
+                </span>
+              </Transition>
+              <span class="editor-bar__spacer" />
+              <button
+                type="button"
+                class="editor-bar__btn editor-bar__btn--danger"
+                :disabled="fileWrite.isSaving.value"
+                @click="onDeleteClick"
+              >
+                <v-icon size="14">mdi-delete-outline</v-icon>
+                {{ tm("spcodeProjectLoad.fileBrowser.editor.delete") }}
+              </button>
+            </div>
           </div>
 
           <div
@@ -1366,6 +1476,8 @@ function onDeleteComment(commentId: string): void {
 </template>
 
 <style scoped>
+@import "@/styles/editor-bar.css";
+
 .file-browser-preview {
   /* Width is now driven by FileBrowserView's draggable divider
      (sets `width` via inline style on .file-browser-pane-right, which
@@ -1550,9 +1662,11 @@ function onDeleteComment(commentId: string): void {
   resize: none;
 }
 
-/* 2026-07-17 workspace file editor: edit-mode layout. The toolbar
-   stays fixed at the top; <CodeMirrorEditor> fills the remaining
-   height and scrolls internally (same contract as .code-view). */
+/* 2026-07-17 workspace file editor: edit-mode layout. Mirrors
+   <DocumentEditor>'s structure — <CodeMirrorEditor> on top, the
+   action toolbar fixed underneath (same border-top + padding
+   rhythm DocumentEditor uses), filling the remaining height
+   and scrolling internally. */
 .preview-editor {
   display: flex;
   flex-direction: column;
@@ -1564,11 +1678,11 @@ function onDeleteComment(commentId: string): void {
   align-items: center;
   gap: 6px;
   padding: 4px 10px;
-  border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.08);
+  border-top: 1px solid rgba(var(--v-theme-on-surface), 0.08);
   flex-shrink: 0;
 }
 .preview-editor-notice {
-  flex: 1;
+  flex: 0 1 auto;
   min-width: 0;
   font-size: 12px;
   color: rgba(var(--v-theme-on-surface), 0.55);
@@ -1580,6 +1694,29 @@ function onDeleteComment(commentId: string): void {
   font-size: 12px;
   color: rgb(var(--v-theme-error));
   white-space: nowrap;
+}
+/* 2026-07-26 save-success-toast: green inline confirmation sitting
+   in the toolbar's left-side flex flow. Inline-flex keeps the
+   checkmark + text on one line; gap mirrors the toolbar button
+   rhythm so the toast visually fits next to the action buttons. */
+.preview-editor__save-success {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 4px;
+  font-size: 12px;
+  color: rgb(var(--v-theme-success));
+  white-space: nowrap;
+}
+/* Fade in/out for the toast transition. Slightly longer leave than
+   enter so the message reads comfortably before it dissolves. */
+.preview-editor__success-fade-enter-active,
+.preview-editor__success-fade-leave-active {
+  transition: opacity 180ms ease;
+}
+.preview-editor__success-fade-enter-from,
+.preview-editor__success-fade-leave-to {
+  opacity: 0;
 }
 .preview-editor-body {
   flex: 1;

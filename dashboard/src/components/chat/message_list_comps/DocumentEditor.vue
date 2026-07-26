@@ -7,7 +7,7 @@
      CodemirrorHost to the shared CodeMirrorEditor (markdown syntax
      highlighting, dark-aware theme, internal textarea fallback). -->
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useModuleI18n } from "@/i18n/composables";
 import { copyToClipboard } from "@/utils/clipboard";
 import CodeMirrorEditor from "./CodeMirrorEditor.vue";
@@ -23,6 +23,14 @@ const props = defineProps<{
   // user can see what went wrong. Cleared when the user opens a
   // new rename dialog or the request succeeds.
   renameErrorMessage: string | null;
+  // 2026-07-26 save-success-toast: parent (DocumentManager) flips
+  // this to a localized "Saved" string after the docsApi.save
+  // request resolves with r.ok. The parent also owns the
+  // auto-dismiss timer (cleared after ~2.5s) so the toast
+  // disappears even if the user starts typing again — keeps the
+  // editor's surface area small. Cleared to null on doc/file
+  // switch so the message never bleeds across files.
+  saveSuccessMessage: string | null;
   simpleTextarea?: boolean;
 }>();
 const emit = defineEmits<{
@@ -64,6 +72,24 @@ function onSave() {
   if (!isDirty.value || props.isSaving) return;
   emit("save", buffer.value);
 }
+
+// 2026-07-26 keyboard shortcut: Ctrl/Cmd+S triggers save (matches
+// the browser-native editor contract). preventDefault() suppresses
+// the browser's "save webpage" dialog; stopPropagation stops the
+// capture-phase listeners in DocumentManager / FileBrowserView from
+// also handling the same chord. The isDirty / isSaving guard inside
+// onSave keeps repeated presses no-ops (save button stays disabled
+// after a successful save).
+function onKeyDown(e: KeyboardEvent): void {
+  const isMod = e.metaKey || e.ctrlKey;
+  if (isMod && (e.key === "s" || e.key === "S")) {
+    e.preventDefault();
+    e.stopPropagation();
+    onSave();
+  }
+}
+onMounted(() => document.addEventListener("keydown", onKeyDown, true));
+onBeforeUnmount(() => document.removeEventListener("keydown", onKeyDown, true));
 
 function onCopyRaw() {
   void copyToClipboard(buffer.value);
@@ -163,10 +189,11 @@ function onCodemirrorUpdate(v: string) {
       class="document-editor__textarea"
       spellcheck="false"
     />
-    <div class="document-editor__bar">
+    <div class="editor-bar">
       <button
         type="button"
-        class="document-editor__btn document-editor__btn--primary"
+        class="editor-bar__btn editor-bar__btn--primary"
+        :title="tm('spcodeProjectLoad.documentManager.editor.saveHint')"
         :disabled="!isDirty || isSaving"
         @click="onSave"
       >
@@ -177,13 +204,13 @@ function onCodemirrorUpdate(v: string) {
             : tm("spcodeProjectLoad.documentManager.editor.save")
         }}
       </button>
-      <button type="button" class="document-editor__btn" @click="onCancel">
+      <button type="button" class="editor-bar__btn" @click="onCancel">
         <v-icon size="14">mdi-close</v-icon>
         {{ tm("spcodeProjectLoad.documentManager.editor.cancel") }}
       </button>
       <button
         type="button"
-        class="document-editor__btn"
+        class="editor-bar__btn"
         :title="tm('spcodeProjectLoad.documentManager.editor.rename')"
         :disabled="isRenaming"
         @click="onRenameOpen"
@@ -191,14 +218,30 @@ function onCodemirrorUpdate(v: string) {
         <v-icon size="14">mdi-rename-outline</v-icon>
         {{ tm("spcodeProjectLoad.documentManager.editor.rename") }}
       </button>
-      <button type="button" class="document-editor__btn" @click="onCopyRaw">
+      <button type="button" class="editor-bar__btn" @click="onCopyRaw">
         <v-icon size="14">mdi-content-copy</v-icon>
       </button>
-      <span class="document-editor__spacer" />
+      <!-- 2026-07-26 save-success-toast: green inline confirmation
+           that lives in the dead space between the copy button and
+           the right-aligned delete. Fades in when the parent sets
+           saveSuccessMessage (post-save ack) and back out when the
+           parent clears it (after the auto-dismiss timer). -->
+      <Transition name="document-editor__success-fade">
+        <span
+          v-if="saveSuccessMessage"
+          class="document-editor__save-success"
+          role="status"
+          aria-live="polite"
+        >
+          <v-icon size="14" color="success">mdi-check-circle-outline</v-icon>
+          {{ saveSuccessMessage }}
+        </span>
+      </Transition>
+      <span class="editor-bar__spacer" />
       <button
         v-if="!showDeleteConfirm"
         type="button"
-        class="document-editor__btn document-editor__btn--danger"
+        class="editor-bar__btn editor-bar__btn--danger"
         :disabled="isDeleting"
         @click="onDeleteClick"
       >
@@ -213,14 +256,14 @@ function onCodemirrorUpdate(v: string) {
         }}
         <button
           type="button"
-          class="document-editor__btn document-editor__btn--danger"
+          class="editor-bar__btn editor-bar__btn--danger"
           @click="onDeleteConfirm"
         >
           {{ tm("spcodeProjectLoad.documentManager.editor.delete") }}
         </button>
         <button
           type="button"
-          class="document-editor__btn"
+          class="editor-bar__btn"
           @click="showDeleteConfirm = false"
         >
           {{ tm("spcodeProjectLoad.documentManager.editor.cancel") }}
@@ -238,14 +281,14 @@ function onCodemirrorUpdate(v: string) {
       />
       <button
         type="button"
-        class="document-editor__btn document-editor__btn--primary"
+        class="editor-bar__btn editor-bar__btn--primary"
         @click="onRenameSubmit"
       >
         {{ tm("spcodeProjectLoad.documentManager.editor.rename") }}
       </button>
       <button
         type="button"
-        class="document-editor__btn"
+        class="editor-bar__btn"
         @click="renameOpen = false"
       >
         {{ tm("spcodeProjectLoad.documentManager.editor.cancel") }}
@@ -258,6 +301,8 @@ function onCodemirrorUpdate(v: string) {
 </template>
 
 <style scoped>
+@import "@/styles/editor-bar.css";
+
 .document-editor {
   display: flex;
   flex-direction: column;
@@ -265,6 +310,14 @@ function onCodemirrorUpdate(v: string) {
   min-height: 0;
   gap: 6px;
   padding: 6px;
+}
+/* Top border over the action bar — the shared .editor-bar uses no
+   borders so the workspace tab can opt-in by wrapping it in
+   .preview-editor-toolbar. The .document-editor wrapper places it
+   directly above the bar instead, so the rule lives here. */
+.document-editor .editor-bar {
+  padding-top: 4px;
+  border-top: 1px solid rgba(var(--v-theme-on-surface), 0.08);
 }
 .document-editor__cm {
   flex: 1 1 auto;
@@ -290,54 +343,6 @@ function onCodemirrorUpdate(v: string) {
 }
 .document-editor__textarea:focus {
   border-color: rgb(var(--v-theme-primary));
-}
-.document-editor__bar {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex-wrap: wrap;
-  padding-top: 4px;
-  border-top: 1px solid rgba(var(--v-theme-on-surface), 0.08);
-}
-.document-editor__spacer {
-  flex: 1 1 auto;
-}
-.document-editor__btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11.5px;
-  padding: 3px 8px;
-  border: 1px solid rgba(var(--v-theme-on-surface), 0.15);
-  background: transparent;
-  border-radius: 4px;
-  color: rgba(var(--v-theme-on-surface), 0.75);
-  cursor: pointer;
-}
-
-.document-editor__btn:hover:not(:disabled) {
-  border-color: rgba(var(--v-theme-primary), 0.4);
-  color: rgb(var(--v-theme-primary));
-}
-.document-editor__btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-.document-editor__btn--primary {
-  background: rgba(var(--v-theme-primary), 0.12);
-  border-color: rgba(var(--v-theme-primary), 0.4);
-  color: rgb(var(--v-theme-primary));
-}
-.document-editor__btn--primary:disabled {
-  background: rgba(var(--v-theme-on-surface), 0.04);
-  color: rgba(var(--v-theme-on-surface), 0.4);
-}
-.document-editor__btn--danger {
-  color: rgb(var(--v-theme-error));
-  border-color: rgba(var(--v-theme-error), 0.4);
-}
-.document-editor__btn--danger:hover:not(:disabled) {
-  background: rgba(var(--v-theme-error), 0.08);
 }
 
 .document-editor__confirm {
@@ -369,5 +374,28 @@ function onCodemirrorUpdate(v: string) {
 .document-editor__rename-error {
   font-size: 11px;
   color: rgb(var(--v-theme-error));
+}
+/* 2026-07-26 save-success-toast: green inline confirmation sitting
+   in the toolbar's left-side flex flow. Inline-flex keeps the
+   checkmark + text on one line; gap mirrors the toolbar button
+   rhythm so the toast visually fits next to the action buttons. */
+.document-editor__save-success {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 4px;
+  font-size: 11.5px;
+  color: rgb(var(--v-theme-success));
+  white-space: nowrap;
+}
+/* Fade in/out for the toast transition. Slightly longer leave than
+   enter so the message reads comfortably before it dissolves. */
+.document-editor__success-fade-enter-active,
+.document-editor__success-fade-leave-active {
+  transition: opacity 180ms ease;
+}
+.document-editor__success-fade-enter-from,
+.document-editor__success-fade-leave-to {
+  opacity: 0;
 }
 </style>

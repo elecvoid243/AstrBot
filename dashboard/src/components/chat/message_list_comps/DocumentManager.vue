@@ -115,6 +115,17 @@ const selectedRevision = ref<string | null>(null);
 const editMode = ref<boolean>(false);
 const editBuffer = ref<string>("");
 const saveError = ref<string | null>(null);
+// 2026-07-26 save-success-toast: flipped to a localized "Saved"
+// string after docsApi.save resolves r.ok. Auto-dismissed after
+// SAVE_SUCCESS_TTL_MS so the inline green confirmation in the
+// editor toolbar disappears on its own. Cleared on every file
+// switch (see selectedDoc watcher) so a stale message from a
+// previous file never bleeds into the new one.
+const saveSuccessMessage = ref<string | null>(null);
+let saveSuccessTimer: ReturnType<typeof setTimeout> | null = null;
+/** Display duration for the save-success toast. Long enough to
+ *  register at a glance, short enough to not block the toolbar. */
+const SAVE_SUCCESS_TTL_MS = 2500;
 const deleteError = ref<string | null>(null);
 const renameError = ref<string | null>(null);
 const pathMissingNotice = ref<string | null>(null);
@@ -675,6 +686,17 @@ watch([selectedDoc, selectedRevision], () => {
   // from the previous target does not leak into the fresh header.
   copyButtonText.value = tm("spcodeProjectLoad.fileBrowser.preview.copy");
   copyButtonState.value = "idle";
+  // 2026-07-26 save-success-toast: clear any in-flight "Saved"
+  // message and its dismiss timer on file switch so a toast
+  // for file A is never shown while the user is looking at file
+  // B. Editor remounts (editMode is toggled off in the switch
+  // path) would drop the prop, but this belt-and-suspenders
+  // makes the cleanup explicit and keeps the parent in sync.
+  saveSuccessMessage.value = null;
+  if (saveSuccessTimer) {
+    clearTimeout(saveSuccessTimer);
+    saveSuccessTimer = null;
+  }
 });
 
 async function onCopyContent(): Promise<void> {
@@ -1021,18 +1043,32 @@ async function onSave(content: string) {
     content,
   });
   if (r.ok) {
-    // Sync `editBuffer` to whatever we just sent to the backend so
-    // DocumentEditor's `isDirty` (buffer !== props.initialContent) is
-    // false on the next render. Without this the editor kept showing
-    // "unsaved changes" after a successful save and a subsequent
-    // cancel would surface a misleading dirty-confirm dialog. Pin
-    // viewMode to "rendered" so the user lands on the read view they
-    // were in before pressing Edit (matches the cancel path).
-    editMode.value = false;
-    viewMode.value = "rendered";
+    // 2026-07-26 toolbar parity: stay in edit mode after save (matches
+    // the workspace file browser's onSaveEdit). Two state flips keep
+    // the post-save editor in a clean, useful state:
+    //   1. editBuffer = content — DocumentEditor watches initialContent
+    //      and updates its local `buffer` to match, so isDirty
+    //      (buffer !== initialContent) drops to false. The save
+    //      button disables until the next edit; cancel still exits.
+    //   2. fileBrowser.refresh() + treeRef.refresh() — picks up the
+    //      post-save bytes for the tree panel + any other consumers
+    //      (sidebar mtime, recent-files, etc.) while we stay editing.
     editBuffer.value = content;
     void fileBrowser.refresh();
     void treeRef.value?.refresh();
+    // 2026-07-26 save-success-toast: surface a transient green
+    // "Saved" confirmation in the editor toolbar. We cancel any
+    // in-flight dismiss timer before scheduling a new one so
+    // rapid back-to-back saves don't get their toast clipped
+    // short by the previous schedule.
+    saveSuccessMessage.value = tm(
+      "spcodeProjectLoad.documentManager.editor.saveSuccess",
+    );
+    if (saveSuccessTimer) clearTimeout(saveSuccessTimer);
+    saveSuccessTimer = setTimeout(() => {
+      saveSuccessMessage.value = null;
+      saveSuccessTimer = null;
+    }, SAVE_SUCCESS_TTL_MS);
   } else {
     saveError.value = `${tm(
       "spcodeProjectLoad.documentManager.editor.saveError",
@@ -1312,6 +1348,14 @@ onBeforeUnmount(() => {
   if (pathMissingTimer) {
     clearTimeout(pathMissingTimer);
     pathMissingTimer = null;
+  }
+  // 2026-07-26 save-success-toast: drop the dismiss timer so it
+  // can't fire against a destroyed ref after the component is
+  // gone (otherwise we'd see a "set on unmounted" warning in
+  // the console on hot-reload or route change).
+  if (saveSuccessTimer) {
+    clearTimeout(saveSuccessTimer);
+    saveSuccessTimer = null;
   }
   gitFile.dispose();
   docsApi.dispose();
@@ -1655,6 +1699,7 @@ onBeforeUnmount(() => {
                 :is-deleting="docsApi.isDeleting.value"
                 :is-renaming="docsApi.isRenaming.value"
                 :rename-error-message="renameError"
+                :save-success-message="saveSuccessMessage"
                 @save="onSave"
                 @cancel="onCancelEdit"
                 @delete="onDelete"
