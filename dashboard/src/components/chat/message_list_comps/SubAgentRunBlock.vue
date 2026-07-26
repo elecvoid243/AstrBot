@@ -18,9 +18,9 @@
           <div class="section-text">{{ part.input_preview }}</div>
         </div>
 
-        <ReasoningBlock
-          v-if="part.reasoning"
-          :reasoning="part.reasoning"
+        <ReasoningTimeline
+          v-if="activityParts.length"
+          :parts="activityParts"
           :is-dark="isDark"
           :is-streaming="part.status === 'running'"
         />
@@ -31,15 +31,6 @@
           :is-dark="isDark"
           :is-streaming="part.status === 'running'"
         />
-
-        <div v-if="normalizedToolCalls.length" class="tool-call-block">
-          <ToolCallCard
-            v-for="tool in normalizedToolCalls"
-            :key="tool.id || tool.name"
-            :tool-call="tool"
-            :is-dark="isDark"
-          />
-        </div>
 
         <div v-if="part.error" class="error-text">{{ part.error }}</div>
       </div>
@@ -56,9 +47,8 @@
 // ToolCallCard for visual consistency with the main agent output.
 import { computed, ref, watch } from "vue";
 import { useModuleI18n } from "@/i18n/composables";
-import ReasoningBlock from "@/components/chat/message_list_comps/ReasoningBlock.vue";
+import ReasoningTimeline from "@/components/chat/message_list_comps/ReasoningTimeline.vue";
 import MarkdownMessagePart from "@/components/chat/message_list_comps/MarkdownMessagePart.vue";
-import ToolCallCard from "@/components/chat/message_list_comps/ToolCallCard.vue";
 
 const props = defineProps({
   part: {
@@ -126,6 +116,17 @@ const normalizedToolCalls = computed(() =>
     return normalized;
   }),
 );
+
+const activityParts = computed(() => {
+  const parts = [];
+  if (props.part.reasoning) {
+    parts.push({ type: "think", think: props.part.reasoning });
+  }
+  if (normalizedToolCalls.value.length) {
+    parts.push({ type: "tool_call", tool_calls: normalizedToolCalls.value });
+  }
+  return parts;
+});
 </script>
 
 <style scoped>

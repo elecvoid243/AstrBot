@@ -3,6 +3,7 @@
 // Plan: docs/superpowers/plans/2026-07-26-subagent-chatui-progress.md (Task 5)
 // Leaf-module unit tests, runnable from a bare node runner (vitest).
 import { describe, expect, it } from "vitest";
+import { mount } from "@vue/test-utils";
 import {
   applySubAgentEvent,
   type SubAgentRunPart,
@@ -11,6 +12,7 @@ import {
   normalizeMessageParts,
   type MessagePart,
 } from "./normalizeMessageParts.ts";
+import SubAgentRunBlock from "@/components/chat/message_list_comps/SubAgentRunBlock.vue";
 
 function ev(runId: string, kind: string, payload: any, agent = "researcher") {
   return { subagent_run_id: runId, agent_name: agent, kind, payload, ts: 1 };
@@ -78,6 +80,51 @@ describe("applySubAgentEvent", () => {
     applySubAgentEvent(parts, { kind: "text_delta" }); // missing run id
     applySubAgentEvent(parts, "junk");
     expect(parts).toHaveLength(0);
+  });
+});
+
+describe("SubAgentRunBlock rendering order", () => {
+  it("renders reasoning and tool calls before the final result", () => {
+    const part = {
+      type: "subagent_run",
+      subagent_run_id: "sa_1",
+      agent_name: "researcher",
+      status: "completed",
+      input_preview: "task",
+      text: "647",
+      reasoning: "I should read the files first.",
+      tool_calls: [{ id: "c1", name: "astrbot_file_read_tool", args: {} }],
+      execution_time: 9,
+    };
+
+    const wrapper = mount(SubAgentRunBlock, {
+      props: { part, isDark: false },
+      global: {
+        stubs: {
+          VIcon: { template: "<i><slot /></i>" },
+          VExpandTransition: { template: "<div><slot /></div>" },
+          MarkdownMessagePart: {
+            props: ["content"],
+            template: '<div class="subagent-final-result">{{ content }}</div>',
+          },
+          ReasoningTimeline: {
+            props: ["parts"],
+            template:
+              '<div class="subagent-reasoning-timeline">{{ parts.map((p) => p.type).join(",") }}</div>',
+          },
+        },
+      },
+    });
+
+    const timeline = wrapper.find(".subagent-reasoning-timeline");
+    const result = wrapper.find(".subagent-final-result");
+    expect(timeline.exists()).toBe(true);
+    expect(result.exists()).toBe(true);
+    expect(timeline.text()).toBe("think,tool_call");
+    expect(
+      timeline.element.compareDocumentPosition(result.element) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 });
 
