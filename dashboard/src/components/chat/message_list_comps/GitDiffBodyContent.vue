@@ -354,17 +354,62 @@ watch(
   },
 );
 
+// 2026-07-26 selection-prune: when the visible diff list shrinks
+// (e.g. a per-file restore or stage on one row drops that path
+// from `files.value` before the user fires a bulk action), drop
+// stale selections whose paths no longer exist on screen. Without
+// this the toolbar's "已选 N" counter keeps the pre-shrink count
+// while the underlying list is shorter, and bulk stage / unstage /
+// restore then tries to operate on paths that no longer exist in
+// the diff — the backend 404s per missing path and the user gets a
+// confusing partial-success / error response.
+//
+// We prune (not clear) so the surviving selections the user still
+// intends to act on stay checked. We watch the *path list* (a plain
+// string array derived from files.value) rather than the whole
+// `files` computed so the watcher doesn't refire on every refresh
+// tick that re-emits an equivalent list with identical paths.
+watch(
+  () => files.value.map((f) => f.path),
+  (currentPaths) => {
+    const visible = new Set(currentPaths);
+    const sel = selectedFiles.value;
+    let mutated = false;
+    for (const p of sel) {
+      if (!visible.has(p)) {
+        sel.delete(p);
+        mutated = true;
+      }
+    }
+    // Reassign so Vue's reactivity picks up the in-place Set
+    // mutation (Set's add/delete on a ref-wrapped Set doesn't
+    // always trigger watchers — reassigning a new Set is the
+    // safest, cheapest signal).
+    if (mutated) selectedFiles.value = new Set(sel);
+  },
+);
+
+// Snapshots selected paths that still exist in the current visible
+// diff. Used by every bulk action as a defensive filter: even if
+// the prune watcher above hasn't flushed yet (e.g. user clicks
+// "暂存" in the same task as a per-file restore), the bulk action
+// never forwards paths that aren't in `files.value` to the parent.
+function effectiveSelectedPaths(): string[] {
+  const visible = new Set(files.value.map((f) => f.path));
+  return Array.from(selectedFiles.value).filter((p) => visible.has(p));
+}
+
 // Bulk stage / unstage of selected files: in the `unstaged` /
 // `staged` scopes every visible file is in the matching state,
 // so we pass the full selection through to the parent's bulk
 // endpoint. The `all` scope hides these buttons entirely.
 function onClickStageSelected(): void {
-  const paths = Array.from(selectedFiles.value);
+  const paths = effectiveSelectedPaths();
   if (paths.length === 0) return;
   emit("stage-paths", paths);
 }
 function onClickUnstageSelected(): void {
-  const paths = Array.from(selectedFiles.value);
+  const paths = effectiveSelectedPaths();
   if (paths.length === 0) return;
   emit("unstage-paths", paths);
 }
@@ -397,9 +442,13 @@ function toggleSelectAll(): void {
 // Bulk restore: emit the full selection so the parent can show a
 // confirmation dialog and then iterate. We do NOT clear the
 // selection here — the parent drives that on success so failures
-// leave the user's checkboxes intact for retry.
+// leave the user's checkboxes intact for retry. The selection is
+// filtered through effectiveSelectedPaths() so a stale path that
+// was just removed by some other action (e.g. a per-file restore
+// right before this click) is silently dropped instead of
+// reaching the parent and tripping a "file not in diff" error.
 function onClickRestoreSelected(): void {
-  const paths = Array.from(selectedFiles.value);
+  const paths = effectiveSelectedPaths();
   if (paths.length === 0) return;
   emit("restore-paths", paths);
 }
@@ -471,28 +520,37 @@ function isSectionPartiallySelected(section: DiffSection): boolean {
       }}</span>
     </div>
 
-    <!-- UI #2: summary bar. Always rendered when there are files,
+    <!-- 2026-07-26 sticky-header: summary bar + bulk-action toolbar
+         are wrapped in a single sticky container so they stay pinned
+         to the top of .git-diff-sidebar-body while long diffs scroll
+         underneath. The wrapper is opaque (matches the sidebar's
+         surface) so sections never bleed through. The summary's own
+         toolbar's per-element backgrounds keep their subtle tint on
+         top of the opaque base. z-index:3 to sit above the
+         below-rendered section rows. -->
+    <div v-if="files.length > 0" class="git-diff-sticky-header">
+      <!-- UI #2: summary bar. Always rendered when there are files,
          so the user sees the overall magnitude of the diff without
          scrolling. Two-line layout on narrow viewports collapses
          via the .git-diff-summary-line flex-wrap. -->
-    <div v-if="files.length > 0" class="git-diff-summary">
-      <div class="git-diff-summary-line">
-        <span class="git-diff-summary-count">
-          {{
-            tm("spcodeProjectLoad.diffPreview.summary.fileCount", {
-              count: summary.fileCount,
-              dirs: summary.dirCount,
-            })
-          }}
-        </span>
-        <span class="git-diff-summary-stats">
-          <span class="git-diff-summary-add">+{{ summary.additions }}</span>
-          <span class="git-diff-summary-del">−{{ summary.deletions }}</span>
-        </span>
+      <div class="git-diff-summary">
+        <div class="git-diff-summary-line">
+          <span class="git-diff-summary-count">
+            {{
+              tm("spcodeProjectLoad.diffPreview.summary.fileCount", {
+                count: summary.fileCount,
+                dirs: summary.dirCount,
+              })
+            }}
+          </span>
+          <span class="git-diff-summary-stats">
+            <span class="git-diff-summary-add">+{{ summary.additions }}</span>
+            <span class="git-diff-summary-del">−{{ summary.deletions }}</span>
+          </span>
+        </div>
       </div>
-    </div>
 
-    <!-- UI #3: toolbar. Expand / collapse all + (when something is
+      <!-- UI #3: toolbar. Expand / collapse all + (when something is
          selected) the count + bulk stage / unstage / restore buttons.
          The "select all" toggle is shown alongside expand/collapse
          (matching the per-section "select all" pattern below) so it
@@ -503,138 +561,145 @@ function isSectionPartiallySelected(section: DiffSection): boolean {
          (no per-file classification is available in `all`), but the
          select-all + restore affordances are reachable in every
          scope — see `showRestoreButton` above. -->
-    <div v-if="files.length > 0" class="git-diff-toolbar">
-      <div class="git-diff-toolbar-group">
-        <button
-          type="button"
-          class="git-diff-toolbar-btn"
-          :title="tm('spcodeProjectLoad.diffPreview.toolbar.expandAll')"
-          :aria-label="tm('spcodeProjectLoad.diffPreview.toolbar.expandAll')"
-          @click="expandAll"
-        >
-          <v-icon size="14">mdi-unfold-more-horizontal</v-icon>
-          <span>{{ tm("spcodeProjectLoad.diffPreview.toolbar.expandAll") }}</span>
-        </button>
-        <button
-          type="button"
-          class="git-diff-toolbar-btn"
-          :title="tm('spcodeProjectLoad.diffPreview.toolbar.collapseAll')"
-          :aria-label="tm('spcodeProjectLoad.diffPreview.toolbar.collapseAll')"
-          @click="collapseAll"
-        >
-          <v-icon size="14">mdi-unfold-less-horizontal</v-icon>
-          <span>{{ tm("spcodeProjectLoad.diffPreview.toolbar.collapseAll") }}</span>
-        </button>
-        <!-- "Select all" toggle. Reachable whenever ANY bulk
-             affordance is available — stage, unstage, OR restore.
-             This means it shows in the `all` scope too, where
-             per-file checkboxes are also visible specifically for
-             the bulk-restore flow. Label/icon flip between
-             "all selected" and "not all selected" for clarity. -->
-        <button
-          v-if="
-            showStageButton || showUnstageButton || showRestoreButton
-          "
-          type="button"
-          class="git-diff-toolbar-btn"
-          :class="{ 'is-active': allSelected }"
-          :title="
-            allSelected
-              ? tm('spcodeProjectLoad.diffPreview.toolbar.deselectAll')
-              : tm('spcodeProjectLoad.diffPreview.toolbar.selectAll')
-          "
-          :aria-label="
-            allSelected
-              ? tm('spcodeProjectLoad.diffPreview.toolbar.deselectAll')
-              : tm('spcodeProjectLoad.diffPreview.toolbar.selectAll')
-          "
-          :aria-pressed="allSelected"
-          @click="toggleSelectAll"
-        >
-          <v-icon size="14">{{
-            allSelected
-              ? "mdi-checkbox-marked"
-              : "mdi-checkbox-multiple-blank-outline"
-          }}</v-icon>
-          <span>{{
-            allSelected
-              ? tm("spcodeProjectLoad.diffPreview.toolbar.deselectAll")
-              : tm("spcodeProjectLoad.diffPreview.toolbar.selectAll")
-          }}</span>
-        </button>
+      <div class="git-diff-toolbar">
+        <div class="git-diff-toolbar-group">
+          <button
+            type="button"
+            class="git-diff-toolbar-btn"
+            :title="tm('spcodeProjectLoad.diffPreview.toolbar.expandAll')"
+            :aria-label="tm('spcodeProjectLoad.diffPreview.toolbar.expandAll')"
+            @click="expandAll"
+          >
+            <v-icon size="14">mdi-unfold-more-horizontal</v-icon>
+            <span>{{
+              tm("spcodeProjectLoad.diffPreview.toolbar.expandAll")
+            }}</span>
+          </button>
+          <button
+            type="button"
+            class="git-diff-toolbar-btn"
+            :title="tm('spcodeProjectLoad.diffPreview.toolbar.collapseAll')"
+            :aria-label="tm('spcodeProjectLoad.diffPreview.toolbar.collapseAll')"
+            @click="collapseAll"
+          >
+            <v-icon size="14">mdi-unfold-less-horizontal</v-icon>
+            <span>{{
+              tm("spcodeProjectLoad.diffPreview.toolbar.collapseAll")
+            }}</span>
+          </button>
+          <!-- "Select all" toggle. Reachable whenever ANY bulk
+               affordance is available — stage, unstage, OR restore.
+               This means it shows in the `all` scope too, where
+               per-file checkboxes are also visible specifically for
+               the bulk-restore flow. Label/icon flip between
+               "all selected" and "not all selected" for clarity. -->
+          <button
+            v-if="
+              showStageButton || showUnstageButton || showRestoreButton
+            "
+            type="button"
+            class="git-diff-toolbar-btn"
+            :class="{ 'is-active': allSelected }"
+            :title="
+              allSelected
+                ? tm('spcodeProjectLoad.diffPreview.toolbar.deselectAll')
+                : tm('spcodeProjectLoad.diffPreview.toolbar.selectAll')
+            "
+            :aria-label="
+              allSelected
+                ? tm('spcodeProjectLoad.diffPreview.toolbar.deselectAll')
+                : tm('spcodeProjectLoad.diffPreview.toolbar.selectAll')
+            "
+            :aria-pressed="allSelected"
+            @click="toggleSelectAll"
+          >
+            <v-icon size="14">{{
+              allSelected
+                ? "mdi-checkbox-marked"
+                : "mdi-checkbox-multiple-blank-outline"
+            }}</v-icon>
+            <span>{{
+              allSelected
+                ? tm("spcodeProjectLoad.diffPreview.toolbar.deselectAll")
+                : tm("spcodeProjectLoad.diffPreview.toolbar.selectAll")
+            }}</span>
+          </button>
+        </div>
+        <div v-if="selectedFiles.size > 0" class="git-diff-toolbar-group">
+          <span class="git-diff-toolbar-selected">
+            {{
+              tm("spcodeProjectLoad.diffPreview.toolbar.selectedCount", {
+                count: selectedFiles.size,
+              })
+            }}
+          </span>
+          <button
+            v-if="showStageButton"
+            type="button"
+            class="git-diff-toolbar-btn is-stage"
+            :disabled="selectedFiles.size === 0"
+            @click="onClickStageSelected"
+          >
+            <v-icon size="14">mdi-arrow-up-bold-circle-outline</v-icon>
+            <span>{{
+              tm("spcodeProjectLoad.diffPreview.toolbar.stageSelected", {
+                count: selectedFiles.size,
+              })
+            }}</span>
+          </button>
+          <button
+            v-if="showUnstageButton"
+            type="button"
+            class="git-diff-toolbar-btn is-unstage"
+            :disabled="selectedFiles.size === 0"
+            @click="onClickUnstageSelected"
+          >
+            <v-icon size="14">mdi-arrow-down-bold-circle-outline</v-icon>
+            <span>{{
+              tm("spcodeProjectLoad.diffPreview.toolbar.unstageSelected", {
+                count: selectedFiles.size,
+              })
+            }}</span>
+          </button>
+          <!-- "Restore changes" sits next to stage/unstage. Reachable
+               in every scope (staged, unstaged, all) because the
+               underlying git checkout works on working-tree state
+               regardless of staging. Only enabled when at least one
+               file is selected. The parent shows a confirmation
+               dialog before discarding anything, since restore is
+               irreversible. -->
+          <button
+            v-if="showRestoreButton"
+            type="button"
+            class="git-diff-toolbar-btn is-restore"
+            :disabled="selectedFiles.size === 0"
+            :title="tm('spcodeProjectLoad.diffPreview.toolbar.restoreSelected', { count: selectedFiles.size })"
+            :aria-label="tm('spcodeProjectLoad.diffPreview.toolbar.restoreSelected', { count: selectedFiles.size })"
+            @click="onClickRestoreSelected"
+          >
+            <v-icon size="14">mdi-restore</v-icon>
+            <span>{{
+              tm("spcodeProjectLoad.diffPreview.toolbar.restoreSelected", {
+                count: selectedFiles.size,
+              })
+            }}</span>
+          </button>
+          <button
+            type="button"
+            class="git-diff-toolbar-btn"
+            :title="tm('spcodeProjectLoad.diffPreview.toolbar.clearSelection')"
+            :aria-label="tm('spcodeProjectLoad.diffPreview.toolbar.clearSelection')"
+            @click="clearSelection"
+          >
+            <v-icon size="14">mdi-close</v-icon>
+          </button>
+        </div>
       </div>
-      <div v-if="selectedFiles.size > 0" class="git-diff-toolbar-group">
-        <span class="git-diff-toolbar-selected">
-          {{
-            tm("spcodeProjectLoad.diffPreview.toolbar.selectedCount", {
-              count: selectedFiles.size,
-            })
-          }}
-        </span>
-        <button
-          v-if="showStageButton"
-          type="button"
-          class="git-diff-toolbar-btn is-stage"
-          :disabled="selectedFiles.size === 0"
-          @click="onClickStageSelected"
-        >
-          <v-icon size="14">mdi-arrow-up-bold-circle-outline</v-icon>
-          <span>{{
-            tm("spcodeProjectLoad.diffPreview.toolbar.stageSelected", {
-              count: selectedFiles.size,
-            })
-          }}</span>
-        </button>
-        <button
-          v-if="showUnstageButton"
-          type="button"
-          class="git-diff-toolbar-btn is-unstage"
-          :disabled="selectedFiles.size === 0"
-          @click="onClickUnstageSelected"
-        >
-          <v-icon size="14">mdi-arrow-down-bold-circle-outline</v-icon>
-          <span>{{
-            tm("spcodeProjectLoad.diffPreview.toolbar.unstageSelected", {
-              count: selectedFiles.size,
-            })
-          }}</span>
-        </button>
-        <!-- "Restore changes" sits next to stage/unstage. Reachable
-             in every scope (staged, unstaged, all) because the
-             underlying git checkout works on working-tree state
-             regardless of staging. Only enabled when at least one
-             file is selected. The parent shows a confirmation
-             dialog before discarding anything, since restore is
-             irreversible. -->
-        <button
-          v-if="showRestoreButton"
-          type="button"
-          class="git-diff-toolbar-btn is-restore"
-          :disabled="selectedFiles.size === 0"
-          :title="tm('spcodeProjectLoad.diffPreview.toolbar.restoreSelected', { count: selectedFiles.size })"
-          :aria-label="tm('spcodeProjectLoad.diffPreview.toolbar.restoreSelected', { count: selectedFiles.size })"
-          @click="onClickRestoreSelected"
-        >
-          <v-icon size="14">mdi-restore</v-icon>
-          <span>{{
-            tm("spcodeProjectLoad.diffPreview.toolbar.restoreSelected", {
-              count: selectedFiles.size,
-            })
-          }}</span>
-        </button>
-        <button
-          type="button"
-          class="git-diff-toolbar-btn"
-          :title="tm('spcodeProjectLoad.diffPreview.toolbar.clearSelection')"
-          :aria-label="tm('spcodeProjectLoad.diffPreview.toolbar.clearSelection')"
-          @click="clearSelection"
-        >
-          <v-icon size="14">mdi-close</v-icon>
-        </button>
+      <!-- 2026-07-26 sticky-header: end of .git-diff-sticky-header
+           wrapper that keeps the summary + toolbar pinned. -->
       </div>
-    </div>
 
-    <!-- UI #1: sections (top-level directory groups). Each section
+      <!-- UI #1: sections (top-level directory groups). Each section
          is a collapsible block; the header includes a per-section
          "select all" checkbox so the user can bulk-select within a
          group without using the toolbar's stage-selected action. -->
@@ -751,7 +816,34 @@ function isSectionPartiallySelected(section: DiffSection): boolean {
 </template>
 
 <style scoped>
-/* ── Summary bar (UI #2) ─────────────────────────────────────── */
+/* ── Sticky header (2026-07-26) ─────────────────────────────────
+   Wraps the summary bar + bulk-action toolbar so the user keeps
+   them visible at the top of .git-diff-sidebar-body while a long
+   diff scrolls underneath. The wrapper sits inside the sidebar's
+   vertical scroll container (the nearest scrolling ancestor), so
+   `top: 0` pins it to the top of the body's content area without
+   any extra JS. Per-row borders on .git-diff-summary +
+   .git-diff-toolbar are kept so the two halves still show their
+   divider lines. */
+
+.git-diff-sticky-header {
+  position: sticky;
+  top: 0;
+  /* Above the .git-diff-section rows (which have no explicit
+     z-index) and above any future overlays the parent might
+     stack inside .git-diff-sidebar-body. Without this the
+     pinned region disappears behind the first section's
+     header when sections scroll. */
+  z-index: 3;
+  /* Reuse the same sidebar surface var the parent uses so the
+     pinned region blends seamlessly with the rest of the panel.
+     Falls back to the Vuetify surface color when the chat
+     token isn't defined (e.g. plain Vuetify contexts). The
+     per-row borders on .git-diff-summary + .git-diff-toolbar
+     stay where they are — this opaque base simply fills the
+     gap the toolbar's translucent background leaves. */
+  background: var(--chat-sidebar-bg, rgb(var(--v-theme-surface)));
+}
 
 .git-diff-summary {
   padding: 8px 14px 6px;
