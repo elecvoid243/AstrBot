@@ -35,6 +35,8 @@ import {
 // leaf module so the ask_user_choice history-reload filter can be
 // unit-tested without pulling in `@/api`.
 import { normalizeMessageParts as normalizeMessagePartsFromLeaf } from "./normalizeMessageParts";
+// Live reducer for structured subagent progress stream payloads.
+import { applySubAgentEvent } from "./subagentRunReducer";
 
 export type TransportMode = "sse" | "websocket";
 
@@ -1612,6 +1614,14 @@ export function useMessages(options: UseMessagesOptions) {
         return;
       }
       appendPlain(botRecord, payloadText(data), normalized.streaming !== false);
+      return;
+    }
+
+    // Structured subagent progress events fold into a dedicated
+    // `subagent_run` part on the bot record (live + persisted history).
+    if (msgType === "subagent_event") {
+      ensureBotMessagePartsArray(botRecord);
+      applySubAgentEvent(botRecord.content.message as MessagePart[], data);
       return;
     }
 

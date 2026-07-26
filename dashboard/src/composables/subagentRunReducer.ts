@@ -1,0 +1,105 @@
+// Author: elecvoid243
+// Date: 2026-07-26
+// Plan: docs/superpowers/plans/2026-07-26-subagent-chatui-progress.md (Task 5)
+// Live reducer for structured `subagent_event` stream payloads. The part is
+// pushed at first-seen position and mutated in place so Vue reactivity
+// updates the SubAgentRunBlock as tokens arrive.
+import type { MessagePart } from "./normalizeMessageParts.ts";
+
+export interface SubAgentToolCall {
+  id?: string;
+  name?: string;
+  args?: Record<string, unknown>;
+  result?: string;
+  [key: string]: unknown;
+}
+
+export interface SubAgentRunPart {
+  type: "subagent_run";
+  subagent_run_id: string;
+  agent_name: string;
+  status: "running" | "completed" | "failed" | "timeout";
+  input_preview: string;
+  text: string;
+  reasoning: string;
+  tool_calls: SubAgentToolCall[];
+  started_ts?: number;
+  execution_time?: number | null;
+  error?: string;
+  [key: string]: unknown;
+}
+
+export interface SubAgentEventData {
+  subagent_run_id?: string;
+  agent_name?: string;
+  kind?: string;
+  payload?: Record<string, unknown>;
+  ts?: number;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+export function applySubAgentEvent(
+  parts: MessagePart[],
+  data: SubAgentEventData | null | undefined,
+): void {
+  if (!isRecord(data)) return;
+  const runId = String(data.subagent_run_id || "");
+  if (!runId) return;
+  const kind = String(data.kind || "");
+  const payload = isRecord(data.payload) ? data.payload : {};
+
+  let part = parts.find(
+    (p): p is SubAgentRunPart =>
+      p.type === "subagent_run" && p.subagent_run_id === runId,
+  );
+  if (!part) {
+    part = {
+      type: "subagent_run",
+      subagent_run_id: runId,
+      agent_name: String(data.agent_name || ""),
+      status: "running",
+      input_preview: "",
+      text: "",
+      reasoning: "",
+      tool_calls: [],
+      started_ts: data.ts,
+      execution_time: null,
+    };
+    parts.push(part);
+  }
+
+  if (kind === "started") {
+    part.input_preview = String(payload.input_preview || "");
+  } else if (kind === "text_delta") {
+    part.text += String(payload.text || "");
+  } else if (kind === "reasoning_delta") {
+    part.reasoning += String(payload.text || "");
+  } else if (kind === "tool_call") {
+    const callId = payload.id;
+    if (callId != null) {
+      const existing = part.tool_calls.find((t) => t.id === callId);
+      if (existing) Object.assign(existing, payload);
+      else part.tool_calls.push({ ...payload } as SubAgentToolCall);
+    }
+  } else if (kind === "tool_call_result") {
+    const callId = payload.id;
+    const existing = part.tool_calls.find((t) => t.id === callId);
+    if (existing) existing.result = String(payload.result ?? "");
+    else if (callId != null)
+      part.tool_calls.push({ ...payload } as SubAgentToolCall);
+  } else if (kind === "completed") {
+    part.status = "completed";
+    if (!part.text && payload.result_text) {
+      part.text = String(payload.result_text);
+    }
+    if (typeof payload.execution_time === "number") {
+      part.execution_time = payload.execution_time;
+    }
+  } else if (kind === "failed" || kind === "timeout") {
+    part.status = kind;
+    if (payload.error) part.error = String(payload.error);
+  }
+}
