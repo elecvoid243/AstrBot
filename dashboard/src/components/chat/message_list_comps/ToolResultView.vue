@@ -204,6 +204,7 @@ import {
   renderShikiCode,
 } from "@/utils/shiki";
 import { findSystemNoticeIndex } from "@/utils/systemNotice";
+import { parseShellToolResult } from "@/utils/shellToolResult";
 import SpcodeToolResultView from "./SpcodeToolResultView.vue";
 import { SPCODE_TOOL_NAMES } from "./spcode_tools/icons";
 import { INTA_SHELL_TOOL_NAMES } from "./inta_shell_tools/icons";
@@ -287,9 +288,10 @@ const shikiReady = ref(false);
 const rawResult = computed(() => (props.result ?? "").trim());
 
 // Strip system-injected suffixes ([SYSTEM NOTICE] + overflow notice) for all
-// non-shell templates.  Shell uses rawResult directly via brace-tracking in
-// shellParsed.  All other tools now use the smart findSystemNoticeIndex()
-// which handles both [SYSTEM NOTICE] markers and the overflow notice pattern.
+// non-shell templates.  Shell uses rawResult directly via parseShellToolResult()
+// (string-aware JSON extraction).  All other tools now use the smart
+// findSystemNoticeIndex() which handles both [SYSTEM NOTICE] markers and the
+// overflow notice pattern.
 const resultText = computed(() => {
   const text = rawResult.value;
   const idx = findSystemNoticeIndex(text);
@@ -448,56 +450,25 @@ const grepTruncated = computed(() => {
 
 // ── execute_shell ──────────────────────────────────────────────
 
-const shellParsed = computed(() => {
-  // Extract JSON from text that may have trailing non-JSON content (e.g. [SYSTEM NOTICE]).
-  const text = rawResult.value;
-  const start = text.indexOf("{");
-  if (start < 0) {
-    return { json: null, extra: text };
-  }
-  // Track brace depth to find the matching closing brace
-  let depth = 0;
-  let end = -1;
-  for (let i = start; i < text.length; i++) {
-    if (text[i] === "{") depth++;
-    else if (text[i] === "}") {
-      depth--;
-      if (depth === 0) {
-        end = i + 1;
-        break;
-      }
-    }
-  }
-  if (end < 0) {
-    return { json: null, extra: text };
-  }
-  const jsonStr = text.slice(start, end);
-  const extraStr = text.slice(end).trim();
-  try {
-    const parsed = JSON.parse(jsonStr);
-    if (parsed && typeof parsed === "object") {
-      return { json: parsed, extra: extraStr || null };
-    }
-  } catch {
-    // not valid JSON
-  }
-  return { json: null, extra: text };
-});
+const shellParsed = computed(() => parseShellToolResult(rawResult.value));
 
 const shellStdout = computed(() => {
-  if (shellParsed.value?.json && "stdout" in shellParsed.value.json) {
-    return shellParsed.value.json.stdout;
+  const json = shellParsed.value.json;
+  if (json && "stdout" in json) {
+    return json.stdout as string;
   }
+  // JSON truncated/malformed — show the raw text (notice suffix stripped).
   return resultText.value;
 });
 
 const shellStderr = computed(() => {
-  return shellParsed.value?.json?.stderr || "";
+  return (shellParsed.value.json?.stderr as string) || "";
 });
 
 const shellExitCodeVal = computed(() => {
-  if (shellParsed.value?.json && "exit_code" in shellParsed.value.json) {
-    return shellParsed.value.json.exit_code;
+  const json = shellParsed.value.json;
+  if (json && "exit_code" in json) {
+    return json.exit_code;
   }
   return null;
 });

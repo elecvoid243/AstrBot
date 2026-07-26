@@ -57,57 +57,48 @@ function isGenuineSystemNotice(text: string, idx: number): boolean {
  *   - Blank lines (separators between notices)
  *   - Lines containing `[SYSTEM NOTICE]` (notice markers and their bodies)
  *   - Lines starting with the overflow notice prefix
- *   - Numbered list items (`N. …`) — but ONLY when preceded by a
- *     `[SYSTEM NOTICE] User sent` (follow-up notice) in the chain.
- *     This prevents file content like `1. item` from being mistaken for
- *     notice content.
- *   - Continuation lines of a notice paragraph (non-blank, directly after
- *     a notice marker line, before any blank line gap).
+ *   - Numbered list items (`N. …`) and free-form body lines — but ONLY when
+ *     preceded by a `[SYSTEM NOTICE] User sent` (follow-up notice) in the
+ *     chain.  This prevents file content like `1. item` from being mistaken
+ *     for notice content.
+ *
+ * All known genuine notices (repeated-tool warnings, overflow notice) are
+ * single-line messages, so NO free-form continuation lines are allowed
+ * outside a follow-up notice body.  This keeps content that merely quotes a
+ * notice-like line (e.g. a log file containing "[SYSTEM NOTICE] Important:")
+ * from swallowing the rest of the result into the notice suffix.
  */
 function isNoticeChainRegion(text: string, fromPos: number): boolean {
   const region = text.slice(fromPos);
   const lines = region.split("\n");
   let inFollowUp = false;
-  let sawBlankAfterNotice = false;
 
   for (const rawLine of lines) {
     const trimmed = rawLine.trim();
 
     // Blank lines are separators between notices — always allowed.
     if (trimmed === "") {
-      if (!inFollowUp) sawBlankAfterNotice = true;
       continue;
     }
 
     // [SYSTEM NOTICE] marker — starts a new notice in the chain.
     if (trimmed.includes(MARKER)) {
-      // Track whether this is a follow-up notice (allows numbered items).
+      // Track whether this is a follow-up notice (allows free-form body).
       const markerIdx = trimmed.indexOf(MARKER);
       const afterMarker = trimmed.slice(markerIdx).trim();
-      if (afterMarker.startsWith(`${MARKER} User sent`)) {
-        inFollowUp = true;
-      }
-      sawBlankAfterNotice = false;
+      inFollowUp = afterMarker.startsWith(`${MARKER} User sent`);
       continue;
     }
 
     // Overflow notice prefix — part of the chain.
     if (trimmed.startsWith(OVERFLOW_NOTICE_PREFIX)) {
       inFollowUp = false;
-      sawBlankAfterNotice = false;
       continue;
     }
 
-    // Numbered list items — only valid after a "User sent" follow-up notice.
-    if (inFollowUp && /^\d+\.\s/.test(trimmed)) continue;
-
-    // Continuation lines:
-    // - In follow-up mode: free-form instruction text is part of the notice body.
-    // - Outside follow-up: continuation of an overflow notice paragraph
-    //   (before any blank line gap).
-    if (inFollowUp || !sawBlankAfterNotice) {
-      continue;
-    }
+    // Numbered list items and free-form instruction text are only valid as
+    // the body of a "User sent" follow-up notice.
+    if (inFollowUp) continue;
 
     // Anything else is real file content — not a valid notice chain.
     return false;
