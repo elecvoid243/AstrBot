@@ -199,6 +199,28 @@ const normalizedToolCalls = computed(() =>
 
 const activityParts = computed(() => {
   const parts = [];
+  // Prefer the chronological activity log (think/tool_call interleaved as
+  // the LLM loop produced them). History records saved before this field
+  // existed fall back to the aggregated reasoning + tool_calls view.
+  const activity = props.part.activity;
+  if (Array.isArray(activity) && activity.length) {
+    let pendingTools = [];
+    for (const entry of activity) {
+      if (entry.kind === "think") {
+        if (pendingTools.length) {
+          parts.push({ type: "tool_call", tool_calls: pendingTools });
+          pendingTools = [];
+        }
+        parts.push({ type: "think", think: entry.text });
+      } else if (entry.kind === "tool_call") {
+        pendingTools.push(entry.call);
+      }
+    }
+    if (pendingTools.length) {
+      parts.push({ type: "tool_call", tool_calls: pendingTools });
+    }
+    return parts;
+  }
   if (props.part.reasoning) {
     parts.push({ type: "think", think: props.part.reasoning });
   }

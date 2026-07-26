@@ -14,6 +14,10 @@ export interface SubAgentToolCall {
   [key: string]: unknown;
 }
 
+export type SubAgentActivity =
+  | { kind: "think"; text: string }
+  | { kind: "tool_call"; call: SubAgentToolCall };
+
 export interface SubAgentRunPart {
   type: "subagent_run";
   subagent_run_id: string;
@@ -24,6 +28,7 @@ export interface SubAgentRunPart {
   text: string;
   reasoning: string;
   tool_calls: SubAgentToolCall[];
+  activity: SubAgentActivity[];
   started_ts?: number;
   execution_time?: number | null;
   error?: string;
@@ -64,6 +69,7 @@ export function applySubAgentEvent(parts: MessagePart[], data: unknown): void {
       text: "",
       reasoning: "",
       tool_calls: [],
+      activity: [],
       started_ts: event.ts,
       execution_time: null,
     };
@@ -71,26 +77,47 @@ export function applySubAgentEvent(parts: MessagePart[], data: unknown): void {
     part = created;
   }
 
+  if (!Array.isArray(part.activity)) part.activity = [];
+
   if (kind === "started") {
     part.input_preview = String(payload.input_preview || "");
     part.input_full = String(payload.input_full || "");
   } else if (kind === "text_delta") {
     part.text += String(payload.text || "");
   } else if (kind === "reasoning_delta") {
-    part.reasoning += String(payload.text || "");
+    const text = String(payload.text || "");
+    part.reasoning += text;
+    // Append to the current think block, or open a new one when a tool
+    // call happened in between — this preserves the chronological
+    // think -> tool_call -> think -> tool_call order of the LLM loop.
+    const last = part.activity[part.activity.length - 1];
+    if (last && last.kind === "think") {
+      last.text += text;
+    } else {
+      part.activity.push({ kind: "think", text });
+    }
   } else if (kind === "tool_call") {
     const callId = payload.id;
     if (callId != null) {
       const existing = part.tool_calls.find((t) => t.id === callId);
-      if (existing) Object.assign(existing, payload);
-      else part.tool_calls.push({ ...payload } as SubAgentToolCall);
+      if (existing) {
+        Object.assign(existing, payload);
+      } else {
+        const call = { ...payload } as SubAgentToolCall;
+        part.tool_calls.push(call);
+        part.activity.push({ kind: "tool_call", call });
+      }
     }
   } else if (kind === "tool_call_result") {
     const callId = payload.id;
     const existing = part.tool_calls.find((t) => t.id === callId);
-    if (existing) existing.result = String(payload.result ?? "");
-    else if (callId != null)
-      part.tool_calls.push({ ...payload } as SubAgentToolCall);
+    if (existing) {
+      existing.result = String(payload.result ?? "");
+    } else if (callId != null) {
+      const call = { ...payload } as SubAgentToolCall;
+      part.tool_calls.push(call);
+      part.activity.push({ kind: "tool_call", call });
+    }
   } else if (kind === "completed") {
     part.status = "completed";
     if (!part.text && payload.result_text) {

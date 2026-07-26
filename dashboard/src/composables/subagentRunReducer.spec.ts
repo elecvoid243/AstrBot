@@ -305,4 +305,35 @@ describe("normalizeMessageParts subagent_run passthrough", () => {
     expect(normalized[1].type).toBe("subagent_run");
     expect((normalized[1] as any).subagent_run_id).toBe("sa_1");
   });
+
+  it("interleaves reasoning and tool calls chronologically", () => {
+    const parts: MessagePart[] = [];
+    const evt = (kind: string, payload: Record<string, unknown>) => ({
+      subagent_run_id: "sa_i",
+      agent_name: "a",
+      kind,
+      payload,
+      ts: 1.0,
+    });
+    applySubAgentEvent(parts, evt("reasoning_delta", { text: "think1 " }));
+    applySubAgentEvent(parts, evt("tool_call", { id: "c1", name: "t1" }));
+    applySubAgentEvent(parts, evt("reasoning_delta", { text: "think2 " }));
+    applySubAgentEvent(parts, evt("tool_call", { id: "c2", name: "t2" }));
+    applySubAgentEvent(parts, evt("tool_call", { id: "c3", name: "t3" }));
+    applySubAgentEvent(parts, evt("reasoning_delta", { text: "think3" }));
+    applySubAgentEvent(
+      parts,
+      evt("tool_call_result", { id: "c1", result: "r1" }),
+    );
+
+    const part = parts[0] as unknown as SubAgentRunPart;
+    expect(part.activity).toEqual([
+      { kind: "think", text: "think1 " },
+      { kind: "tool_call", call: { id: "c1", name: "t1", result: "r1" } },
+      { kind: "think", text: "think2 " },
+      { kind: "tool_call", call: { id: "c2", name: "t2" } },
+      { kind: "tool_call", call: { id: "c3", name: "t3" } },
+      { kind: "think", text: "think3" },
+    ]);
+  });
 });
