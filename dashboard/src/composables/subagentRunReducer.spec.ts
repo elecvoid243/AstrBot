@@ -126,6 +126,72 @@ describe("SubAgentRunBlock rendering order", () => {
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
   });
+  it("expands the truncated task to reveal the full input", async () => {
+    const preview = "short preview…";
+    const full = "short preview plus the complete task details";
+    const part = {
+      type: "subagent_run",
+      subagent_run_id: "sa_2",
+      agent_name: "weather_reporter",
+      status: "completed",
+      input_preview: preview,
+      input_full: full,
+      text: "done",
+      reasoning: "",
+      tool_calls: [],
+      execution_time: 1,
+    };
+
+    const wrapper = mount(SubAgentRunBlock, {
+      props: { part, isDark: false },
+      global: {
+        stubs: {
+          VIcon: { template: "<i><slot /></i>" },
+          VExpandTransition: { template: "<div><slot /></div>" },
+          MarkdownMessagePart: true,
+          ReasoningTimeline: true,
+        },
+      },
+    });
+
+    const taskText = wrapper.find(".input-preview .section-text");
+    expect(taskText.text()).toBe(preview);
+    const toggle = wrapper.find(".task-expand-toggle");
+    expect(toggle.exists()).toBe(true);
+    await toggle.trigger("click");
+    expect(wrapper.find(".input-preview .section-text").text()).toBe(full);
+    await toggle.trigger("click");
+    expect(wrapper.find(".input-preview .section-text").text()).toBe(preview);
+  });
+
+  it("hides the expand toggle when there is no extra content", () => {
+    const part = {
+      type: "subagent_run",
+      subagent_run_id: "sa_3",
+      agent_name: "a",
+      status: "completed",
+      input_preview: "short",
+      input_full: "short",
+      text: "done",
+      reasoning: "",
+      tool_calls: [],
+      execution_time: 1,
+    };
+
+    const wrapper = mount(SubAgentRunBlock, {
+      props: { part, isDark: false },
+      global: {
+        stubs: {
+          VIcon: { template: "<i><slot /></i>" },
+          VExpandTransition: { template: "<div><slot /></div>" },
+          MarkdownMessagePart: true,
+          ReasoningTimeline: true,
+        },
+      },
+    });
+
+    expect(wrapper.find(".task-expand-toggle").exists()).toBe(false);
+  });
 });
 
 describe("normalizeMessageParts subagent_run passthrough", () => {

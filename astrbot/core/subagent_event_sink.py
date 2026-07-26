@@ -30,18 +30,27 @@ class SubAgentEventSink:
         subagent_run_id: Correlation id shared by every event of one run.
     """
 
-    def __init__(self, message_id: str, agent_name: str, input_preview: str = ""):
+    def __init__(
+        self,
+        message_id: str,
+        agent_name: str,
+        input_preview: str = "",
+        input_full: str = "",
+    ):
         """Create a sink bound to the main run's back queue.
 
         Args:
             message_id: Main run message id (== back queue request id).
             agent_name: Display name of the subagent.
             input_preview: Truncated task description for the run header.
+            input_full: Untruncated task text, shown when the user expands
+                the task section in the dashboard.
         """
         self.subagent_run_id = f"sa_{uuid.uuid4().hex[:12]}"
         self._message_id = message_id
         self._agent_name = agent_name
         self._input_preview = input_preview
+        self._input_full = input_full
         self._closed = False
 
     async def _emit(self, kind: str, payload: dict) -> None:
@@ -66,7 +75,10 @@ class SubAgentEventSink:
 
     async def start(self) -> None:
         """Emit the ``started`` event (run header)."""
-        await self._emit("started", {"input_preview": self._input_preview})
+        await self._emit(
+            "started",
+            {"input_preview": self._input_preview, "input_full": self._input_full},
+        )
 
     async def __call__(self, resp: AgentResponse) -> None:
         """Forward one runner response. Signature matches ``response_sink``.

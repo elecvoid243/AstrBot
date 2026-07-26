@@ -76,6 +76,22 @@ async def test_start_emits_started_event(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_start_emits_full_input(monkeypatch):
+    import astrbot.core.subagent_event_sink as sink_mod
+
+    stub = _QueueStub()
+    monkeypatch.setattr(sink_mod, "webchat_queue_mgr", stub)
+    full_input = "x" * 500
+    sink = sink_mod.SubAgentEventSink(
+        "msg-1", "researcher", full_input[:200], input_full=full_input
+    )
+    await sink.start()
+    ((_, payload),) = stub.payloads
+    assert payload["data"]["payload"]["input_preview"] == "x" * 200
+    assert payload["data"]["payload"]["input_full"] == full_input
+
+
+@pytest.mark.asyncio
 async def test_text_and_reasoning_deltas(monkeypatch):
     import astrbot.core.subagent_event_sink as sink_mod
 

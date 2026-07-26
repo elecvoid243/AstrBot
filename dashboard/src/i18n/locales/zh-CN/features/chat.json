@@ -122,6 +122,10 @@
     "failed": "失败",
     "timeout": "超时"
   },
+  "subagentTask": {
+    "expand": "展开完整任务",
+    "collapse": "收起"
+  },
   "toolStatus": {
     "done": "已完成",
     "running": "运行中"

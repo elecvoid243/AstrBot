@@ -122,6 +122,10 @@
     "failed": "Ошибка",
     "timeout": "Тайм-аут"
   },
+  "subagentTask": {
+    "expand": "Показать задачу полностью",
+    "collapse": "Свернуть"
+  },
   "toolStatus": {
     "done": "Готово",
     "running": "Выполняется"

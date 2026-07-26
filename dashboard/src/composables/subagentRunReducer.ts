@@ -20,6 +20,7 @@ export interface SubAgentRunPart {
   agent_name: string;
   status: "running" | "completed" | "failed" | "timeout";
   input_preview: string;
+  input_full?: string;
   text: string;
   reasoning: string;
   tool_calls: SubAgentToolCall[];
@@ -72,6 +73,7 @@ export function applySubAgentEvent(parts: MessagePart[], data: unknown): void {
 
   if (kind === "started") {
     part.input_preview = String(payload.input_preview || "");
+    part.input_full = String(payload.input_full || "");
   } else if (kind === "text_delta") {
     part.text += String(payload.text || "");
   } else if (kind === "reasoning_delta") {

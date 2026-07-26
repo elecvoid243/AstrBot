@@ -122,6 +122,10 @@
     "failed": "Failed",
     "timeout": "Timed out"
   },
+  "subagentTask": {
+    "expand": "Show full task",
+    "collapse": "Show less"
+  },
   "toolStatus": {
     "done": "Done",
     "running": "Running"

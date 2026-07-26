@@ -15,7 +15,19 @@
       <div v-show="expanded" class="subagent-run-body">
         <div v-if="part.input_preview" class="section input-preview">
           <div class="section-label">Task</div>
-          <div class="section-text">{{ part.input_preview }}</div>
+          <div class="section-text">{{ displayedTaskText }}</div>
+          <button
+            v-if="hasFullTaskText"
+            class="task-expand-toggle"
+            type="button"
+            @click="taskExpanded = !taskExpanded"
+          >
+            {{
+              taskExpanded
+                ? tm("subagentTask.collapse")
+                : tm("subagentTask.expand")
+            }}
+          </button>
         </div>
 
         <ReasoningTimeline
@@ -78,6 +90,19 @@ watch(
 function toggleExpanded() {
   expanded.value = !expanded.value;
 }
+
+const taskExpanded = ref(false);
+
+const hasFullTaskText = computed(() => {
+  const full = String(props.part.input_full || "");
+  return full.length > String(props.part.input_preview || "").length;
+});
+
+const displayedTaskText = computed(() =>
+  taskExpanded.value && hasFullTaskText.value
+    ? props.part.input_full
+    : props.part.input_preview,
+);
 
 const statusClass = computed(() => {
   const status = props.part.status;
@@ -233,6 +258,17 @@ const activityParts = computed(() => {
 
 .input-preview {
   margin: 6px 0;
+}
+
+.task-expand-toggle {
+  display: inline-block;
+  margin-top: 2px;
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.78em;
+  color: rgba(var(--v-theme-primary, 25, 118, 210), 0.85);
 }
 
 .error-text {
