@@ -13,36 +13,83 @@
 
     <v-expand-transition>
       <div v-show="expanded" class="subagent-run-body">
-        <div v-if="part.input_preview" class="section input-preview">
-          <div class="section-label">Task</div>
-          <div class="section-text">{{ displayedTaskText }}</div>
+        <div
+          v-if="part.input_preview"
+          class="subagent-section subagent-section-task"
+        >
           <button
-            v-if="hasFullTaskText"
-            class="task-expand-toggle"
+            class="section-header"
             type="button"
-            @click="taskExpanded = !taskExpanded"
+            @click="taskSectionExpanded = !taskSectionExpanded"
           >
-            {{
-              taskExpanded
-                ? tm("subagentTask.collapse")
-                : tm("subagentTask.expand")
-            }}
+            <span class="section-label">Task</span>
+            <v-icon size="16">
+              {{ taskSectionExpanded ? "mdi-chevron-up" : "mdi-chevron-down" }}
+            </v-icon>
           </button>
+          <div v-show="taskSectionExpanded" class="section-content">
+            <div class="section-text">{{ displayedTaskText }}</div>
+            <button
+              v-if="hasFullTaskText"
+              class="task-expand-toggle"
+              type="button"
+              @click="taskExpanded = !taskExpanded"
+            >
+              {{
+                taskExpanded
+                  ? tm("subagentTask.collapse")
+                  : tm("subagentTask.expand")
+              }}
+            </button>
+          </div>
         </div>
 
-        <ReasoningTimeline
+        <div
           v-if="activityParts.length"
-          :parts="activityParts"
-          :is-dark="isDark"
-          :is-streaming="part.status === 'running'"
-        />
+          class="subagent-section subagent-section-execution"
+        >
+          <button
+            class="section-header"
+            type="button"
+            @click="executionSectionExpanded = !executionSectionExpanded"
+          >
+            <span class="section-label">Execution</span>
+            <v-icon size="16">
+              {{
+                executionSectionExpanded ? "mdi-chevron-up" : "mdi-chevron-down"
+              }}
+            </v-icon>
+          </button>
+          <div v-show="executionSectionExpanded" class="section-content">
+            <ReasoningTimeline
+              :parts="activityParts"
+              :is-dark="isDark"
+              :is-streaming="part.status === 'running'"
+            />
+          </div>
+        </div>
 
-        <MarkdownMessagePart
-          v-if="part.text"
-          :content="part.text"
-          :is-dark="isDark"
-          :is-streaming="part.status === 'running'"
-        />
+        <div v-if="part.text" class="subagent-section subagent-section-result">
+          <button
+            class="section-header"
+            type="button"
+            @click="resultSectionExpanded = !resultSectionExpanded"
+          >
+            <span class="section-label">Result</span>
+            <v-icon size="16">
+              {{
+                resultSectionExpanded ? "mdi-chevron-up" : "mdi-chevron-down"
+              }}
+            </v-icon>
+          </button>
+          <div v-show="resultSectionExpanded" class="section-content">
+            <MarkdownMessagePart
+              :content="part.text"
+              :is-dark="isDark"
+              :is-streaming="part.status === 'running'"
+            />
+          </div>
+        </div>
 
         <div v-if="part.error" class="error-text">{{ part.error }}</div>
       </div>
@@ -83,6 +130,7 @@ watch(
   (status, prev) => {
     if (prev === "running" && status !== "running") {
       expanded.value = false;
+      executionSectionExpanded.value = false;
     }
   },
 );
@@ -92,6 +140,9 @@ function toggleExpanded() {
 }
 
 const taskExpanded = ref(false);
+const taskSectionExpanded = ref(false);
+const executionSectionExpanded = ref(props.part.status === "running");
+const resultSectionExpanded = ref(false);
 
 const hasFullTaskText = computed(() => {
   const full = String(props.part.input_full || "");
@@ -256,8 +307,33 @@ const activityParts = computed(() => {
   word-break: break-word;
 }
 
-.input-preview {
+.subagent-section {
   margin: 6px 0;
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 4px 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: inherit;
+  text-align: left;
+}
+
+.section-header .section-label {
+  margin: 0;
+}
+
+.section-content {
+  padding: 4px 0 2px;
+}
+
+.input-preview {
+  margin: 0;
 }
 
 .task-expand-toggle {

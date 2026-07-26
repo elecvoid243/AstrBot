@@ -3,7 +3,7 @@
 // Plan: docs/superpowers/plans/2026-07-26-subagent-chatui-progress.md (Task 5)
 // Leaf-module unit tests, runnable from a bare node runner (vitest).
 import { describe, expect, it } from "vitest";
-import { mount } from "@vue/test-utils";
+import { mount, type DOMWrapper } from "@vue/test-utils";
 import {
   applySubAgentEvent,
   type SubAgentRunPart,
@@ -126,6 +126,81 @@ describe("SubAgentRunBlock rendering order", () => {
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
   });
+  it("renders task, execution, and result as independent collapsible sections", async () => {
+    const part = {
+      type: "subagent_run",
+      subagent_run_id: "sa_sections",
+      agent_name: "researcher",
+      status: "completed",
+      input_preview: "task preview",
+      input_full: "full task",
+      text: "final result",
+      reasoning: "thinking",
+      tool_calls: [{ id: "c1", name: "read", args: {} }],
+      execution_time: 2,
+    };
+
+    const wrapper = mount(SubAgentRunBlock, {
+      props: { part, isDark: false },
+      global: {
+        stubs: {
+          VIcon: { template: "<i><slot /></i>" },
+          VExpandTransition: { template: "<div><slot /></div>" },
+          MarkdownMessagePart: {
+            props: ["content"],
+            template: '<div class="subagent-final-result">{{ content }}</div>',
+          },
+          ReasoningTimeline: {
+            template: '<div class="subagent-execution-content">execution</div>',
+          },
+        },
+      },
+    });
+
+    function isHidden(content: DOMWrapper<Element>) {
+      return (content.element as HTMLElement).style.display === "none";
+    }
+    expect(wrapper.find(".subagent-section-task").exists()).toBe(true);
+    expect(wrapper.find(".subagent-section-execution").exists()).toBe(true);
+    expect(wrapper.find(".subagent-section-result").exists()).toBe(true);
+    expect(
+      isHidden(wrapper.find(".subagent-section-task .section-content")),
+    ).toBe(true);
+    expect(
+      isHidden(wrapper.find(".subagent-section-execution .section-content")),
+    ).toBe(true);
+    expect(
+      isHidden(wrapper.find(".subagent-section-result .section-content")),
+    ).toBe(true);
+
+    await wrapper
+      .find(".subagent-section-task .section-header")
+      .trigger("click");
+    expect(
+      isHidden(wrapper.find(".subagent-section-task .section-content")),
+    ).toBe(false);
+    expect(
+      isHidden(wrapper.find(".subagent-section-execution .section-content")),
+    ).toBe(true);
+
+    await wrapper
+      .find(".subagent-section-execution .section-header")
+      .trigger("click");
+    expect(
+      isHidden(wrapper.find(".subagent-section-execution .section-content")),
+    ).toBe(false);
+    expect(
+      isHidden(wrapper.find(".subagent-section-task .section-content")),
+    ).toBe(false);
+
+    await wrapper
+      .find(".subagent-section-result .section-header")
+      .trigger("click");
+    expect(
+      isHidden(wrapper.find(".subagent-section-result .section-content")),
+    ).toBe(false);
+  });
+
   it("expands the truncated task to reveal the full input", async () => {
     const preview = "short preview…";
     const full = "short preview plus the complete task details";
@@ -154,14 +229,21 @@ describe("SubAgentRunBlock rendering order", () => {
       },
     });
 
-    const taskText = wrapper.find(".input-preview .section-text");
-    expect(taskText.text()).toBe(preview);
+    await wrapper
+      .find(".subagent-section-task .section-header")
+      .trigger("click");
+    const taskContent = wrapper.find(".subagent-section-task .section-text");
+    expect(taskContent.text()).toBe(preview);
     const toggle = wrapper.find(".task-expand-toggle");
     expect(toggle.exists()).toBe(true);
     await toggle.trigger("click");
-    expect(wrapper.find(".input-preview .section-text").text()).toBe(full);
+    expect(wrapper.find(".subagent-section-task .section-text").text()).toBe(
+      full,
+    );
     await toggle.trigger("click");
-    expect(wrapper.find(".input-preview .section-text").text()).toBe(preview);
+    expect(wrapper.find(".subagent-section-task .section-text").text()).toBe(
+      preview,
+    );
   });
 
   it("hides the expand toggle when there is no extra content", () => {
