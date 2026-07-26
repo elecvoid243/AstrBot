@@ -16,6 +16,7 @@ export interface SubAgentToolCall {
 
 export type SubAgentActivity =
   | { kind: "think"; text: string }
+  | { kind: "text"; text: string }
   | { kind: "tool_call"; call: SubAgentToolCall };
 
 export interface SubAgentRunPart {
@@ -83,7 +84,16 @@ export function applySubAgentEvent(parts: MessagePart[], data: unknown): void {
     part.input_preview = String(payload.input_preview || "");
     part.input_full = String(payload.input_full || "");
   } else if (kind === "text_delta") {
-    part.text += String(payload.text || "");
+    // Streamed assistant text is intermediate narration; keep it in the
+    // chronological activity log. The final answer arrives via the
+    // completed event's result_text.
+    const text = String(payload.text || "");
+    const last = part.activity[part.activity.length - 1];
+    if (last && last.kind === "text") {
+      last.text += text;
+    } else {
+      part.activity.push({ kind: "text", text });
+    }
   } else if (kind === "reasoning_delta") {
     const text = String(payload.text || "");
     part.reasoning += text;
@@ -120,8 +130,16 @@ export function applySubAgentEvent(parts: MessagePart[], data: unknown): void {
     }
   } else if (kind === "completed") {
     part.status = "completed";
-    if (!part.text && payload.result_text) {
+    if (payload.result_text) {
       part.text = String(payload.result_text);
+    }
+    // The final turn's streamed text duplicates result_text; drop it from
+    // the activity log so the answer only shows in the Result section.
+    while (
+      part.activity.length &&
+      part.activity[part.activity.length - 1].kind === "text"
+    ) {
+      part.activity.pop();
     }
     if (typeof payload.execution_time === "number") {
       part.execution_time = payload.execution_time;

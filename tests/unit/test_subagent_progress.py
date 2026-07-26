@@ -54,8 +54,9 @@ class TestAccumulator:
         acc.add_subagent_event(
             _event("sa_1", "started", {"input_preview": "task"})["data"]
         )
-        acc.add_subagent_event(_event("sa_1", "text_delta", {"text": "Hello "})["data"])
-        acc.add_subagent_event(_event("sa_1", "text_delta", {"text": "world"})["data"])
+        acc.add_subagent_event(
+            _event("sa_1", "text_delta", {"text": "Let me "})["data"]
+        )
         acc.add_subagent_event(
             _event("sa_1", "reasoning_delta", {"text": "hmm"})["data"]
         )
@@ -67,11 +68,15 @@ class TestAccumulator:
         acc.add_subagent_event(
             _event("sa_1", "tool_call_result", {"id": "c1", "result": "found"})["data"]
         )
+        acc.add_subagent_event(_event("sa_1", "text_delta", {"text": "Final "})["data"])
+        acc.add_subagent_event(
+            _event("sa_1", "text_delta", {"text": "answer"})["data"]
+        )
         acc.add_subagent_event(
             _event(
                 "sa_1",
                 "completed",
-                {"result_text": "Hello world", "execution_time": 3.0},
+                {"result_text": "Final answer", "execution_time": 3.0},
             )["data"]
         )
         parts = acc.build_message_parts()
@@ -79,10 +84,21 @@ class TestAccumulator:
         assert part["subagent_run_id"] == "sa_1"
         assert part["agent_name"] == "researcher"
         assert part["status"] == "completed"
-        assert part["text"] == "Hello world"
+        # Result shows only the final LLM output, not intermediate narration.
+        assert part["text"] == "Final answer"
         assert part["reasoning"] == "hmm"
         assert part["tool_calls"] == [
             {"id": "c1", "name": "web_search", "args": {}, "result": "found"}
+        ]
+        # Intermediate text stays in the chronological activity log; the
+        # final turn's streamed text is dropped (it lives in part["text"]).
+        assert part["activity"] == [
+            {"kind": "text", "text": "Let me "},
+            {"kind": "think", "text": "hmm"},
+            {
+                "kind": "tool_call",
+                "call": {"id": "c1", "name": "web_search", "args": {}, "result": "found"},
+            },
         ]
         assert part["execution_time"] == 3.0
 
@@ -116,8 +132,8 @@ class TestAccumulator:
         )
         parts = [p for p in acc.build_message_parts() if p["type"] == "subagent_run"]
         assert len(parts) == 2
-        assert parts[0]["text"] == "A"
-        assert parts[1]["text"] == "B"
+        assert parts[0]["activity"] == [{"kind": "text", "text": "A"}]
+        assert parts[1]["activity"] == [{"kind": "text", "text": "B"}]
         assert parts[1]["agent_name"] == "writer"
 
     def test_ignores_malformed_data(self):
@@ -196,5 +212,7 @@ class TestConsumeRouting:
         assert saved, "bot message should be persisted"
         final_parts = saved[-1]
         (sub_part,) = [p for p in final_parts if p["type"] == "subagent_run"]
-        assert sub_part["text"] == "hi"
+        # Streamed text lands in the chronological activity log; part["text"]
+        # is reserved for the final answer (completed.result_text).
+        assert sub_part["activity"] == [{"kind": "text", "text": "hi"}]
         assert sub_part["status"] == "running"  # no completed event arrived

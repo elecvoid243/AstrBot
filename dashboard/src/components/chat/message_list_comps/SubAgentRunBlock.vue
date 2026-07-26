@@ -206,12 +206,12 @@ const activityParts = computed(() => {
   if (Array.isArray(activity) && activity.length) {
     let pendingTools = [];
     for (const entry of activity) {
-      if (entry.kind === "think") {
+      if (entry.kind === "think" || entry.kind === "text") {
         if (pendingTools.length) {
           parts.push({ type: "tool_call", tool_calls: pendingTools });
           pendingTools = [];
         }
-        parts.push({ type: "think", think: entry.text });
+        parts.push({ type: entry.kind, think: entry.text });
       } else if (entry.kind === "tool_call") {
         pendingTools.push(entry.call);
       }

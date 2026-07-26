@@ -200,6 +200,7 @@
     "thinkSummary": "思考了 {count} 次",
     "toolSummary": "使用了 {count} 次工具",
     "think": "思考",
+    "reply": "回复",
     "toolUsed": "使用工具"
   },
   "reply": {

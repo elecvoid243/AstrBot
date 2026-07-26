@@ -200,6 +200,7 @@
     "thinkSummary": "Thought {count} times",
     "toolSummary": "used {count} tools",
     "think": "Thinking",
+    "reply": "Reply",
     "toolUsed": "Using Tool"
   },
   "reply": {

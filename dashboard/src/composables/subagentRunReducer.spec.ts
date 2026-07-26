@@ -22,8 +22,7 @@ describe("applySubAgentEvent", () => {
   it("folds a full lifecycle into one part at first-seen position", () => {
     const parts: MessagePart[] = [{ type: "plain", text: "before" }];
     applySubAgentEvent(parts, ev("sa_1", "started", { input_preview: "task" }));
-    applySubAgentEvent(parts, ev("sa_1", "text_delta", { text: "Hello " }));
-    applySubAgentEvent(parts, ev("sa_1", "text_delta", { text: "world" }));
+    applySubAgentEvent(parts, ev("sa_1", "text_delta", { text: "Let me " }));
     applySubAgentEvent(parts, ev("sa_1", "reasoning_delta", { text: "hmm" }));
     applySubAgentEvent(
       parts,
@@ -33,10 +32,12 @@ describe("applySubAgentEvent", () => {
       parts,
       ev("sa_1", "tool_call_result", { id: "c1", result: "found" }),
     );
+    applySubAgentEvent(parts, ev("sa_1", "text_delta", { text: "Final " }));
+    applySubAgentEvent(parts, ev("sa_1", "text_delta", { text: "answer" }));
     applySubAgentEvent(
       parts,
       ev("sa_1", "completed", {
-        result_text: "Hello world",
+        result_text: "Final answer",
         execution_time: 3,
       }),
     );
@@ -44,10 +45,21 @@ describe("applySubAgentEvent", () => {
     expect(parts).toHaveLength(2);
     const part = parts[1] as SubAgentRunPart;
     expect(part.type).toBe("subagent_run");
-    expect(part.text).toBe("Hello world");
+    // Result shows only the final LLM output, not intermediate narration.
+    expect(part.text).toBe("Final answer");
     expect(part.reasoning).toBe("hmm");
     expect(part.tool_calls).toEqual([
       { id: "c1", name: "web_search", args: {}, result: "found" },
+    ]);
+    // Intermediate text stays in the chronological activity log; the final
+    // turn's streamed text is dropped (it lives in part.text).
+    expect(part.activity).toEqual([
+      { kind: "text", text: "Let me " },
+      { kind: "think", text: "hmm" },
+      {
+        kind: "tool_call",
+        call: { id: "c1", name: "web_search", args: {}, result: "found" },
+      },
     ]);
     expect(part.status).toBe("completed");
     expect(part.execution_time).toBe(3);
@@ -61,7 +73,9 @@ describe("applySubAgentEvent", () => {
       ev("sa_2", "text_delta", { text: "B" }, "writer"),
     );
     expect(parts).toHaveLength(2);
-    expect((parts[0] as SubAgentRunPart).text).toBe("A");
+    expect((parts[0] as SubAgentRunPart).activity).toEqual([
+      { kind: "text", text: "A" },
+    ]);
     expect((parts[1] as SubAgentRunPart).agent_name).toBe("writer");
   });
 
@@ -84,6 +98,48 @@ describe("applySubAgentEvent", () => {
 });
 
 describe("SubAgentRunBlock rendering order", () => {
+  it("renders intermediate text chronologically inside the execution timeline", () => {
+    const part = {
+      type: "subagent_run",
+      subagent_run_id: "sa_text",
+      agent_name: "researcher",
+      status: "completed",
+      input_preview: "task",
+      text: "final answer",
+      reasoning: "",
+      tool_calls: [],
+      activity: [
+        { kind: "text", text: "Let me start" },
+        { kind: "think", text: "hmm" },
+        { kind: "tool_call", call: { id: "c1", name: "search" } },
+        { kind: "text", text: "Search works" },
+      ],
+      execution_time: 1,
+    };
+
+    const wrapper = mount(SubAgentRunBlock, {
+      props: { part, isDark: false },
+      global: {
+        stubs: {
+          VIcon: { template: "<i><slot /></i>" },
+          VExpandTransition: { template: "<div><slot /></div>" },
+          MarkdownMessagePart: true,
+          ReasoningTimeline: {
+            props: ["parts"],
+            template:
+              '<div class="subagent-reasoning-timeline">{{ parts.map((p) => p.type).join(",") }}</div>',
+          },
+        },
+      },
+    });
+
+    const timeline = wrapper.find(".subagent-reasoning-timeline");
+    expect(timeline.exists()).toBe(true);
+    // Intermediate narration appears in chronological order alongside
+    // thinking and tool calls.
+    expect(timeline.text()).toBe("text,think,tool_call,text");
+  });
+
   it("renders reasoning and tool calls before the final result", () => {
     const part = {
       type: "subagent_run",

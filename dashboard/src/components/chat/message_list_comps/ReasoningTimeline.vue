@@ -48,11 +48,7 @@
               />
             </template>
           </ToolCallItem>
-          <ToolCallCard
-            v-else
-            :tool-call="entry.tool"
-            :is-dark="isDark"
-          />
+          <ToolCallCard v-else :tool-call="entry.tool" :is-dark="isDark" />
         </div>
       </div>
     </div>
@@ -106,13 +102,16 @@ const timelineEntries = computed<TimelineEntry[]>(() => {
   const entries: TimelineEntry[] = [];
 
   renderParts.value.forEach((part, partIndex) => {
-    if (part.type === "think") {
+    if (part.type === "think" || part.type === "text") {
       const think = String(part.think || "");
       if (!think.trim()) return;
       entries.push({
         key: `think-${partIndex}`,
         kind: "think",
-        title: tm("reasoning.think"),
+        // "text" parts are intermediate assistant narration streamed between
+        // tool calls; label them differently from chain-of-thought.
+        title:
+          part.type === "think" ? tm("reasoning.think") : tm("reasoning.reply"),
         think,
       });
       return;
@@ -123,7 +122,9 @@ const timelineEntries = computed<TimelineEntry[]>(() => {
     part.tool_calls.forEach((tool, toolIndex) => {
       const normalizedTool = normalizeToolCall(tool);
       entries.push({
-        key: `tool-${String(tool.id || tool.name || `${partIndex}-${toolIndex}`)}`,
+        key: `tool-${String(
+          tool.id || tool.name || `${partIndex}-${toolIndex}`,
+        )}`,
         kind: "tool_call",
         title: tm("reasoning.toolUsed"),
         tool: normalizedTool,
@@ -136,7 +137,9 @@ const timelineEntries = computed<TimelineEntry[]>(() => {
 
 function normalizeToolCall(tool: Record<string, unknown>) {
   const normalized = { ...tool };
-  normalized.args = parseJsonSafe(normalized.args ?? normalized.arguments ?? {});
+  normalized.args = parseJsonSafe(
+    normalized.args ?? normalized.arguments ?? {},
+  );
   normalized.result = parseJsonSafe(normalized.result);
   normalized.ts = normalized.ts ?? Date.now() / 1000;
   if (normalized.result && typeof normalized.result === "object") {

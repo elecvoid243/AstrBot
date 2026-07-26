@@ -469,6 +469,7 @@ class BotMessageAccumulator:
                 "text": "",
                 "reasoning": "",
                 "tool_calls": [],
+                "activity": [],
                 "started_ts": data.get("ts"),
                 "execution_time": None,
             }
@@ -478,9 +479,24 @@ class BotMessageAccumulator:
         if kind == "started":
             part["input_preview"] = str(payload.get("input_preview") or "")
         elif kind == "text_delta":
-            part["text"] += str(payload.get("text") or "")
+            # Streamed assistant text is intermediate narration; keep it in
+            # the chronological activity log. The final answer arrives via
+            # the completed event's result_text.
+            text = str(payload.get("text") or "")
+            if part["activity"] and part["activity"][-1]["kind"] == "text":
+                part["activity"][-1]["text"] += text
+            else:
+                part["activity"].append({"kind": "text", "text": text})
         elif kind == "reasoning_delta":
-            part["reasoning"] += str(payload.get("text") or "")
+            text = str(payload.get("text") or "")
+            part["reasoning"] += text
+            # Append to the current think block, or open a new one when a
+            # tool call happened in between — preserves the chronological
+            # think -> tool_call order of the LLM loop.
+            if part["activity"] and part["activity"][-1]["kind"] == "think":
+                part["activity"][-1]["text"] += text
+            else:
+                part["activity"].append({"kind": "think", "text": text})
         elif kind == "tool_call":
             call_id = payload.get("id")
             if call_id is not None:
@@ -490,7 +506,9 @@ class BotMessageAccumulator:
                 if existing:
                     existing.update(payload)
                 else:
-                    part["tool_calls"].append(dict(payload))
+                    call = dict(payload)
+                    part["tool_calls"].append(call)
+                    part["activity"].append({"kind": "tool_call", "call": call})
         elif kind == "tool_call_result":
             call_id = payload.get("id")
             existing = next(
@@ -499,11 +517,18 @@ class BotMessageAccumulator:
             if existing:
                 existing["result"] = payload.get("result", "")
             elif call_id is not None:
-                part["tool_calls"].append(dict(payload))
+                call = dict(payload)
+                part["tool_calls"].append(call)
+                part["activity"].append({"kind": "tool_call", "call": call})
         elif kind == "completed":
             part["status"] = "completed"
-            if not part["text"] and payload.get("result_text"):
+            if payload.get("result_text"):
                 part["text"] = str(payload["result_text"])
+            # The final turn's streamed text duplicates result_text; drop it
+            # from the activity log so the answer only shows in the Result
+            # section.
+            while part["activity"] and part["activity"][-1]["kind"] == "text":
+                part["activity"].pop()
             if isinstance(payload.get("execution_time"), int | float):
                 part["execution_time"] = payload["execution_time"]
         elif kind in ("failed", "timeout"):
