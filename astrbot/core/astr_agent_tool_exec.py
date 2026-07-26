@@ -31,6 +31,7 @@ from astrbot.core.message.message_event_result import (
 from astrbot.core.platform.message_session import MessageSession
 from astrbot.core.provider.entites import ProviderRequest
 from astrbot.core.provider.register import llm_tools
+from astrbot.core.subagent_event_sink import SubAgentEventSink
 from astrbot.core.subagent_manager import (
     RET_PENDING_TASK_CREATE_FAILED,
     SubAgentManager,
@@ -449,6 +450,42 @@ class FunctionToolExecutor(BaseFunctionToolExecutor[AstrAgentContext]):
         return None if toolset.empty() else toolset
 
     @classmethod
+    def _maybe_create_subagent_sink(
+        cls,
+        event,
+        prov_settings: dict,
+        agent_name: str,
+        input_text: str | None,
+    ) -> SubAgentEventSink | None:
+        """Create a progress sink for webchat foreground handoffs.
+
+        Returns None (feature off) for non-webchat platforms, when
+        ``provider_settings.show_subagent_progress`` is False, or when the
+        event carries no message id to bind the back queue to.
+
+        Args:
+            event: The current message event.
+            prov_settings: The ``provider_settings`` config section.
+            agent_name: Name of the subagent being delegated to.
+            input_text: The delegated task text (truncated for preview).
+
+        Returns:
+            A bound SubAgentEventSink, or None when progress streaming is off.
+        """
+        if not prov_settings.get("show_subagent_progress", True):
+            return None
+        if event.get_platform_name() != "webchat":
+            return None
+        message_id = getattr(getattr(event, "message_obj", None), "message_id", None)
+        if not message_id:
+            return None
+        return SubAgentEventSink(
+            message_id=str(message_id),
+            agent_name=agent_name,
+            input_preview=(input_text or "")[:200],
+        )
+
+    @classmethod
     async def _execute_handoff(
         cls,
         tool: HandoffTool,
@@ -507,6 +544,8 @@ class FunctionToolExecutor(BaseFunctionToolExecutor[AstrAgentContext]):
         prov_settings: dict = ctx.get_config(umo=umo).get("provider_settings", {})
         agent_max_step = int(prov_settings.get("max_agent_step", 30))
         stream = prov_settings.get("streaming_response", False)
+        # Progress sink for webchat ChatUI (None when platform/config opts out).
+        sink = cls._maybe_create_subagent_sink(event, prov_settings, agent_name, input_)
 
         # Create trace span for subagent execution
         from astrbot.core.utils.trace import TraceSpan
@@ -583,35 +622,42 @@ class FunctionToolExecutor(BaseFunctionToolExecutor[AstrAgentContext]):
                 runner_messages=runner_messages,
                 extra_user_content_parts=extra_content_parts,
                 trace_span=subagent_trace,
+                response_sink=sink,
             )
 
         # 添加执行超时控制
-        if execution_timeout > 0:
-            try:
+        if sink:
+            await sink.start()
+        try:
+            if execution_timeout > 0:
                 llm_resp = await asyncio.wait_for(
                     _run_subagent(), timeout=execution_timeout
                 )
-            except asyncio.TimeoutError:
-                # 若超时，保存已产生的部分历史
-                cls._save_subagent_history(umo, runner_messages, agent_name)
-                subagent_trace.record(
-                    "subagent_execution_timeout",
-                    timeout_seconds=execution_timeout,
-                )
-                error_msg = f"SubAgent '{agent_name}' execution timeout after {execution_timeout:.1f} seconds."
-                logger.warning(f"[SubAgent:Timeout] {error_msg}")
+            else:
+                # 不设置超时
+                llm_resp = await _run_subagent()
+        except asyncio.TimeoutError:
+            # 若超时，保存已产生的部分历史
+            cls._save_subagent_history(umo, runner_messages, agent_name)
+            subagent_trace.record(
+                "subagent_execution_timeout",
+                timeout_seconds=execution_timeout,
+            )
+            error_msg = f"SubAgent '{agent_name}' execution timeout after {execution_timeout:.1f} seconds."
+            logger.warning(f"[SubAgent:Timeout] {error_msg}")
 
-                cls._handle_subagent_timeout(umo=umo, agent_name=agent_name)
+            cls._handle_subagent_timeout(umo=umo, agent_name=agent_name)
 
-                yield mcp.types.CallToolResult(
-                    content=[
-                        mcp.types.TextContent(type="text", text=f"error: {error_msg}")
-                    ]
-                )
-                return
-        else:
-            # 不设置超时
-            llm_resp = await _run_subagent()
+            if sink:
+                await sink.fail("timeout", error_msg)
+            yield mcp.types.CallToolResult(
+                content=[mcp.types.TextContent(type="text", text=f"error: {error_msg}")]
+            )
+            return
+        except Exception as exc:
+            if sink:
+                await sink.fail("failed", str(exc))
+            raise
 
         execution_time = time.time() - subagent_trace.started_at
         subagent_trace.record(
@@ -632,6 +678,14 @@ class FunctionToolExecutor(BaseFunctionToolExecutor[AstrAgentContext]):
             "subagent_history_saved",
             messages_count=len(runner_messages),
         )
+
+        if sink:
+            await sink.complete(
+                llm_resp.completion_text
+                if hasattr(llm_resp, "completion_text") and llm_resp.completion_text
+                else "",
+                execution_time,
+            )
 
         yield mcp.types.CallToolResult(
             content=[mcp.types.TextContent(type="text", text=llm_resp.completion_text)]

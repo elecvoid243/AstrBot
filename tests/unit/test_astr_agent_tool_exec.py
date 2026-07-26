@@ -25,6 +25,11 @@ class _DummyEvent:
     def get_extra(self, _key: str):
         return None
 
+    def get_platform_name(self):
+        # Non-webchat: the subagent progress sink is never created in
+        # handoff tests, keeping them on the pre-feature code path.
+        return "test"
+
 
 class _DummyTool:
     def __init__(self) -> None:
@@ -452,3 +457,70 @@ async def test_collect_handoff_image_urls_filters_extensionless_file_outside_tem
     )
 
     assert image_urls == []
+
+
+class TestMaybeCreateSubagentSink:
+    """Gating tests for FunctionToolExecutor._maybe_create_subagent_sink.
+
+    Author: elecvoid243, 2026-07-26
+    Plan: docs/superpowers/plans/2026-07-26-subagent-chatui-progress.md (Task 3)
+    """
+
+    def _event(self, platform_name="webchat"):
+        class _Msg:
+            message_id = "msg-42"
+
+        class _Event:
+            message_obj = _Msg()
+
+            def get_platform_name(self):
+                return platform_name
+
+        return _Event()
+
+    def test_returns_sink_for_webchat_when_enabled(self):
+        sink = FunctionToolExecutor._maybe_create_subagent_sink(
+            self._event(), {"show_subagent_progress": True}, "researcher", "do it"
+        )
+        assert sink is not None
+        assert sink._message_id == "msg-42"
+        assert sink._agent_name == "researcher"
+        assert sink._input_preview == "do it"
+
+    def test_returns_none_for_non_webchat(self):
+        assert (
+            FunctionToolExecutor._maybe_create_subagent_sink(
+                self._event("aiocqhttp"), {}, "researcher", "do it"
+            )
+            is None
+        )
+
+    def test_returns_none_when_disabled(self):
+        assert (
+            FunctionToolExecutor._maybe_create_subagent_sink(
+                self._event(), {"show_subagent_progress": False}, "researcher", "do it"
+            )
+            is None
+        )
+
+    def test_defaults_to_enabled(self):
+        assert (
+            FunctionToolExecutor._maybe_create_subagent_sink(
+                self._event(), {}, "researcher", "do it"
+            )
+            is not None
+        )
+
+    def test_returns_none_without_message_id(self):
+        class _Event:
+            message_obj = SimpleNamespace(message_id=None)
+
+            def get_platform_name(self):
+                return "webchat"
+
+        assert (
+            FunctionToolExecutor._maybe_create_subagent_sink(
+                _Event(), {}, "researcher", "do it"
+            )
+            is None
+        )
