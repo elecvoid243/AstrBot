@@ -37,38 +37,37 @@ export interface SubAgentEventData {
   ts?: number;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
-export function applySubAgentEvent(
-  parts: MessagePart[],
-  data: SubAgentEventData | null | undefined,
-): void {
-  if (!isRecord(data)) return;
-  const runId = String(data.subagent_run_id || "");
+export function applySubAgentEvent(parts: MessagePart[], data: unknown): void {
+  if (!data || typeof data !== "object") return;
+  const event = data as SubAgentEventData;
+  const runId = String(event.subagent_run_id || "");
   if (!runId) return;
-  const kind = String(data.kind || "");
-  const payload = isRecord(data.payload) ? data.payload : {};
+  const kind = String(event.kind || "");
+  const payload =
+    event.payload && typeof event.payload === "object" ? event.payload : {};
 
-  let part = parts.find(
-    (p): p is SubAgentRunPart =>
-      p.type === "subagent_run" && p.subagent_run_id === runId,
-  );
+  let part: SubAgentRunPart | undefined;
+  for (const p of parts) {
+    if (p.type === "subagent_run" && p.subagent_run_id === runId) {
+      part = p as unknown as SubAgentRunPart;
+      break;
+    }
+  }
   if (!part) {
-    part = {
+    const created: SubAgentRunPart = {
       type: "subagent_run",
       subagent_run_id: runId,
-      agent_name: String(data.agent_name || ""),
+      agent_name: String(event.agent_name || ""),
       status: "running",
       input_preview: "",
       text: "",
       reasoning: "",
       tool_calls: [],
-      started_ts: data.ts,
+      started_ts: event.ts,
       execution_time: null,
     };
-    parts.push(part);
+    parts.push(created as MessagePart);
+    part = created;
   }
 
   if (kind === "started") {

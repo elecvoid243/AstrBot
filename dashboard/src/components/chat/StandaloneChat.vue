@@ -147,6 +147,12 @@
                         </template>
                       </div>
 
+                      <SubAgentRunBlock
+                        v-else-if="part.type === 'subagent_run'"
+                        :part="part"
+                        :is-dark="isDark"
+                      />
+
                       <pre v-else class="unknown-part">{{
                         formatJson(part)
                       }}</pre>
@@ -217,6 +223,7 @@ import IPythonToolBlock from "@/components/chat/message_list_comps/IPythonToolBl
 import MarkdownMessagePart from "@/components/chat/message_list_comps/MarkdownMessagePart.vue";
 import ReasoningBlock from "@/components/chat/message_list_comps/ReasoningBlock.vue";
 import ToolCallCard from "@/components/chat/message_list_comps/ToolCallCard.vue";
+import SubAgentRunBlock from "@/components/chat/message_list_comps/SubAgentRunBlock.vue";
 import ToolCallItem from "@/components/chat/message_list_comps/ToolCallItem.vue";
 import {
   attachmentName,

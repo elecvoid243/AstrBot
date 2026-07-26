@@ -116,6 +116,12 @@
       "error": "ошибка"
     }
   },
+  "subagentStatus": {
+    "running": "Выполняется",
+    "completed": "Завершено",
+    "failed": "Ошибка",
+    "timeout": "Тайм-аут"
+  },
   "toolStatus": {
     "done": "Готово",
     "running": "Выполняется"
@@ -854,8 +860,8 @@
           "startPoint": "Точка старта",
           "startPointHint": "По умолчанию HEAD",
           "submit": "Создать",
-                    "cancel": "Отмена",
-                    "success": "Ветка {name} создана",
+          "cancel": "Отмена",
+          "success": "Ветка {name} создана",
           "error": {
             "branch_exists": "Ветка {name} уже существует",
             "invalid_branch": "Недопустимое имя ветки",

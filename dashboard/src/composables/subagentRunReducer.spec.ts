@@ -54,7 +54,10 @@ describe("applySubAgentEvent", () => {
   it("keeps concurrent runs separate", () => {
     const parts: MessagePart[] = [];
     applySubAgentEvent(parts, ev("sa_1", "text_delta", { text: "A" }));
-    applySubAgentEvent(parts, ev("sa_2", "text_delta", { text: "B" }, "writer"));
+    applySubAgentEvent(
+      parts,
+      ev("sa_2", "text_delta", { text: "B" }, "writer"),
+    );
     expect(parts).toHaveLength(2);
     expect((parts[0] as SubAgentRunPart).text).toBe("A");
     expect((parts[1] as SubAgentRunPart).agent_name).toBe("writer");

@@ -1620,7 +1620,9 @@ export function useMessages(options: UseMessagesOptions) {
     // Structured subagent progress events fold into a dedicated
     // `subagent_run` part on the bot record (live + persisted history).
     if (msgType === "subagent_event") {
-      ensureBotMessagePartsArray(botRecord);
+      if (!Array.isArray(botRecord.content.message)) {
+        botRecord.content.message = [];
+      }
       applySubAgentEvent(botRecord.content.message as MessagePart[], data);
       return;
     }
