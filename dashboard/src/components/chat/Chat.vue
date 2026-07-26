@@ -3287,10 +3287,13 @@ function toggleTheme() {
 /* Todo summary bar — 浮窗式 (position: fixed)
    初始位置: 顶部工具栏下方 64px 处的页面正中 (避开 50px v-app-bar + 14px buffer)
    拖动后: 改用 inline style (left/top px), 通过 clampBarPos 限制在 chat-main 内
-   z-index: 必须大于 v-app-bar (z-index: 100) 否则被工具栏遮挡 */
+   z-index 分层契约 (2026-07-26, elecvoid243):
+   - 高于侧栏 fullscreen 层 (ReasoningSidebar / GitDiffSidebar: 1300)
+   - 低于 Vuetify v-dialog (VDialog 默认 zIndex 2400, 每多一层 overlay +10),
+     使对话框弹出时 scrim 盖住气泡, 气泡不可点击 */
 .todo-summary-bar {
   position: fixed;
-  z-index: 9999;
+  z-index: 1400;
   display: inline-flex;
   align-items: center;
   gap: 6px;

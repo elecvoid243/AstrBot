@@ -23,8 +23,11 @@ describe("TodoSummaryBar and GitDiffSidebar layering contract", () => {
     expect(chatSource).toMatch(
       /'todo-summary-bar--gitdiff-fullscreen':\s*\n?\s*gitDiffSidebarOpen\s*&&\s*gitDiffFullscreen/,
     );
+    // Base layer: above the sidebar fullscreen layer (1300) but below
+    // Vuetify v-dialog (default zIndex 2400, +10 per stacked overlay), so an
+    // open dialog's scrim covers the bar and makes it non-clickable.
     expect(chatSource).toMatch(
-      /\.todo-summary-bar\s*\{[\s\S]*?z-index:\s*9999;/,
+      /\.todo-summary-bar\s*\{[\s\S]*?z-index:\s*1400;/,
     );
     expect(chatSource).toMatch(
       /\.todo-summary-bar--gitdiff-fullscreen\s*\{[\s\S]*?z-index:\s*1200;/,
