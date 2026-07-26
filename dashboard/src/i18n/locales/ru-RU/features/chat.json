@@ -126,6 +126,11 @@
     "expand": "Показать задачу полностью",
     "collapse": "Свернуть"
   },
+  "subagentSections": {
+    "task": "Задача",
+    "execution": "Выполнение",
+    "result": "Результат"
+  },
   "toolStatus": {
     "done": "Готово",
     "running": "Выполняется"

@@ -483,9 +483,9 @@ class FunctionToolExecutor(BaseFunctionToolExecutor[AstrAgentContext]):
             message_id=str(message_id),
             agent_name=agent_name,
             input_preview=(input_text or "")[:200],
-            # Cap the full text sent to the dashboard to keep SSE payloads
-            # bounded while still showing the complete delegated task.
-            input_full=(input_text or "")[:4000],
+            # Send the full task text so the dashboard "expand" toggle can
+            # show the complete delegated task instead of a truncated copy.
+            input_full=input_text or "",
         )
 
     @classmethod

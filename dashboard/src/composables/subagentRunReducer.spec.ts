@@ -163,15 +163,26 @@ describe("SubAgentRunBlock rendering order", () => {
     expect(wrapper.find(".subagent-section-task").exists()).toBe(true);
     expect(wrapper.find(".subagent-section-execution").exists()).toBe(true);
     expect(wrapper.find(".subagent-section-result").exists()).toBe(true);
+    // Section labels come from i18n (zh-CN in tests).
+    expect(
+      wrapper.find(".subagent-section-task .section-header").text(),
+    ).toContain("任务");
+    expect(
+      wrapper.find(".subagent-section-execution .section-header").text(),
+    ).toContain("执行");
+    expect(
+      wrapper.find(".subagent-section-result .section-header").text(),
+    ).toContain("结果");
     expect(
       isHidden(wrapper.find(".subagent-section-task .section-content")),
     ).toBe(true);
     expect(
       isHidden(wrapper.find(".subagent-section-execution .section-content")),
     ).toBe(true);
+    // Result stays expanded by default so the final output is visible.
     expect(
       isHidden(wrapper.find(".subagent-section-result .section-content")),
-    ).toBe(true);
+    ).toBe(false);
 
     await wrapper
       .find(".subagent-section-task .section-header")
@@ -198,7 +209,7 @@ describe("SubAgentRunBlock rendering order", () => {
       .trigger("click");
     expect(
       isHidden(wrapper.find(".subagent-section-result .section-content")),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("expands the truncated task to reveal the full input", async () => {

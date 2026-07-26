@@ -126,6 +126,11 @@
     "expand": "展开完整任务",
     "collapse": "收起"
   },
+  "subagentSections": {
+    "task": "任务",
+    "execution": "执行",
+    "result": "结果"
+  },
   "toolStatus": {
     "done": "已完成",
     "running": "运行中"

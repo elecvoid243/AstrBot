@@ -126,6 +126,11 @@
     "expand": "Show full task",
     "collapse": "Show less"
   },
+  "subagentSections": {
+    "task": "Task",
+    "execution": "Execution",
+    "result": "Result"
+  },
   "toolStatus": {
     "done": "Done",
     "running": "Running"

@@ -17,6 +17,22 @@ from astrbot.dashboard.services.chat_service import (
 )
 
 
+def test_sink_input_full_is_not_truncated():
+    from astrbot.core.astr_agent_tool_exec import FunctionToolExecutor
+
+    event = SimpleNamespace(
+        message_obj=SimpleNamespace(message_id="msg-1"),
+        get_platform_name=lambda: "webchat",
+    )
+    long_input = "x" * 5000
+    sink = FunctionToolExecutor._maybe_create_subagent_sink(
+        event, {}, "agent", long_input
+    )
+    assert sink is not None
+    assert sink._input_full == long_input
+    assert sink._input_preview == long_input[:200]
+
+
 def _event(run_id, kind, payload, agent="researcher"):
     return {
         "type": "subagent_event",

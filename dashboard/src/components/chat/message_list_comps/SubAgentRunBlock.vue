@@ -22,7 +22,7 @@
             type="button"
             @click="taskSectionExpanded = !taskSectionExpanded"
           >
-            <span class="section-label">Task</span>
+            <span class="section-label">{{ tm("subagentSections.task") }}</span>
             <v-icon size="16">
               {{ taskSectionExpanded ? "mdi-chevron-up" : "mdi-chevron-down" }}
             </v-icon>
@@ -53,7 +53,9 @@
             type="button"
             @click="executionSectionExpanded = !executionSectionExpanded"
           >
-            <span class="section-label">Execution</span>
+            <span class="section-label">{{
+              tm("subagentSections.execution")
+            }}</span>
             <v-icon size="16">
               {{
                 executionSectionExpanded ? "mdi-chevron-up" : "mdi-chevron-down"
@@ -75,7 +77,9 @@
             type="button"
             @click="resultSectionExpanded = !resultSectionExpanded"
           >
-            <span class="section-label">Result</span>
+            <span class="section-label">{{
+              tm("subagentSections.result")
+            }}</span>
             <v-icon size="16">
               {{
                 resultSectionExpanded ? "mdi-chevron-up" : "mdi-chevron-down"
@@ -142,7 +146,7 @@ function toggleExpanded() {
 const taskExpanded = ref(false);
 const taskSectionExpanded = ref(false);
 const executionSectionExpanded = ref(props.part.status === "running");
-const resultSectionExpanded = ref(false);
+const resultSectionExpanded = ref(true);
 
 const hasFullTaskText = computed(() => {
   const full = String(props.part.input_full || "");
