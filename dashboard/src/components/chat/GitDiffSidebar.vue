@@ -2347,13 +2347,22 @@ function onFileBrowserNavigate(payload: {
 }
 
 // 2026-07-02 sidebar-search: handle a "click this result" from
-// SearchPanel (forwards via FileBrowserView). payload.path is
-// ABSOLUTE (the search composable joins the worktree root with the
-// repo-relative match), payload.line is the 1-indexed match line —
-// the preview pane scrolls there.
+// SearchPanel (forwards via FileBrowserView).
+//
+// 2026-07-27 search-abs-path-fix (elecvoid243): payload.path is
+// REPO-RELATIVE (POSIX separators, relative to the ACTIVE worktree
+// root) — both the filename endpoint (file_name_search.py) and the
+// content endpoint (file_search.py) return os.path.relpath()-style
+// paths. The old comment here claimed the search composable joined
+// the worktree root, but that join was never implemented, so the
+// relative path flowed verbatim into fileBrowserPreviewPath and the
+// /spcode/file-browser fetch resolved it against the AstrBot process
+// CWD — working only when CWD happened to equal the project root.
+// Anchor relative paths to currentRoot (selected worktree ?? main
+// checkout) before assigning; mirrors the onOpenFile() glue below.
 //
 // Side effects:
-//   1. fileBrowserPreviewPath = payload.path — FileBrowserView reacts
+//   1. fileBrowserPreviewPath = absolute path — FileBrowserView reacts
 //      and triggers content fetch + scroll-to-line.
 //   2. fileBrowserCurrentPath = dirOf(payload.path) — so the breadcrumb
 //      shows the file's directory rather than the file itself, AND so
@@ -2369,11 +2378,29 @@ function onFileBrowserNavigate(payload: {
 //      Propagated down to FileBrowserCodeView, which centers the
 //      target line in the code-view scroll container.
 function onFileOpen(payload: { path: string; line: number }): void {
-  fileBrowserPreviewPath.value = payload.path;
+  let abs = payload.path;
+  // Drive-letter (C:\ / C:/), UNC (\\) and POSIX-rooted (/) paths are
+  // already absolute; anything else is worktree-relative and must be
+  // anchored (search results are always POSIX-separator relative).
+  const isAbsolute = /^([a-zA-Z]:[\\/]|\\\\|\/)/.test(abs);
+  if (!isAbsolute) {
+    const root = currentRoot.value;
+    // No project / worktree resolved yet → nothing to anchor to.
+    // Skip rather than writing a relative path that file-browser
+    // would resolve against the wrong base.
+    if (!root) return;
+    // Detect separator from the root (backend sends Windows `\`;
+    // search results are POSIX `/`).
+    const sep = root.includes("\\") ? "\\" : "/";
+    const cleanRoot = root.replace(/[\\/]+$/, "");
+    const cleanPath = abs.replace(/^[\\/]+/, "").replace(/\//g, sep);
+    abs = cleanPath ? `${cleanRoot}${sep}${cleanPath}` : cleanRoot;
+  }
+  fileBrowserPreviewPath.value = abs;
   // POSIX + Windows separator: strip the trailing filename. Use a
   // single regex that matches either separator so the same code
   // works for both *nix and Windows worktree paths.
-  const dir = payload.path.replace(/[\\/][^\\/]+$/, "");
+  const dir = abs.replace(/[\\/][^\\/]+$/, "");
   // Guard against degenerate empty dir (root file) and against an
   // unnecessary write if we're already pointing at this directory
   // (would re-trigger the persistCurrentPath debounce + a fetch).
