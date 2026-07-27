@@ -118,6 +118,56 @@ export function useSpcodePlanMode() {
   }
 
   /**
+   * Authoritatively set the plan mode for a session via the plugin's
+   * ``POST /spcode/plan-mode`` endpoint (v2.22.0+).
+   *
+   * This is the chip's primary toggle path: unlike dispatching a
+   * ``/plan`` / ``/build`` chat command it leaves no message in the
+   * conversation history. On success the shared status ref adopts the
+   * state from the response envelope (the backend is the source of
+   * truth). On any failure — network error, or an older plugin that
+   * does not register the POST route — the prior state is kept and
+   * ``false`` is returned so the caller can fall back to the chat
+   * command path.
+   *
+   * Args:
+   *   umo: The full unified_msg_origin of the session to switch.
+   *   active: ``true`` → plan mode, ``false`` → build mode.
+   *
+   * Returns:
+   *   ``true`` when the backend confirmed the new state.
+   */
+  async function setPlanMode(umo: string, active: boolean): Promise<boolean> {
+    try {
+      const res = await pluginExtensionApi.post<{
+        active: boolean
+        umo: string | null
+        all_active_count: number
+        changed: boolean
+      }>('spcode/plan-mode', { umo, active })
+      const data = res.data?.data
+      if (!data) {
+        return false
+      }
+      status.value = {
+        active: Boolean(data.active),
+        umo: data.umo ?? umo,
+        allActiveCount:
+          typeof data.all_active_count === 'number'
+            ? data.all_active_count
+            : 0,
+        fetchedAt: Date.now(),
+      }
+      return true
+    } catch (err) {
+      // Soft-fail: keep previous state, let the caller fall back to
+      // the /plan or /build chat command.
+      console.warn('[useSpcodePlanMode] setPlanMode failed:', err)
+      return false
+    }
+  }
+
+  /**
    * Reset the status to the empty state (e.g. on logout or session
    * switch to a session that has never been seen).
    */
@@ -129,6 +179,7 @@ export function useSpcodePlanMode() {
     status,
     refresh,
     setActive,
+    setPlanMode,
     reset,
   }
 }

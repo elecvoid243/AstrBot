@@ -1208,44 +1208,55 @@ function handleCodegraphSubmit(text: string): void {
 /**
  * Handle a click on the plan/build chip.
  *
- * The chip is a one-click toggle: we inject ``/plan`` or ``/build``
- * into the prompt AND immediately dispatch it as a chat message.
- * This mirrors the existing ``handleProjectLoadSubmit`` flow (set
- * the prompt via Vue's synchronous reactivity, then ``emit("send")``);
- * the parent ``Chat.vue``'s ``sendCurrentMessage`` handler picks up
- * the freshly propagated ``draft.value`` and starts the stream.
+ * The chip is a one-click toggle. The primary path (spcode v2.22.0+)
+ * flips the mode through the plugin's ``POST /spcode/plan-mode``
+ * endpoint, which changes the backend state directly and leaves NO
+ * ``/plan`` or ``/build`` message in the conversation history.
  *
- * Auto-sending is appropriate here because the chip is itself a
- * toggle affordance — clicking it is unambiguous intent to flip
- * state, and asking the user to confirm by pressing Enter would
- * double the interactions for a one-bit operation.
+ * Fallbacks dispatch the chat command instead (previous behavior):
+ *   - no current session yet — the command path creates one in
+ *     ``Chat.vue.sendSystemCommand`` before we can know its umo;
+ *   - the POST fails (older plugin without the route, network error).
+ * In the fallback case the optimistic flip below already matches the
+ * command's intent, so no rollback is needed; the authoritative
+ * refresh from ``Chat.vue``'s watchers corrects any drift if the
+ * command itself fails.
  *
  * The optimistic ``setActive`` flip happens here so the chip color
- * updates immediately. The authoritative refresh fires from
- * ``Chat.vue``'s session watcher and stream-end hook, which corrects
- * any drift if the backend rejects the command.
- *
- * Args:
- *   none (the chip emits ``toggle`` with no payload; we read the
- *   current state via the singleton composable).
+ * updates immediately. The authoritative state arrives via the POST
+ * response (or, on the fallback path, the next refresh tick).
  */
 function handlePlanModeToggle(): void {
-  // Read current state and decide which command to dispatch. We
-  // intentionally do NOT short-circuit on `active === null` —
-  // unknown umo is treated as build (the chip will display "Build")
-  // and clicking it dispatches /plan, which matches what the user
-  // sees on the chip.
+  // Read current state and decide the target mode. We intentionally
+  // do NOT short-circuit on `active === null` — unknown umo is
+  // treated as build (the chip displays "Build") and clicking it
+  // switches to plan, which matches what the user sees on the chip.
   const isPlan = spcodePlanMode.status.value.active === true;
-  const cmd = isPlan ? "/build" : "/plan";
-  // Optimistic flip: chip will turn warning/green the moment the
-  // event is dispatched (next tick) instead of waiting for the
-  // bot's response.
-  spcodePlanMode.setActive(!isPlan);
-  // Emit a dedicated command event instead of overwriting the prompt
-  // and emitting "send". The parent Chat.vue handles "send-command"
-  // by sending only the toggle command while leaving the user's
-  // draft, reply target, and staged attachments untouched.
-  emit("send-command", cmd);
+  const target = !isPlan;
+  // Optimistic flip: chip will turn warning/green immediately instead
+  // of waiting for the backend round-trip.
+  spcodePlanMode.setActive(target);
+
+  const session = props.currentSession;
+  if (!session) {
+    // No session → no umo to address the POST at. The command path
+    // creates the session lazily in Chat.vue.sendSystemCommand.
+    emit("send-command", target ? "/plan" : "/build");
+    return;
+  }
+  // CRITICAL: the backend keys its per-session state on the full
+  // unified_msg_origin (see the showPlanModeChip watcher below), not
+  // the bare conversation id.
+  const umo = buildWebchatUmoDetails(
+    session.session_id,
+    Boolean(session.is_group),
+  ).umo;
+  void spcodePlanMode.setPlanMode(umo, target).then((ok) => {
+    if (!ok) {
+      // Older plugin / network failure: fall back to the chat command.
+      emit("send-command", target ? "/plan" : "/build");
+    }
+  });
 }
 
 function handleCompositionStart() {
