@@ -1,5 +1,12 @@
 <template>
-    <CodeFormatResult v-if="toolName === 'code_format'" :data="parsedData" :args="args" />
+    <!-- vivado-mcp 30 个工具（vivado 0.3.23 实际数量） -->
+    <VivadoToolResultView
+      v-if="isVivadoTool"
+      :tool-name="toolName"
+      :result="result"
+      :tool-args="args"
+    />
+    <CodeFormatResult v-else-if="toolName === 'code_format'" :data="parsedData" :args="args" />
     <CodeCheckResult v-else-if="toolName === 'code_check'" :data="parsedData" :args="args" />
     <CodeIndexResult v-else-if="toolName === 'code_index'" :data="parsedData" />
     <CodeExploreResult v-else-if="toolName === 'code_explore'" :data="parsedData" :args="args" />
@@ -25,6 +32,8 @@ import EsSearchResult from "./spcode_tools/EsSearchResult.vue";
 import FileRemoveResult from "./spcode_tools/FileRemoveResult.vue";
 import FileDiffResult from "./spcode_tools/FileDiffResult.vue";
 import TodoListResult from "./spcode_tools/TodoListResult.vue";
+import VivadoToolResultView from "./spcode_tools/vivado/VivadoToolResultView.vue";
+import { isVivadoToolName } from "./spcode_tools/vivado/vivadoIcons";
 
 /**
  * spcode_toolkit 工具的渲染分发入口。
@@ -50,6 +59,9 @@ const TODO_TOOL_NAMES: ReadonlySet<string> = new Set([
     "todo_list", // legacy (v2.2.0 之前)
 ]);
 const isTodoTool = computed(() => TODO_TOOL_NAMES.has(props.toolName));
+
+/** vivado-mcp 30 个工具（mcp_vivado__ 前缀） */
+const isVivadoTool = computed(() => isVivadoToolName(props.toolName));
 
 /** 解析 result JSON 字符串为对象，自动剥离 spcode 插件 unwrap() 加的 envelope。
  *

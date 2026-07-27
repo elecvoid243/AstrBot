@@ -1,0 +1,43 @@
+// Author: elecvoid243, 2026-07-27
+// 长任务进度条 (用于 run_synthesis / run_implementation / generate_bitstream)
+
+.vivado-progress {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 6px 10px;
+    background: rgba(var(--v-theme-on-surface), 0.04);
+    border-radius: 4px;
+}
+
+.vivado-progress-line {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11.5px;
+}
+
+.vivado-progress-bar {
+    flex: 1;
+    min-width: 0;
+}
+
+.vivado-progress-status {
+    font-family: ui-monospace, monospace;
+    font-size: 10.5px;
+    color: rgba(var(--v-theme-on-surface), 0.65);
+    flex-shrink: 0;
+}
+
+.vivado-progress-meta {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 10.5px;
+    color: rgba(var(--v-theme-on-surface), 0.55);
+}
+
+.vivado-progress-divider {
+    color: rgba(var(--v-theme-on-surface), 0.3);
+    user-select: none;
+}

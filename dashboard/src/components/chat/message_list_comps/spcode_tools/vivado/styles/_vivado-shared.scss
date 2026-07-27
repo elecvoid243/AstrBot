@@ -1,0 +1,276 @@
+// Author: elecvoid243, 2026-07-27
+// Vivado 工具结果展示的共享 SCSS。
+// 与 spcode_tools 现有组件保持同色板 (GitHub 风格) + 同样 11~12px 字体。
+
+@use "sass:color";
+
+/* ── Verdict text colors (与 vivadoLabels.ts 的 VERDICT_META 对应) ── */
+
+$vivado-success: #2da44e;
+$vivado-warn: #b58400;
+$vivado-error: #cf222e;
+$vivado-neutral: #8b949e;
+$vivado-running: rgb(var(--v-theme-primary));
+
+/* ── Verdict 文字 (用在 chip / 标题) ── */
+
+.verdict-text {
+    font-weight: 600;
+    font-size: 12px;
+    &.success { color: $vivado-success; }
+    &.warn    { color: $vivado-warn; }
+    &.error   { color: $vivado-error; }
+    &.neutral { color: $vivado-neutral; }
+    &.running { color: $vivado-running; }
+}
+
+/* ── Status row 复用 spcode 已有的 3 色 ── */
+
+.status-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 11.5px;
+    &.success { background: rgba($vivado-success, 0.08); color: $vivado-success; }
+    &.error   { background: rgba($vivado-error, 0.08); color: $vivado-error; }
+    &.warn    { background: rgba($vivado-warn, 0.10); color: $vivado-warn; }
+    &.neutral { background: rgba(var(--v-theme-on-surface), 0.04); color: rgba(var(--v-theme-on-surface), 0.65); }
+    &.running { background: rgba(var(--v-theme-primary), 0.08); color: $vivado-running; }
+    &.degraded {
+        background: rgba($vivado-error, 0.05);
+        color: $vivado-error;
+        border: 1px dashed rgba($vivado-error, 0.4);
+    }
+}
+
+/* ── 数字徽章 (ERROR / CW / WARN) ── */
+
+.num-cell {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 1px 7px;
+    border-radius: 9px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 11px;
+    font-weight: 600;
+    &.error   { background: rgba($vivado-error, 0.10); color: $vivado-error; }
+    &.warn    { background: rgba($vivado-warn, 0.10); color: $vivado-warn; }
+    &.neutral { background: rgba(var(--v-theme-on-surface), 0.06); color: rgba(var(--v-theme-on-surface), 0.65); }
+    &.success { background: rgba($vivado-success, 0.10); color: $vivado-success; }
+}
+
+.num-grid {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.num-grid-label {
+    font-size: 10.5px;
+    color: rgba(var(--v-theme-on-surface), 0.5);
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+/* ── 卡片 (复用 IntaShell 骨架) ── */
+
+.vivado-card {
+    border: 1px solid rgba(var(--v-theme-on-surface), 0.1);
+    border-radius: 4px;
+    overflow: hidden;
+    font-size: 12px;
+    line-height: 1.55;
+}
+
+.vivado-card-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    background: rgba(var(--v-theme-on-surface), 0.04);
+    border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.06);
+}
+
+.vivado-card-header-icon {
+    color: rgba(var(--v-theme-on-surface), 0.5);
+    flex-shrink: 0;
+}
+
+.vivado-card-header-title {
+    font-weight: 600;
+    color: rgba(var(--v-theme-on-surface), 0.75);
+    font-size: 11.5px;
+}
+
+/* ── 通用行 (label + value, 1px 分隔线) ── */
+
+.vivado-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 8px;
+    font-size: 11px;
+    line-height: 1.55;
+    + .vivado-row {
+        border-top: 1px solid rgba(var(--v-theme-on-surface), 0.05);
+    }
+}
+
+.vivado-row-label {
+    flex-shrink: 0;
+    width: 64px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 11px;
+    font-weight: 600;
+    color: rgba(var(--v-theme-on-surface), 0.5);
+    padding-right: 8px;
+}
+
+.vivado-row-value {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 11px;
+    color: rgba(var(--v-theme-on-surface), 0.8);
+    word-break: break-all;
+    min-width: 0;
+}
+
+.vivado-row-value-dim {
+    color: rgba(var(--v-theme-on-surface), 0.55);
+}
+
+/* ── 分组 (block-section, 复用 CodeCheckResult 风格) ── */
+
+.vivado-section {
+    margin-top: 6px;
+    padding: 6px 10px;
+    background: rgba(var(--v-theme-on-surface), 0.03);
+    border-left: 2px solid rgba(var(--v-theme-on-surface), 0.12);
+    border-radius: 0 4px 4px 0;
+    &.section-error { border-left-color: rgba($vivado-error, 0.6); background: rgba($vivado-error, 0.05); }
+    &.section-warn  { border-left-color: rgba($vivado-warn, 0.6); background: rgba($vivado-warn, 0.05); }
+    &.section-success { border-left-color: rgba($vivado-success, 0.6); background: rgba($vivado-success, 0.04); }
+}
+
+.vivado-section-title {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 10.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    color: rgba(var(--v-theme-on-surface), 0.55);
+    margin-bottom: 4px;
+    .section-error &   { color: $vivado-error; }
+    .section-warn &    { color: $vivado-warn; }
+    .section-success & { color: $vivado-success; }
+}
+
+/* ── 折叠 / 展开 (复用 CodeCheckResult 的 more-toggle) ── */
+
+.vivado-more {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 4px;
+    padding: 4px 8px;
+    width: 100%;
+    background: transparent;
+    border: 1px dashed rgba(var(--v-theme-on-surface), 0.12);
+    border-radius: 4px;
+    font-size: 11px;
+    font-style: italic;
+    color: rgba(var(--v-theme-on-surface), 0.55);
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+    &:hover {
+        background: rgba(var(--v-theme-on-surface), 0.04);
+        border-color: rgba(var(--v-theme-on-surface), 0.22);
+        color: rgba(var(--v-theme-on-surface), 0.8);
+    }
+}
+
+.vivado-more-chevron {
+    transition: transform 0.2s;
+    color: rgba(var(--v-theme-on-surface), 0.4);
+    &.open { transform: rotate(180deg); }
+}
+
+/* ── 错误块 (proposal 风格, 复用 FileRemoveResult) ── */
+
+.vivado-error-block {
+    margin-top: 6px;
+    padding: 6px 10px;
+    background: rgba($vivado-error, 0.05);
+    border-left: 2px solid $vivado-error;
+    border-radius: 0 4px 4px 0;
+}
+
+.vivado-proposal {
+    margin-top: 6px;
+    padding: 6px 10px;
+    background: rgba($vivado-warn, 0.06);
+    border-left: 2px solid $vivado-warn;
+    border-radius: 0 4px 4px 0;
+    .vivado-proposal-label {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 10.5px;
+        font-weight: 600;
+        color: $vivado-warn;
+        text-transform: uppercase;
+        letter-spacing: 0.3px;
+        margin-bottom: 3px;
+    }
+    .vivado-proposal-text {
+        font-size: 11.5px;
+        line-height: 1.5;
+        color: rgba(var(--v-theme-on-surface), 0.8);
+    }
+}
+
+/* ── 表格 (resource / IO) ── */
+
+.vivado-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+    th, td {
+        padding: 3px 8px;
+        text-align: left;
+        border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.05);
+    }
+    th {
+        font-weight: 600;
+        color: rgba(var(--v-theme-on-surface), 0.55);
+        background: rgba(var(--v-theme-on-surface), 0.04);
+        font-size: 10.5px;
+        text-transform: uppercase;
+        letter-spacing: 0.3px;
+    }
+    td.num { text-align: right; font-family: ui-monospace, monospace; }
+    .row-critical td.pct { color: $vivado-error; font-weight: 600; }
+    .row-warn td.pct { color: $vivado-warn; }
+}
+
+/* ── 预格式化输出块 ── */
+
+.vivado-pre {
+    margin: 0;
+    padding: 8px 10px;
+    border-radius: 4px;
+    background: rgba(var(--v-theme-on-surface), 0.04);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 11.5px;
+    line-height: 1.55;
+    color: rgba(var(--v-theme-on-surface), 0.8);
+    white-space: pre-wrap;
+    word-break: break-all;
+    max-height: 300px;
+    overflow-y: auto;
+}

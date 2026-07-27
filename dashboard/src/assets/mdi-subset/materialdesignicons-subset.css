@@ -1,4 +1,4 @@
-/* Auto-generated MDI subset – 334 icons */
+/* Auto-generated MDI subset – 351 icons */
 /* Do not edit manually. Run: pnpm run subset-icons */
 
 @font-face {
@@ -56,6 +56,14 @@
   content: "\F05D6";
 }
 
+.mdi-alert-octagon::before {
+  content: "\F0029";
+}
+
+.mdi-alert-octagon-outline::before {
+  content: "\F0CE6";
+}
+
 .mdi-alert-outline::before {
   content: "\F002A";
 }
@@ -90,6 +98,10 @@
 
 .mdi-arrow-right::before {
   content: "\F0054";
+}
+
+.mdi-arrow-right-bold-circle-outline::before {
+  content: "\F0057";
 }
 
 .mdi-arrow-top-right-thick::before {
@@ -128,6 +140,10 @@
   content: "\F006F";
 }
 
+.mdi-block-helper::before {
+  content: "\F00AD";
+}
+
 .mdi-book-open-page-variant::before {
   content: "\F05DA";
 }
@@ -156,6 +172,10 @@
   content: "\F00E4";
 }
 
+.mdi-bug-outline::before {
+  content: "\F0A30";
+}
+
 .mdi-bullhorn-variant::before {
   content: "\F196E";
 }
@@ -182,6 +202,10 @@
 
 .mdi-calendar-range::before {
   content: "\F0679";
+}
+
+.mdi-chart-bell-curve::before {
+  content: "\F0C50";
 }
 
 .mdi-chart-box-outline::before {
@@ -218,6 +242,14 @@
 
 .mdi-check-circle-outline::before {
   content: "\F05E1";
+}
+
+.mdi-check-decagram::before {
+  content: "\F0791";
+}
+
+.mdi-check-decagram-outline::before {
+  content: "\F1740";
 }
 
 .mdi-checkbox-blank-outline::before {
@@ -282,6 +314,10 @@
 
 .mdi-clipboard-text-outline::before {
   content: "\F0A38";
+}
+
+.mdi-clock-fast::before {
+  content: "\F0152";
 }
 
 .mdi-clock-outline::before {
@@ -608,6 +644,10 @@
   content: "\F0234";
 }
 
+.mdi-flag-checkered::before {
+  content: "\F023C";
+}
+
 .mdi-folder::before {
   content: "\F024B";
 }
@@ -658,6 +698,10 @@
 
 .mdi-format-list-checks::before {
   content: "\F0756";
+}
+
+.mdi-format-list-numbered::before {
+  content: "\F027B";
 }
 
 .mdi-format-paint::before {
@@ -788,6 +832,10 @@
   content: "\F0320";
 }
 
+.mdi-language-typescript::before {
+  content: "\F06E6";
+}
+
 .mdi-layers-outline::before {
   content: "\F09FE";
 }
@@ -854,6 +902,14 @@
 
 .mdi-magnify-plus-outline::before {
   content: "\F06ED";
+}
+
+.mdi-magnify-scan::before {
+  content: "\F1276";
+}
+
+.mdi-map-marker-outline::before {
+  content: "\F07D9";
 }
 
 .mdi-memory::before {
@@ -1096,6 +1152,10 @@
   content: "\F167A";
 }
 
+.mdi-rocket-launch-outline::before {
+  content: "\F14DF";
+}
+
 .mdi-send-outline::before {
   content: "\F1165";
 }
@@ -1328,6 +1388,10 @@
   content: "\F057E";
 }
 
+.mdi-waveform::before {
+  content: "\F147D";
+}
+
 .mdi-weather-night::before {
   content: "\F0594";
 }
@@ -1350,6 +1414,10 @@
 
 .mdi-wrench-outline::before {
   content: "\F0BE0";
+}
+
+.mdi-xml::before {
+  content: "\F05C0";
 }
 
 .mdi-zip-box::before {

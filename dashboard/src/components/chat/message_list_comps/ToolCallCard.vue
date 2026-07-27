@@ -107,6 +107,7 @@ import DiffPreview from "./DiffPreview.vue";
 import ToolResultView from "./ToolResultView.vue";
 import CopyableText from "./__shared__/CopyableText.vue";
 import { SPCODE_ICONS } from "./spcode_tools/icons";
+import { getVivadoIcon, VIVADO_TOOL_TITLES } from "./spcode_tools/vivado/vivadoIcons";
 
 const props = defineProps({
   toolCall: {
@@ -135,8 +136,6 @@ const elapsedTime = computed(() => {
   return formatDuration(currentTime.value - startTime);
 });
 
-const displayToolName = computed(() => props.toolCall.name || "tool");
-
 // ── Icons ─────────────────────────────────────────────────────
 
 const toolCallIcon = computed(() => {
@@ -156,7 +155,16 @@ const toolCallIcon = computed(() => {
   if (name === "astrbot_download_file") return "mdi-download-outline";
   if (name.includes("web_search") || name.includes("tavily")) return "mdi-web";
   if (SPCODE_ICONS[name]) return SPCODE_ICONS[name];
+  if (name?.startsWith("mcp_vivado__")) return getVivadoIcon(name);
   return "mdi-wrench";
+});
+
+const displayToolName = computed(() => {
+  const name = String(props.toolCall.name || "");
+  if (name?.startsWith("mcp_vivado__") && VIVADO_TOOL_TITLES[name]) {
+    return VIVADO_TOOL_TITLES[name];
+  }
+  return name || "tool";
 });
 
 // ── Args display ──────────────────────────────────────────────
