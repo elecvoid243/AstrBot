@@ -28,6 +28,8 @@ from .tool import FunctionTool
 _DEFAULT_STDIO_COMMAND_ALLOWLIST = frozenset(
     {
         "python",
+        "pythonw",
+        "codegraph",
         "python3",
         "py",
         "node",
