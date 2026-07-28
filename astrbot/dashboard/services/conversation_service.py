@@ -125,12 +125,22 @@ class ConversationService:
         search_page = 1
         scan_limit = 1000
         while len(all_conversations) < scan_limit:
-            batch, _ = await self.conv_mgr.get_all_conversations(
-                page=search_page,
-                page_size=200,
-            )
+            # 2026-07-28 fix message search (elecvoid243): use the verified
+            # get_filtered_conversations accessor (returns
+            # (list[Conversation], total)) instead of the non-existent
+            # ConversationManager.get_all_conversations, and read Conversation
+            # fields as attributes. Business-ify DB errors so the route maps
+            # them to ApiError instead of a generic HTTP 500.
+            try:
+                batch, _total = await self.conv_mgr.get_filtered_conversations(
+                    page=search_page,
+                    page_size=200,
+                )
+            except Exception as exc:
+                logger.error(f"消息搜索查询出错: {exc!s}\n{traceback.format_exc()}")
+                raise ConversationServiceError(f"消息搜索查询出错: {exc!s}") from exc
             webchat_batch = [
-                c for c in batch if c and c.get("user_id", "").startswith("webchat:")
+                c for c in batch if c and (c.user_id or "").startswith("webchat:")
             ]
             all_conversations.extend(webchat_batch)
             if len(batch) < 200:
@@ -141,10 +151,10 @@ class ConversationService:
         grouped_results = {}
 
         for conv in all_conversations:
-            cid = conv.get("cid")
+            cid = conv.cid
             if not cid:
                 continue
-            history_str = conv.get("history", "[]")
+            history_str = conv.history or "[]"
             try:
                 history = json.loads(history_str) if history_str else []
             except json.JSONDecodeError:
@@ -212,8 +222,8 @@ class ConversationService:
                 display_cid = safe_cid[:8] if len(safe_cid) >= 8 else safe_cid
                 grouped_results[cid] = {
                     "session_id": cid,
-                    "title": conv.get("title") or f"对话 {display_cid}",
-                    "updated_at": conv.get("updated_at", 0) or 0,
+                    "title": conv.title or f"对话 {display_cid}",
+                    "updated_at": conv.updated_at or 0,
                     "matches": conv_matches,
                 }
 

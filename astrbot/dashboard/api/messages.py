@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Query, Request
 
-from astrbot.dashboard.responses import ok
+from astrbot.dashboard.responses import ApiError, ok
 from astrbot.dashboard.services.conversation_service import (
     ConversationService,
     ConversationServiceError,
@@ -40,5 +40,8 @@ async def search_messages(
     try:
         result = await service.search_messages(q=q, page=page, page_size=page_size)
         return ok(result)
-    except Exception as exc:
-        raise ConversationServiceError(f"Search failed: {exc!s}") from exc
+    except ConversationServiceError as exc:
+        # 2026-07-28 (elecvoid243): map to ApiError (which has a handler) so
+        # the message reaches the client, mirroring conversations.py, instead
+        # of falling into the catch-all 500 handler.
+        raise ApiError(str(exc)) from exc
