@@ -3858,20 +3858,4 @@ kbd {
 .scroll-dot-tooltip.is-dark .scroll-dot-tooltip-text {
   color: #e0e0e0;
 }
-
-.sidebar-section-header .search-btn {
-  margin-left: auto;
-  border: none;
-  background: none;
-  cursor: pointer;
-  color: rgba(var(--v-theme-on-surface), 0.45);
-  display: flex;
-  align-items: center;
-  padding: 3px 6px;
-  border-radius: 4px;
-}
-.sidebar-section-header .search-btn:hover {
-  background: rgba(var(--v-theme-on-surface), 0.06);
-  color: var(--v-theme-on-surface);
-}
 </style>

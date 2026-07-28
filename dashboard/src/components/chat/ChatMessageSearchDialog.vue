@@ -1,72 +1,77 @@
 <template>
-  <div v-if="modelValue" class="search-overlay" @click.self="closeDialog">
-    <div class="search-dialog">
-      <div class="search-header">
-        <div class="search-input-wrap">
-          <Search :size="16" class="search-icon" />
-          <input
-            ref="inputRef"
-            v-model="query"
-            type="text"
-            class="search-input"
-            :placeholder="tm('search.placeholder')"
-            @keydown.enter="onSearch"
-            @keydown.escape="closeDialog"
-          />
-          <button v-if="query" class="clear-btn" @click="clearQuery">
-            <X :size="14" />
+  <!-- 2026-07-28 (elecvoid243): teleport to body so the modal escapes the
+       Chat subtree (v-main overflow:hidden, etc.) and cannot be trapped by an
+       ancestor stacking context / containing block. -->
+  <Teleport to="body">
+    <div v-if="modelValue" class="search-overlay" @click.self="closeDialog">
+      <div class="search-dialog">
+        <div class="search-header">
+          <div class="search-input-wrap">
+            <Search :size="16" class="search-icon" />
+            <input
+              ref="inputRef"
+              v-model="query"
+              type="text"
+              class="search-input"
+              :placeholder="tm('search.placeholder')"
+              @keydown.enter="onSearch"
+              @keydown.escape="closeDialog"
+            />
+            <button v-if="query" class="clear-btn" @click="clearQuery">
+              <X :size="14" />
+            </button>
+          </div>
+          <button class="esc-btn" @click="closeDialog">
+            <span class="esc-hint">ESC</span>
           </button>
         </div>
-        <button class="esc-btn" @click="closeDialog">
-          <span class="esc-hint">ESC</span>
-        </button>
-      </div>
 
-      <div v-if="loading" class="search-loading">
-        <v-progress-circular indeterminate size="18" width="2" />
-        <span class="loading-text">{{ tm('search.loading') }}</span>
-      </div>
+        <div v-if="loading" class="search-loading">
+          <v-progress-circular indeterminate size="18" width="2" />
+          <span class="loading-text">{{ tm('search.loading') }}</span>
+        </div>
 
-      <div v-else-if="error" class="search-error">
-        <span class="error-text">{{ error }}</span>
-        <button class="retry-btn" @click="onSearch">{{ tm('search.retry') }}</button>
-      </div>
+        <div v-else-if="error" class="search-error">
+          <span class="error-text">{{ error }}</span>
+          <button class="retry-btn" @click="onSearch">{{ tm('search.retry') }}</button>
+        </div>
 
-      <div v-else-if="hasSearched && results.length === 0" class="search-empty">
-        <span class="empty-text">{{ tm('search.noResults') }}</span>
-      </div>
+        <div v-else-if="hasSearched && results.length === 0" class="search-empty">
+          <span class="empty-text">{{ tm('search.noResults') }}</span>
+        </div>
 
-      <div v-else-if="results.length > 0" class="search-results">
-        <div v-for="conv in results" :key="conv.session_id" class="result-group">
-          <div class="group-head" @click="toggleGroup(conv.session_id)">
-            <span class="group-title">{{ conv.title }}</span>
-            <span class="match-count">{{ conv.matches.length }} {{ tm('search.matches') }}</span>
-            <ChevronDown :size="14" :class="{ expanded: expanded[conv.session_id] }" />
-          </div>
-          <div v-if="expanded[conv.session_id]" class="match-list">
-            <div
-              v-for="(m, i) in conv.matches"
-              :key="i"
-              class="match-item"
-              @click="goTo(conv, m)"
-            >
-              <span v-html="highlight(m.snippet, query)" />
+        <div v-else-if="results.length > 0" class="search-results">
+          <div v-for="conv in results" :key="conv.session_id" class="result-group">
+            <div class="group-head" @click="toggleGroup(conv.session_id)">
+              <span class="group-title">{{ conv.title }}</span>
+              <span class="match-count">{{ conv.matches.length }} {{ tm('search.matches') }}</span>
+              <ChevronDown :size="14" :class="{ expanded: expanded[conv.session_id] }" />
+            </div>
+            <div v-if="expanded[conv.session_id]" class="match-list">
+              <div
+                v-for="(m, i) in conv.matches"
+                :key="i"
+                class="match-item"
+                @click="goTo(conv, m)"
+              >
+                <span v-html="highlight(m.snippet, query)" />
+              </div>
             </div>
           </div>
-        </div>
 
-        <div v-if="pag.total_pages > 1" class="search-pager">
-          <button :disabled="pag.page <= 1" @click="goPage(pag.page - 1)">
-            {{ tm('search.prevPage') }}
-          </button>
-          <span class="pager-info">{{ pag.page }}/{{ pag.total_pages }}</span>
-          <button :disabled="pag.page >= pag.total_pages" @click="goPage(pag.page + 1)">
-            {{ tm('search.nextPage') }}
-          </button>
+          <div v-if="pag.total_pages > 1" class="search-pager">
+            <button :disabled="pag.page <= 1" @click="goPage(pag.page - 1)">
+              {{ tm('search.prevPage') }}
+            </button>
+            <span class="pager-info">{{ pag.page }}/{{ pag.total_pages }}</span>
+            <button :disabled="pag.page >= pag.total_pages" @click="goPage(pag.page + 1)">
+              {{ tm('search.nextPage') }}
+            </button>
+          </div>
         </div>
       </div>
     </div>
-  </div>
+  </Teleport>
 </template>
 
 <script setup lang="ts">
@@ -183,10 +188,14 @@ function escRE(s: string): string {
   align-items: flex-start;
   justify-content: center;
   padding-top: 10vh;
-  z-index: 1000;
+  /* 2026-07-28 (elecvoid243): modal level — must sit above the app toolbar
+     (z-index 1200) and the todo summary bar (1400). The previous value 1000
+     was too low and let those layers paint over the dialog. */
+  z-index: 2000;
 }
 .search-dialog {
   width: 480px;
+  min-height: 132px;
   max-height: 450px;
   background: var(--v-theme-surface);
   border-radius: 8px;

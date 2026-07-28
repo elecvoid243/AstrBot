@@ -44,7 +44,20 @@ export const messageApi = {
     });
 
     if (!response.ok) {
-      throw new Error(`Search failed: ${response.statusText}`);
+      // 2026-07-28 (elecvoid243): surface the backend error message
+      // (ApiError -> {status, message}) instead of the generic HTTP
+      // statusText, so the search dialog shows a useful reason. Fall back to
+      // statusText for non-JSON bodies.
+      let detail = response.statusText;
+      try {
+        const errData = await response.json();
+        if (errData && typeof errData.message === 'string' && errData.message) {
+          detail = errData.message;
+        }
+      } catch {
+        // ignore non-json error body
+      }
+      throw new Error(`Search failed: ${detail}`);
     }
 
     const data = await response.json();
