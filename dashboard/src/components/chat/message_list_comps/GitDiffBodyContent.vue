@@ -20,33 +20,24 @@ import type {
   GitDiffScope,
 } from "@/composables/useSpcodeGitDiff";
 import type { SpcodeGitDiffFile } from "@/composables/parseSpcodeGitDiff";
+import {
+  buildDirectorySections,
+  walkSections,
+  type DiffSection,
+} from "@/composables/parseDirectorySections";
 import { useSpcodeProjectStatus } from "@/composables/useSpcodeProjectStatus";
 import { useModuleI18n } from "@/i18n/composables";
 import GitDiffFileItem from "@/components/chat/message_list_comps/GitDiffFileItem.vue";
+import DiffDirectoryNode from "@/components/chat/message_list_comps/DiffDirectoryNode.vue";
 
 const { tm } = useModuleI18n("features/chat");
 
 // ── Group / section data model ────────────────────────────────────
-
-/** Top-level "section" rendered in the body. Each section groups
- *  files by their top-level directory (the first path segment, or
- *  "<root>" for repo-root files). Sections are flat - there is no
- *  nesting in the current design. Each section has its own label,
- *  file list, and collapse state. The `badgeKind` field drives a
- *  small colored dot whose hue reflects the active scope (staged /
- *  unstaged / neutral) rather than a per-section classification. */
-interface DiffSection {
-  id: string;
-  label: string;
-  /** Per-section stats: number of files and total +/− lines. */
-  fileCount: number;
-  additions: number;
-  deletions: number;
-  files: SpcodeGitDiffFile[];
-  /** Visual badge kind: 'staged' / 'unstaged' / 'neutral'. Drives
-   *  the small colored dot rendered next to the section label. */
-  badgeKind: "staged" | "unstaged" | "neutral";
-}
+// 2026-07-28 recursive tree: DiffSection moved to
+// parseDirectorySections.ts (added `fullPath` and `children` fields).
+// The interface is imported above; this comment block remains to
+// document the change. See §3.3.1 of the design spec for the
+// recursive shape.
 
 // ── Props & emits ─────────────────────────────────────────────────
 
@@ -201,91 +192,52 @@ const files = computed(() => {
 });
 
 // ── UI #2: Summary stats ──────────────────────────────────────────
+// 2026-07-28 recursive-tree: now walks the recursive section tree
+// (one section per directory level) instead of bucketing by
+// top-level dir only. Each section contributes its direct files'
+// additions/deletions; recursion sums the whole subtree. The
+// per-section file count is "direct files only" by design, so the
+// top-bar file count = sum of all section.fileCount across the tree
+// (which equals files.length, but the walk is the source of truth
+// for both top-bar stats and per-section badges — they can never
+// drift).
 
 const summary = computed(() => {
   const list = files.value;
-  let adds = 0;
-  let dels = 0;
-  for (const f of list) {
-    adds += f.additions;
-    dels += f.deletions;
-  }
+  let fileCount = 0;
+  let additions = 0;
+  let deletions = 0;
+  walkSections(sections.value, (s) => {
+    fileCount += s.fileCount;
+    additions += s.additions;
+    deletions += s.deletions;
+  });
   return {
-    fileCount: list.length,
-    additions: adds,
-    deletions: dels,
-    dirCount: uniqueTopLevelDirCount(list),
+    fileCount,
+    additions,
+    deletions,
+    dirCount: sections.value.length,
   };
 });
 
-function uniqueTopLevelDirCount(list: SpcodeGitDiffFile[]): number {
-  const seen = new Set<string>();
-  for (const f of list) seen.add(topLevelDir(f.path));
-  return seen.size;
-}
-
-function topLevelDir(path: string): string {
-  // Top-level directory: the first path segment. Files at the repo
-  // root (no '/') get the literal "<root>" bucket so they group
-  // together instead of spreading across the "/" bucket.
-  const idx = path.indexOf("/");
-  if (idx < 0) return "<root>";
-  return path.slice(0, idx);
-}
-
 // ── UI #1: Directory grouping (and #4: 'all' scope partition) ────
 
-/** The flat `files` list is reshaped into a list of sections, one
- *  per top-level directory, regardless of scope. Each section has
- *  its own collapse state stored in `collapsedGroups`. The `id`
- *  field is stable across re-renders (derived purely from scope +
- *  key) so collapsing/expanding state survives a refresh tick. */
+/** The flat `files` list is reshaped into a recursive tree of
+ *  `DiffSection` nodes (one per directory level, including a
+ *  synthetic `<root>` for repo-root files). 2026-07-28 recursive
+ *  tree: replaced the previous top-level-only bucket by a call to
+ *  the pure helper in `parseDirectorySections.ts`, which builds
+ *  one section per `/`-segment in each file's path. The `id`
+ *  field is path-derived and stable across re-renders so the
+ *  `collapsedGroups` Set and selection state survive a refresh
+ *  tick. */
 const sections = computed<DiffSection[]>(() => {
   const list = files.value;
   if (list.length === 0) return [];
   // scope can be undefined when the parent hasn't wired it yet;
   // default to "unstaged" so the badge color matches the default state.
-  return buildDirectorySections(list, props.selectedScope ?? "unstaged");
+  return buildDirectorySections(list, "", props.selectedScope ?? "unstaged");
 });
-
-function buildDirectorySections(
-  list: SpcodeGitDiffFile[],
-  scope: GitDiffScope,
-): DiffSection[] {
-  // Bucket files by top-level dir, preserving the original order
-  // (so directories that appear earlier in the diff show up first
-  // in the section list — matches the existing flat list ordering).
-  const buckets: { [key: string]: SpcodeGitDiffFile[] } = {};
-  for (const f of list) {
-    const dir = topLevelDir(f.path);
-    (buckets[dir] ??= []).push(f);
-  }
-  const out: DiffSection[] = [];
-  for (const dir of Object.keys(buckets)) {
-    const slice = buckets[dir];
-    let adds = 0;
-    let dels = 0;
-    for (const f of slice) {
-      adds += f.additions;
-      dels += f.deletions;
-    }
-    out.push({
-      id: `dir:${dir}`,
-      label: dir === "<root>" ? tm("spcodeProjectLoad.diffPreview.group.root") : dir,
-      fileCount: slice.length,
-      additions: adds,
-      deletions: dels,
-      files: slice,
-      badgeKind:
-        scope === "staged"
-          ? "staged"
-          : scope === "all"
-            ? "neutral"
-            : "unstaged",
-    });
-  }
-  return out;
-}
 
 // ── UI #1: per-section collapse state ─────────────────────────────
 
@@ -307,7 +259,11 @@ function expandAll(): void {
 }
 
 function collapseAll(): void {
-  collapsedGroups.value = new Set(sections.value.map((s) => s.id));
+  // 2026-07-28 recursive-tree: collect every section id in the tree
+  // (not just top-level) so collapse-all reaches nested sections too.
+  const ids = new Set<string>();
+  walkSections(sections.value, (s) => ids.add(s.id));
+  collapsedGroups.value = ids;
   // Also collapse every file row by emitting toggle for expanded files.
   for (const f of files.value) {
     if (props.expanded.has(f.path)) emit("toggle", f.path);
@@ -454,28 +410,56 @@ function onClickRestoreSelected(): void {
 }
 
 function toggleGroupSelect(section: DiffSection, next: boolean): void {
+  // 2026-07-28 recursive-tree: walk the whole subtree (direct
+  // files + every nested section) so toggling a parent affects
+  // every descendant path in lock-step. Without the walk, only
+  // the parent's direct files flip and the nested sections retain
+  // stale selection state — visually confusing when the user
+  // expects the check to propagate down.
   const updated = new Set(selectedFiles.value);
-  for (const f of section.files) {
-    if (next) updated.add(f.path);
-    else updated.delete(f.path);
-  }
+  walkSections([section], (s) => {
+    for (const f of s.files) {
+      if (next) updated.add(f.path);
+      else updated.delete(f.path);
+    }
+  });
   selectedFiles.value = updated;
 }
 
 function isSectionFullySelected(section: DiffSection): boolean {
+  // 2026-07-28 recursive-tree: a section is "fully selected" only
+  // when EVERY direct file AND EVERY nested section is itself
+  // fully selected. An empty section (no files, no children) is
+  // treated as "not selected" so the header checkbox is never
+  // shown in a "checked" state for an empty branch.
   for (const f of section.files) {
     if (!selectedFiles.value.has(f.path)) return false;
   }
-  return section.files.length > 0;
+  for (const c of section.children) {
+    if (!isSectionFullySelected(c)) return false;
+  }
+  return section.files.length + section.children.length > 0;
 }
 
 function isSectionPartiallySelected(section: DiffSection): boolean {
+  // 2026-07-28 recursive-tree: aggregate direct-file and nested-
+  // section selection state into a single tri-state. Indeterminate
+  // when at least one descendant is selected but not all.
   let any = false;
   let all = true;
+  for (const c of section.children) {
+    if (isSectionFullySelected(c)) {
+      any = true;
+    } else if (isSectionPartiallySelected(c)) {
+      any = true;
+      all = false;
+    } else {
+      all = false;
+    }
+  }
   for (const f of section.files) {
     if (selectedFiles.value.has(f.path)) any = true;
     else all = false;
-    if (any && !all) return true;
   }
   return any && !all;
 }
@@ -699,105 +683,51 @@ function isSectionPartiallySelected(section: DiffSection): boolean {
            wrapper that keeps the summary + toolbar pinned. -->
       </div>
 
-      <!-- UI #1: sections (top-level directory groups). Each section
-         is a collapsible block; the header includes a per-section
-         "select all" checkbox so the user can bulk-select within a
-         group without using the toolbar's stage-selected action. -->
-    <div
+      <!-- UI #1: recursive directory tree (replaces the previous
+           top-level-only section block). Each <DiffDirectoryNode>
+           renders one DiffSection — its direct files, then its
+           children (nested sub-sections) — and routes events back
+           up through the same emit surface the old flat block used.
+           2026-07-28 recursive tree: file rows are identical to
+           before; only the section grouping and the wrapper
+           changed. -->
+    <DiffDirectoryNode
       v-for="section in sections"
       :key="section.id"
-      class="git-diff-section is-dir"
-      :class="[
-        `is-${section.badgeKind}`,
-        { 'is-collapsed': collapsedGroups.has(section.id) },
-      ]"
-    >
-      <button
-        type="button"
-        class="git-diff-section-header"
-        :aria-expanded="!collapsedGroups.has(section.id)"
-        @click="toggleGroup(section.id)"
-      >
-        <v-icon
-          size="14"
-          class="git-diff-section-chevron"
-          :class="{ expanded: !collapsedGroups.has(section.id) }"
-        >
-          mdi-chevron-right
-        </v-icon>
-        <!-- Section-level "select all" checkbox. Indeterminate state
-             when some (but not all) files in the section are selected.
-             Renders a real <input> so a11y is native (vs. our
-             aria-checked button used in the file row). -->
-        <span
-          v-if="
-            (showStageButton || showUnstageButton || showRestoreButton) &&
-            section.files.length > 0
-          "
-          class="git-diff-section-check"
-          @click.stop
-        >
-          <input
-            type="checkbox"
-            :checked="isSectionFullySelected(section)"
-            :indeterminate.prop="isSectionPartiallySelected(section)"
-            :aria-label="
-              tm('spcodeProjectLoad.diffPreview.toolbar.selectAllInGroup', { label: section.label })
-            "
-            @change="
-              toggleGroupSelect(
-                section,
-                ($event.target as HTMLInputElement).checked,
-              )
-            "
-          />
-        </span>
-        <span class="git-diff-section-dot" :class="`is-${section.badgeKind}`" />
-        <span class="git-diff-section-label">{{ section.label }}</span>
-        <span class="git-diff-section-meta">
-          <span class="git-diff-section-count">{{ section.fileCount }}</span>
-          <span class="git-diff-section-stats">
-            <span class="git-diff-add">+{{ section.additions }}</span>
-            <span class="git-diff-del">−{{ section.deletions }}</span>
-          </span>
-        </span>
-      </button>
-      <div v-show="!collapsedGroups.has(section.id)" class="git-diff-section-body">
-        <GitDiffFileItem
-          v-for="f in section.files"
-          :key="f.path + ':' + f.status"
-          :file="f"
-          :expanded="expanded.has(f.path)"
-          :is-dark="isDark"
-          :on-restore="onRestore"
-          :show-stage="showStageButton"
-          :show-unstage="showUnstageButton"
-          :on-stage="onStage"
-          :on-unstage="onUnstage"
-          :is-staging="isStagingForPath(f.path)"
-          :is-unstaging="isUnstagingForPath(f.path)"
-          :is-new-file="newFilePaths?.has(f.path) ?? false"
-          :on-open-file="onOpenFile"
-          :selectable="
-            showStageButton || showUnstageButton || showRestoreButton
-          "
-          :is-selected="selectedFiles.has(f.path)"
-          :selectable-aria-label="
-            tm('spcodeProjectLoad.diffPreview.toolbar.selectFile', { path: f.path })
-          "
-          :on-discard-hunk="onDiscardHunk"
-          :discarding-hunks="discardingHunks"
-          :discardable="discardableFor(f)"
-          :scope="selectedScope"
-          @toggle="emit('toggle', f.path)"
-          @restore="emit('restore', $event)"
-          @stage="emit('stage', $event)"
-          @unstage="emit('unstage', $event)"
-          @open-file="emit('open-file', $event)"
-          @select="toggleSelect(f.path, $event)"
-        />
-      </div>
-    </div>
+      :section="section"
+      :depth="0"
+      :expanded="expanded"
+      :collapsed-groups="collapsedGroups"
+      :is-dark="isDark"
+      :show-stage="showStageButton"
+      :show-unstage="showUnstageButton"
+      :show-restore="showRestoreButton"
+      :new-file-paths="newFilePaths"
+      :is-selected="(p: string) => selectedFiles.has(p)"
+      :is-staging-for-path="isStagingForPath"
+      :is-unstaging-for-path="isUnstagingForPath"
+      :is-discardable-for="discardableFor"
+      :is-section-fully-selected="isSectionFullySelected"
+      :is-section-partially-selected="isSectionPartiallySelected"
+      :selectable-aria-label="
+        (p: string) => tm('spcodeProjectLoad.diffPreview.toolbar.selectFile', { path: p })
+      "
+      :on-toggle-group="toggleGroup"
+      :on-toggle-select="toggleSelect"
+      :on-toggle-group-select="toggleGroupSelect"
+      :on-file-toggle="(p: string) => emit('toggle', p)"
+      :on-file-stage="(p: string) => emit('stage', p)"
+      :on-file-unstage="(p: string) => emit('unstage', p)"
+      :on-file-restore="(p: string) => emit('restore', p)"
+      :on-file-open="(p: string) => emit('open-file', p)"
+      :on-file-discard-hunk="onDiscardHunk"
+      :scope="selectedScope"
+      @toggle="emit('toggle', $event)"
+      @restore="emit('restore', $event)"
+      @stage="emit('stage', $event)"
+      @unstage="emit('unstage', $event)"
+      @open-file="emit('open-file', $event)"
+    />
 
     <div v-if="state.kind === 'error' && errorInfo" class="git-diff-banner-error">
       <span>{{ localizedReason(errorInfo.reason) }}</span>
@@ -972,137 +902,11 @@ function isSectionPartiallySelected(section: DiffSection): boolean {
 }
 
 /* ── Section / directory group (UI #1, UI #4) ─────────────────── */
-
-.git-diff-section {
-  /* Sections are visually flat blocks: only the header separates
-     one from the next. The body is just a list of file rows. */
-  border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.06);
-}
-.git-diff-section:last-of-type {
-  border-bottom: 0;
-}
-
-.git-diff-section-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  padding: 6px 14px;
-  font-family: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  color: rgba(var(--v-theme-on-surface), 0.75);
-  background: rgba(var(--v-theme-on-surface), 0.025);
-  border: 0;
-  border-top: 1px solid rgba(var(--v-theme-on-surface), 0.06);
-  cursor: pointer;
-  text-align: left;
-  user-select: none;
-  transition: background 0.12s ease;
-}
-
-.git-diff-section-header:hover {
-  background: rgba(var(--v-theme-on-surface), 0.05);
-}
-
-.git-diff-section-header:focus-visible {
-  outline: 2px solid rgb(var(--v-theme-primary));
-  outline-offset: -2px;
-}
-
-.git-diff-section-chevron {
-  color: rgba(var(--v-theme-on-surface), 0.5);
-  flex-shrink: 0;
-  transition: transform 0.15s ease;
-}
-.git-diff-section-chevron.expanded {
-  transform: rotate(90deg);
-}
-
-.git-diff-section-check {
-  display: inline-flex;
-  align-items: center;
-  flex-shrink: 0;
-}
-.git-diff-section-check input {
-  cursor: pointer;
-  width: 14px;
-  height: 14px;
-  margin: 0;
-  accent-color: rgb(var(--v-theme-primary));
-}
-
-.git-diff-section-dot {
-  display: inline-block;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-.git-diff-section-dot.is-staged {
-  background: rgba(76, 175, 80, 0.85);
-}
-.git-diff-section-dot.is-unstaged {
-  background: rgba(var(--v-theme-secondary), 0.85);
-}
-.git-diff-section-dot.is-neutral {
-  background: rgba(var(--v-theme-on-surface), 0.35);
-}
-
-.git-diff-section-label {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.git-diff-section-meta {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-weight: 500;
-  font-size: 11.5px;
-  color: rgba(var(--v-theme-on-surface), 0.55);
-  flex-shrink: 0;
-}
-
-.git-diff-section-count {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 22px;
-  padding: 1px 6px;
-  border-radius: 8px;
-  background: rgba(var(--v-theme-on-surface), 0.07);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 10.5px;
-}
-
-.git-diff-section-stats {
-  display: inline-flex;
-  gap: 4px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-}
-
-.git-diff-section-stats .git-diff-add {
-  color: rgb(46, 160, 67);
-}
-.git-diff-section-stats .git-diff-del {
-  color: rgb(248, 81, 73);
-}
-
-.git-diff-section-body {
-  /* Inner file rows are rendered exactly as in the old flat layout;
-     the section is just a visual wrapper. */
-}
-
-/* Sections in the `staged` scope get a small green left-border tint
-   so the user can tell at a glance which scope they're in. Other
-   scopes use the dot in the header as their visual cue. */
-.git-diff-section.is-dir.is-staged {
-  border-left: 2px solid rgba(76, 175, 80, 0.45);
-}
+/* 2026-07-28 recursive tree: section-level styles (header, dot,
+   chevron, checkbox, meta, count, stats, body, is-dir/is-staged
+   tint) moved to DiffDirectoryNode.vue as a self-contained
+   component. GitDiffBodyContent only owns the sticky-header,
+   toolbar, and the error/center state styles. */
 
 /* ── Centered / loading / error states (unchanged) ──────────── */
 
