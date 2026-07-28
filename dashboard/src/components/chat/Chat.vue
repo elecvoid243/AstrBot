@@ -1511,6 +1511,7 @@ onMounted(async () => {
       activeWorkspace.value = "providers";
     } else if (routeSessionId) {
       await selectSession(routeSessionId, false);
+      await scrollToMessageFromQuery();
     }
   } finally {
     loadingSessions.value = false;
@@ -1543,6 +1544,7 @@ watch(
       showChatWorkspace();
       selectedProjectId.value = null;
       await selectSession(routeSessionId, false);
+      await scrollToMessageFromQuery();
     } else if (!routeSessionId && currSessionId.value) {
       showChatWorkspace();
       currSessionId.value = "";
