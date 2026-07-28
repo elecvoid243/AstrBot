@@ -20,6 +20,13 @@
         <FolderCog :size="15" />
         <span>{{ workspaceSummary }}</span>
       </div>
+      <SpcodeProjectStatusChip
+        v-if="
+          project?.workspace_type === 'project' && project.workspace_path
+        "
+        :umo="props.umo ?? null"
+        :workspace-path="project.workspace_path"
+      />
     </section>
 
     <div class="project-input-slot">
@@ -82,6 +89,7 @@ import { computed } from "vue";
 import { FolderCog, MessageSquare, Pencil, Trash2 } from "@lucide/vue";
 import { useModuleI18n } from "@/i18n/composables";
 import type { Project } from "@/components/chat/ProjectList.vue";
+import SpcodeProjectStatusChip from "@/components/chat/SpcodeProjectStatusChip.vue";
 import { askForConfirmation, useConfirmDialog } from "@/utils/confirmDialog";
 
 interface Session {
@@ -93,9 +101,12 @@ interface Session {
 interface Props {
   project?: Project | null;
   sessions: Session[];
+  umo?: string | null;
 }
 
-const props = defineProps<Props>();
+const props = withDefaults(defineProps<Props>(), {
+  umo: null,
+});
 
 const emit = defineEmits<{
   selectSession: [sessionId: string];
