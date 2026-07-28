@@ -97,7 +97,29 @@ async function postLoad(
       },
       { signal: controller.signal },
     );
-    return res.data.data;
+    // spcode's _make_envelope returns { status: "ok", data: { success, loaded,
+    // directory, reason, ... } } — all fields are flat inside `data`, there is
+    // no nested `data` sub-object.  We must reshape it into the
+    // ProjectLoadResponse shape that silentLoad expects.
+    const raw = res.data.data as unknown as Record<string, unknown>;
+    return {
+      success: Boolean(raw.success),
+      reason: (raw.reason as ProjectLoadReason | null) ?? null,
+      elapsed_ms: Number(raw.elapsed_ms) || 0,
+      data: {
+        loaded: Boolean(raw.loaded),
+        directory: String(raw.directory ?? ""),
+        umo: String(raw.umo ?? req.umo),
+        skipped_substeps: (raw.skipped_substeps as string[]) ?? [],
+        substep_messages: (raw.substep_messages as string[]) ?? [],
+        previous_directory: raw.previous_directory
+          ? String(raw.previous_directory)
+          : undefined,
+        silent_reason: raw.silent_reason
+          ? String(raw.silent_reason)
+          : undefined,
+      },
+    };
   } catch (err) {
     const aborted =
       controller.signal.aborted ||

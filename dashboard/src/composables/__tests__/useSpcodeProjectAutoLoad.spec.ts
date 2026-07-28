@@ -1,4 +1,4 @@
-﻿// dashboard/src/composables/__tests__/useSpcodeProjectAutoLoad.spec.ts
+// dashboard/src/composables/__tests__/useSpcodeProjectAutoLoad.spec.ts
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
@@ -27,12 +27,55 @@ const baseProject: Project = {
   updated_at: "",
 };
 
-/** Wrap a ProjectLoadResponse-shaped object in the ApiEnvelope that
- *  pluginExtensionApi.post actually returns (status+data envelope). */
-function mockPost(response: unknown): void {
+/**
+ * Wrap a spcode-style flat envelope in the ApiEnvelope that
+ * pluginExtensionApi.post actually returns.
+ *
+ * spcode's _make_envelope returns { status: "ok", data: { success, loaded,
+ * directory, reason, ... } } — all fields are flat inside `data`, there is
+ * NO nested `data` sub-object.  This helper mirrors that shape so the
+ * composable's reshape logic in postLoad is exercised correctly.
+ */
+function mockPost(flatPayload: Record<string, unknown>): void {
   (pluginExtensionApi.post as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-    data: { status: "ok", data: response },
+    data: { status: "ok", data: flatPayload },
   });
+}
+
+/** Build a success flat payload matching spcode _make_envelope output. */
+function successPayload(overrides: Record<string, unknown> = {}) {
+  return {
+    success: true,
+    loaded: true,
+    directory: "/abs/repo",
+    loaded_at: 1700000000,
+    umo: "u1",
+    skipped_substeps: [],
+    substep_messages: [],
+    reason: null,
+    stderr: "",
+    elapsed_ms: 100,
+    ...overrides,
+  };
+}
+
+/** Build a failure flat payload matching spcode _make_envelope output. */
+function failurePayload(
+  reason: string,
+  overrides: Record<string, unknown> = {},
+) {
+  return {
+    success: false,
+    loaded: false,
+    directory: "/abs/repo",
+    umo: "u1",
+    skipped_substeps: [],
+    substep_messages: [],
+    reason,
+    stderr: "",
+    elapsed_ms: 1,
+    ...overrides,
+  };
 }
 
 beforeEach(() => {
@@ -61,18 +104,7 @@ describe("useSpcodeProjectAutoLoad", () => {
   });
 
   it("FT-3: success returns data and posts exactly once", async () => {
-    mockPost({
-      success: true,
-      reason: null,
-      elapsed_ms: 100,
-      data: {
-        loaded: true,
-        directory: "/abs/repo",
-        umo: "u1",
-        skipped_substeps: [],
-        substep_messages: [],
-      },
-    });
+    mockPost(successPayload());
     const { silentLoad } = useSpcodeProjectAutoLoad();
     const r = await silentLoad({ project: baseProject, umo: "u1" });
     expect(r?.loaded).toBe(true);
@@ -80,19 +112,11 @@ describe("useSpcodeProjectAutoLoad", () => {
   });
 
   it("FT-4: no_project_loaded + matching directory is treated as success", async () => {
-    mockPost({
-      success: false,
-      reason: "no_project_loaded",
-      elapsed_ms: 1,
-      data: {
-        loaded: false,
-        directory: "/abs/repo",
-        umo: "u1",
-        skipped_substeps: [],
-        substep_messages: [],
+    mockPost(
+      failurePayload("no_project_loaded", {
         previous_directory: "/abs/repo",
-      },
-    });
+      }),
+    );
     const { silentLoad } = useSpcodeProjectAutoLoad();
     const r = await silentLoad({ project: baseProject, umo: "u1" });
     expect(r?.loaded).toBe(true);
@@ -100,31 +124,12 @@ describe("useSpcodeProjectAutoLoad", () => {
   });
 
   it("FT-5: no_project_loaded + mismatch + spcode_force=true retries with force", async () => {
-    mockPost({
-      success: false,
-      reason: "no_project_loaded",
-      elapsed_ms: 1,
-      data: {
-        loaded: false,
-        directory: "/abs/repo",
-        umo: "u1",
-        skipped_substeps: [],
-        substep_messages: [],
+    mockPost(
+      failurePayload("no_project_loaded", {
         previous_directory: "/old",
-      },
-    });
-    mockPost({
-      success: true,
-      reason: null,
-      elapsed_ms: 100,
-      data: {
-        loaded: true,
-        directory: "/abs/repo",
-        umo: "u1",
-        skipped_substeps: [],
-        substep_messages: [],
-      },
-    });
+      }),
+    );
+    mockPost(successPayload());
     const { silentLoad } = useSpcodeProjectAutoLoad();
     const r = await silentLoad({
       project: { ...baseProject, spcode_force: true },
@@ -132,8 +137,6 @@ describe("useSpcodeProjectAutoLoad", () => {
     });
     expect(r?.loaded).toBe(true);
     expect(pluginExtensionApi.post).toHaveBeenCalledTimes(2);
-    // pluginExtensionApi.post signature is (pluginPath, data?, config?)
-    // The 2nd arg is the body.
     const secondCall = (
       pluginExtensionApi.post as ReturnType<typeof vi.fn>
     ).mock.calls[1];
@@ -141,19 +144,11 @@ describe("useSpcodeProjectAutoLoad", () => {
   });
 
   it("FT-6: no_project_loaded + mismatch + spcode_force=false throws", async () => {
-    mockPost({
-      success: false,
-      reason: "no_project_loaded",
-      elapsed_ms: 1,
-      data: {
-        loaded: false,
-        directory: "/abs/repo",
-        umo: "u1",
-        skipped_substeps: [],
-        substep_messages: [],
+    mockPost(
+      failurePayload("no_project_loaded", {
         previous_directory: "/old",
-      },
-    });
+      }),
+    );
     const { silentLoad } = useSpcodeProjectAutoLoad();
     await expect(
       silentLoad({ project: baseProject, umo: "u1" }),
@@ -161,18 +156,11 @@ describe("useSpcodeProjectAutoLoad", () => {
   });
 
   it("FT-7: git_error throws ProjectLoadError with reason git_error", async () => {
-    mockPost({
-      success: false,
-      reason: "git_error",
-      elapsed_ms: 1,
-      data: {
-        loaded: false,
-        directory: "/abs/repo",
-        umo: "u1",
-        skipped_substeps: [],
+    mockPost(
+      failurePayload("git_error", {
         substep_messages: ["ERR [2/3] codegraph init failed"],
-      },
-    });
+      }),
+    );
     const { silentLoad } = useSpcodeProjectAutoLoad();
     await expect(
       silentLoad({ project: baseProject, umo: "u1" }),
@@ -180,18 +168,7 @@ describe("useSpcodeProjectAutoLoad", () => {
   });
 
   it("FT-8: feature_disabled throws ProjectLoadError with that reason", async () => {
-    mockPost({
-      success: false,
-      reason: "feature_disabled",
-      elapsed_ms: 1,
-      data: {
-        loaded: false,
-        directory: "/abs/repo",
-        umo: "u1",
-        skipped_substeps: [],
-        substep_messages: [],
-      },
-    });
+    mockPost(failurePayload("feature_disabled"));
     const { silentLoad } = useSpcodeProjectAutoLoad();
     await expect(
       silentLoad({ project: baseProject, umo: "u1" }),
@@ -215,18 +192,7 @@ describe("useSpcodeProjectAutoLoad", () => {
     resolveFirst({
       data: {
         status: "ok",
-        data: {
-          success: true,
-          reason: null,
-          elapsed_ms: 1,
-          data: {
-            loaded: true,
-            directory: "/abs/repo",
-            umo: "u1",
-            skipped_substeps: [],
-            substep_messages: [],
-          },
-        },
+        data: successPayload(),
       },
     });
     const [r1, r2] = await Promise.all([p1, p2]);
@@ -243,18 +209,7 @@ describe("useSpcodeProjectAutoLoad", () => {
           resolveFirst = resolve;
         }),
     );
-    mockPost({
-      success: true,
-      reason: null,
-      elapsed_ms: 1,
-      data: {
-        loaded: true,
-        directory: "/b",
-        umo: "u1",
-        skipped_substeps: [],
-        substep_messages: [],
-      },
-    });
+    mockPost(successPayload({ directory: "/b" }));
     const { silentLoad } = useSpcodeProjectAutoLoad();
     const p1 = silentLoad({ project: baseProject, umo: "u1" });
     const p2 = silentLoad({
@@ -265,18 +220,7 @@ describe("useSpcodeProjectAutoLoad", () => {
     resolveFirst({
       data: {
         status: "ok",
-        data: {
-          success: true,
-          reason: null,
-          elapsed_ms: 1,
-          data: {
-            loaded: true,
-            directory: "/a",
-            umo: "u1",
-            skipped_substeps: [],
-            substep_messages: [],
-          },
-        },
+        data: successPayload({ directory: "/a" }),
       },
     });
     await Promise.all([p1, p2]);
@@ -286,7 +230,11 @@ describe("useSpcodeProjectAutoLoad", () => {
     (
       pluginExtensionApi.post as ReturnType<typeof vi.fn>
     ).mockImplementationOnce(
-      (path: string, _data: unknown, config?: { signal?: AbortSignal }) =>
+      (
+        _path: string,
+        _data: unknown,
+        config?: { signal?: AbortSignal },
+      ) =>
         new Promise((_resolve, reject) => {
           config?.signal?.addEventListener("abort", () => {
             const err = new Error("aborted");
