@@ -12,6 +12,8 @@
         class="message-row"
         :class="[
           isUserMessage(msg) ? 'from-user' : 'from-bot',
+        ]"
+        :data-message-index="msgIndex"
           {
             'branch-divider-row': isBranchDivider(msg),
             'inherited-row': isInheritedMessage(msgIndex),
