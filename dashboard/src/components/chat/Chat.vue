@@ -1575,6 +1575,23 @@ watch(
   },
 );
 
+// 2026-07-28 (elecvoid243): also react to the scrollToIndex query alone.
+// The params watcher above only fires when the conversation changes, so
+// clicking a search result that lives in the *currently open* session would
+// update the query but never scroll. This watcher closes that gap. It is
+// safe alongside the params watcher because scrollToMessageFromQuery() is a
+// no-op when there is no index and clears the query when done (so removing
+// the index re-triggers this watcher with an empty value and returns early,
+// with no recursion or double-scroll).
+watch(
+  () => route.query.scrollToIndex,
+  (idx) => {
+    if (idx != null && idx !== "") {
+      void scrollToMessageFromQuery();
+    }
+  },
+);
+
 watch(activeMessages, () => {
   if (shouldStickToBottom.value) {
     scrollToBottom();
