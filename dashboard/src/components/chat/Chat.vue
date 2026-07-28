@@ -766,6 +766,12 @@
       :is-dark="isDark"
       @fullscreen-change="gitDiffFullscreen = $event"
     />
+    <WorkspaceFilesPanel
+      :model-value="chatHeader.workspaceFilesOpen"
+      :project-id="activeProject?.project_id || ''"
+      :project-title="activeProject?.title || ''"
+      @update:model-value="chatHeader.SET_WORKSPACE_FILES_OPEN"
+    />
   </div>
 
 <ChatMessageSearchDialog v-model="searchDialogOpen" />
@@ -823,6 +829,7 @@ import ChatUILogo from "@/components/chat/ChatUILogo.vue";
 import type { RegenerateModelSelection } from "@/components/chat/RegenerateMenu.vue";
 import ReasoningSidebar from "@/components/chat/ReasoningSidebar.vue";
 import ThreadPanel from "@/components/chat/ThreadPanel.vue";
+import WorkspaceFilesPanel from "@/components/chat/WorkspaceFilesPanel.vue";
 import RefsSidebar from "@/components/chat/message_list_comps/RefsSidebar.vue";
 import TodoSidebar from "@/components/chat/message_list_comps/TodoSidebar.vue";
 import GitDiffSidebar from "@/components/chat/GitDiffSidebar.vue";
@@ -1412,6 +1419,14 @@ const selectedProject = computed(
       (project) => project.project_id === selectedProjectId.value,
     ) || null,
 );
+const activeProject = computed(() => {
+  if (isProviderWorkspace.value) return null;
+  if (selectedProject.value) return selectedProject.value;
+  const projectId = sessionProject.value?.project_id;
+  return (
+    projects.value.find((project) => project.project_id === projectId) || null
+  );
+});
 const isEmptyChat = computed(
   () =>
     !isProviderWorkspace.value &&
@@ -1518,11 +1533,31 @@ async function scrollToMessageFromQuery() {
 }
 
 watch(
-  [chatHeaderTitle, chatHeaderSubtitle],
-  ([title, subtitle]) => {
-    chatHeader.SET_CONTEXT({ title, subtitle });
+  [chatHeaderTitle, chatHeaderSubtitle, activeProject],
+  ([title, subtitle, project]) => {
+    chatHeader.SET_CONTEXT({
+      title,
+      subtitle,
+      projectId: project?.project_id,
+    });
   },
   { immediate: true },
+);
+
+watch(
+  () => chatHeader.workspaceFilesOpen,
+  (open) => {
+    if (!open) return;
+    threadSelection.visible = false;
+    threadPanelOpen.value = false;
+    activeThread.value = null;
+    reasoningPanelOpen.value = false;
+    activeReasoningTarget.value = null;
+    refsSidebarOpen.value = false;
+    selectedRefs.value = null;
+    todoSidebarOpen.value = false;
+    gitDiffSidebarOpen.value = false;
+  },
 );
 
 onMounted(async () => {
@@ -1816,6 +1851,7 @@ function closeSecondaryPanels() {
   activeReasoningTarget.value = null;
   refsSidebarOpen.value = false;
   selectedRefs.value = null;
+  chatHeader.SET_WORKSPACE_FILES_OPEN(false);
 }
 
 function showChatWorkspace() {
@@ -2492,11 +2528,12 @@ async function handleRegenerateMessage(
 ) {
   if (!currSessionId.value || isUserMessage(message)) return;
   message.threads = [];
+  const effectiveSelection = selection ?? getSelectedProviderSelection();
   await regenerateMessage(
     currSessionId.value,
     message,
-    selection?.providerId || "",
-    selection?.modelName || "",
+    effectiveSelection?.providerId || "",
+    effectiveSelection?.modelName || "",
     enableStreaming.value,
   );
 }
@@ -2597,6 +2634,7 @@ async function createThreadFromSelection() {
 }
 
 function openThreadPanel(thread: ChatThread) {
+  chatHeader.SET_WORKSPACE_FILES_OPEN(false);
   reasoningPanelOpen.value = false;
   activeReasoningTarget.value = null;
   refsSidebarOpen.value = false;
@@ -2605,6 +2643,7 @@ function openThreadPanel(thread: ChatThread) {
 }
 
 function openRefsSidebar(refs: unknown) {
+  chatHeader.SET_WORKSPACE_FILES_OPEN(false);
   threadPanelOpen.value = false;
   activeThread.value = null;
   reasoningPanelOpen.value = false;
@@ -2618,6 +2657,7 @@ function openReasoningPanel(payload: {
   message: ChatRecord;
   blockIndex: number;
 }) {
+  chatHeader.SET_WORKSPACE_FILES_OPEN(false);
   threadPanelOpen.value = false;
   activeThread.value = null;
   refsSidebarOpen.value = false;
@@ -2632,6 +2672,7 @@ function openGitDiffSidebar(): void {
   // Mutual exclusion: close every other sidebar before opening the
   // Git Diff sidebar. The watch in GitDiffSidebar will also auto-close
   // the sidebar when the underlying spcode project is unloaded.
+  chatHeader.SET_WORKSPACE_FILES_OPEN(false);
   threadPanelOpen.value = false;
   activeThread.value = null;
   reasoningPanelOpen.value = false;

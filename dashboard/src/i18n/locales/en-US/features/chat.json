@@ -248,6 +248,24 @@
       "errorGeneric": "Project load failed: {reason}"
     }
   },
+  "workspaceFiles": {
+    "title": "Workspace Files",
+    "open": "Open workspace files",
+    "close": "Close workspace files",
+    "refresh": "Refresh file tree",
+    "filter": "Filter files...",
+    "clearFilter": "Clear file filter",
+    "empty": "This workspace is empty",
+    "noMatches": "No matching files",
+    "loadFailed": "Failed to load workspace files",
+    "previewFailed": "Failed to read this file",
+    "tooLarge": "This file is too large to preview",
+    "download": "Download file",
+    "downloadFailed": "Failed to download this file",
+    "dialogPreview": "Open larger preview",
+    "closePreview": "Close file preview",
+    "closeDialogPreview": "Close larger preview"
+  },
   "time": {
     "today": "Today",
     "yesterday": "Yesterday"
