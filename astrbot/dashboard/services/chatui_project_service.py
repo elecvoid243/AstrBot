@@ -5,7 +5,7 @@ import os
 from astrbot.core.db import BaseDatabase
 from astrbot.core.utils.datetime_utils import to_utc_isoformat
 from astrbot.core.workspace import (
-    WORKSPACE_TYPE_CUSTOM,
+    WORKSPACE_TYPE_PROJECT,
     WORKSPACE_TYPE_SESSION,
     normalize_project_workspace_type,
     normalize_workspace_path,
@@ -27,6 +27,9 @@ class ChatUIProjectService:
         title = payload.get("title")
         emoji = payload.get("emoji", "📁")
         description = payload.get("description")
+        spcode_auto_load = bool(payload.get("spcode_auto_load", True))
+        spcode_force = bool(payload.get("spcode_force", False))
+        spcode_no_codegraph = bool(payload.get("spcode_no_codegraph", False))
         workspace_type, workspace_path = self._normalize_workspace_config(payload)
 
         if not title:
@@ -39,6 +42,9 @@ class ChatUIProjectService:
             description=description,
             workspace_type=workspace_type,
             workspace_path=workspace_path,
+            spcode_auto_load=spcode_auto_load,
+            spcode_force=spcode_force,
+            spcode_no_codegraph=spcode_no_codegraph,
         )
         return self._serialize_project(project)
 
@@ -82,6 +88,9 @@ class ChatUIProjectService:
             description=payload.get("description"),
             workspace_type=workspace_type,
             workspace_path=workspace_path,
+            spcode_auto_load=payload.get("spcode_auto_load"),
+            spcode_force=payload.get("spcode_force"),
+            spcode_no_codegraph=payload.get("spcode_no_codegraph"),
         )
 
     async def delete_project(self, username: str, project_id: str | None) -> None:
@@ -185,6 +194,9 @@ class ChatUIProjectService:
             "workspace_type": workspace_type,
             "workspace_path": workspace_path,
             "resolved_workspace_path": resolved_workspace_path,
+            "spcode_auto_load": bool(getattr(project, "spcode_auto_load", True)),
+            "spcode_force": bool(getattr(project, "spcode_force", False)),
+            "spcode_no_codegraph": bool(getattr(project, "spcode_no_codegraph", False)),
             "created_at": to_utc_isoformat(project.created_at),
             "updated_at": to_utc_isoformat(project.updated_at),
         }
@@ -223,20 +235,39 @@ class ChatUIProjectService:
             Normalized workspace type and path.
 
         Raises:
-            ChatUIProjectServiceError: If a custom workspace has no usable path.
+            ChatUIProjectServiceError: If a custom or project workspace has no
+                usable path, or the project path does not exist / is not a
+                directory.
         """
         workspace_type = normalize_project_workspace_type(
             payload.get("workspace_type", fallback_type or WORKSPACE_TYPE_SESSION)
         )
         raw_path = payload.get("workspace_path", fallback_path)
         workspace_path = normalize_workspace_path(raw_path)
-        if workspace_type != WORKSPACE_TYPE_CUSTOM:
+
+        if workspace_type == WORKSPACE_TYPE_SESSION:
             workspace_path = None
             return workspace_type, workspace_path
 
+        if workspace_type == WORKSPACE_TYPE_PROJECT:
+            # project 类型用于 spcode 集成:路径必须存在且为目录
+            if not workspace_path:
+                raise ChatUIProjectServiceError("Project workspace requires a path")
+            try:
+                workspace_root = workspace_path_to_root(workspace_path)
+            except ValueError as exc:
+                raise ChatUIProjectServiceError(str(exc)) from exc
+            if not workspace_root.exists():
+                raise ChatUIProjectServiceError("Project workspace path does not exist")
+            if not workspace_root.is_dir():
+                raise ChatUIProjectServiceError(
+                    "Project workspace path must be a directory"
+                )
+            return workspace_type, workspace_path
+
+        # workspace_type == WORKSPACE_TYPE_CUSTOM
         if not workspace_path:
             raise ChatUIProjectServiceError("Custom workspace requires a path")
-
         try:
             workspace_root = workspace_path_to_root(workspace_path)
         except ValueError as exc:

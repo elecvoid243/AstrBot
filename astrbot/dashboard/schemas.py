@@ -97,6 +97,9 @@ class ChatProjectRequest(OpenModel):
     description: str | None = None
     workspace_type: str | None = None
     workspace_path: str | None = None
+    spcode_auto_load: bool | None = None
+    spcode_force: bool | None = None
+    spcode_no_codegraph: bool | None = None
 
 
 class ChatProjectSessionRequest(OpenModel):

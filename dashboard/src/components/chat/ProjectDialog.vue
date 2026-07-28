@@ -12,8 +12,29 @@
                 <v-divider class="my-4" />
                 <v-select v-model="form.workspace_type" :items="workspaceTypeItems" item-title="label" item-value="value"
                     :label="tm('project.workspace.type')" variant="outlined" hide-details class="mb-3" />
-                <v-text-field v-if="form.workspace_type === 'custom'" v-model="form.workspace_path"
-                    :label="tm('project.workspace.path')" variant="outlined" hide-details class="mb-1" />
+                <v-text-field
+                    v-if="form.workspace_type !== 'session'"
+                    v-model="form.workspace_path"
+                    :label="tm('project.workspace.path')"
+                    variant="outlined"
+                    hide-details
+                    class="mb-1"
+                    persistent-hint
+                    :hint="form.workspace_type === 'project' ? tm('project.spcode.pathHint') : ''"
+                />
+                <v-divider v-if="form.workspace_type === 'project'" class="my-4" />
+                <div v-if="form.workspace_type === 'project'" class="spcode-section">
+                    <div class="spcode-section-title">{{ tm('project.spcode.sectionTitle') }}</div>
+                    <v-switch v-model="form.spcode_auto_load" :label="tm('project.spcode.autoLoad')" color="primary"
+                        density="comfortable" hide-details class="mb-2" />
+                    <div class="spcode-section-hint">{{ tm('project.spcode.autoLoadHint') }}</div>
+                    <v-switch v-model="form.spcode_force" :label="tm('project.spcode.force')" color="primary"
+                        density="comfortable" hide-details class="mb-2 mt-3" />
+                    <div class="spcode-section-hint">{{ tm('project.spcode.forceHint') }}</div>
+                    <v-switch v-model="form.spcode_no_codegraph" :label="tm('project.spcode.noCodegraph')" color="primary"
+                        density="comfortable" hide-details class="mb-2 mt-3" />
+                    <div class="spcode-section-hint">{{ tm('project.spcode.noCodegraphHint') }}</div>
+                </div>
                 <v-alert
                     v-if="props.errorMessage"
                     class="mt-3"
@@ -47,6 +68,9 @@ export interface Project {
     workspace_type?: WorkspaceType;
     workspace_path?: string | null;
     resolved_workspace_path?: string | null;
+    spcode_auto_load?: boolean;
+    spcode_force?: boolean;
+    spcode_no_codegraph?: boolean;
     created_at: string;
     updated_at: string;
 }
@@ -57,6 +81,9 @@ export interface ProjectFormData {
     description: string;
     workspace_type: WorkspaceType;
     workspace_path: string;
+    spcode_auto_load?: boolean;
+    spcode_force?: boolean;
+    spcode_no_codegraph?: boolean;
 }
 
 interface Props {
@@ -88,7 +115,10 @@ const form = ref<ProjectFormData>({
     title: '',
     description: '',
     workspace_type: 'project',
-    workspace_path: ''
+    workspace_path: '',
+    spcode_auto_load: true,
+    spcode_force: false,
+    spcode_no_codegraph: false,
 });
 const workspaceTypeItems = computed(() => [
     { label: tm('project.workspace.project'), value: 'project' },
@@ -97,7 +127,8 @@ const workspaceTypeItems = computed(() => [
 ]);
 const canSave = computed(() => {
     if (!form.value.title.trim()) return false;
-    if (form.value.workspace_type !== 'custom') return true;
+    if (form.value.workspace_type === 'session') return true;
+    // project / custom both require non-empty path
     return form.value.workspace_path.trim().length > 0;
 });
 
@@ -111,7 +142,10 @@ watch(() => props.modelValue, (newVal) => {
                 title: props.project.title,
                 description: props.project.description || '',
                 workspace_type: props.project.workspace_type || 'session',
-                workspace_path: props.project.workspace_path || ''
+                workspace_path: props.project.workspace_path || '',
+                spcode_auto_load: props.project.spcode_auto_load !== false,
+                spcode_force: props.project.spcode_force === true,
+                spcode_no_codegraph: props.project.spcode_no_codegraph === true,
             };
         } else {
             isEditing.value = false;
@@ -120,14 +154,17 @@ watch(() => props.modelValue, (newVal) => {
                 title: '',
                 description: '',
                 workspace_type: 'project',
-                workspace_path: ''
+                workspace_path: '',
+                spcode_auto_load: true,
+                spcode_force: false,
+                spcode_no_codegraph: false,
             };
         }
     }
 });
 
 watch(() => form.value.workspace_type, (workspaceType) => {
-    if (workspaceType !== 'custom') {
+    if (workspaceType === 'session') {
         form.value.workspace_path = '';
     }
 });
@@ -158,5 +195,22 @@ function handleSave() {
 .dialog-title {
     font-size: 22px;
     font-weight: 500;
+}
+
+.spcode-section {
+    margin-top: 4px;
+}
+.spcode-section-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: rgba(var(--v-theme-on-surface), 0.78);
+    margin-bottom: 8px;
+}
+.spcode-section-hint {
+    font-size: 12px;
+    color: rgba(var(--v-theme-on-surface), 0.56);
+    margin-top: -4px;
+    margin-bottom: 4px;
+    line-height: 1.4;
 }
 </style>

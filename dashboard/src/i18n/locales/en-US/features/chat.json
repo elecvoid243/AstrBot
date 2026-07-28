@@ -224,7 +224,29 @@
     "loadingSessions": "Loading conversations...",
     "noSessions": "No conversations in this project",
     "noProjects": "No projects",
-    "confirmDelete": "Are you sure you want to delete project \"{title}\"? Conversations in this project will not be deleted."
+    "confirmDelete": "Are you sure you want to delete project \"{title}\"? Conversations in this project will not be deleted.",
+    "spcode": {
+      "sectionTitle": "Code project integration (spcode)",
+      "path": "Code project root directory (absolute path)",
+      "pathHint": "Must be an absolute path to an existing directory. spcode will inject AGENTS.md and load codegraph in that directory.",
+      "autoLoad": "Silently load when opening a session",
+      "autoLoadHint": "When a session under this folder is opened/created, automatically call /project load (no chat history pollution).",
+      "force": "Force overwrite already-loaded project",
+      "forceHint": "If the current session has already loaded another directory via /project load, automatically switch.",
+      "noCodegraph": "Only load AGENTS.md (skip codegraph)",
+      "noCodegraphHint": "Lighter load: faster but no code graph index.",
+      "chipLoaded": "Loaded: {directory}",
+      "chipLoading": "Loading...",
+      "chipFailed": "Load failed",
+      "chipNoSession": "No session selected",
+      "chipDisabled": "spcode feature disabled",
+      "errorPathUnsafe": "Project path not allowed",
+      "errorFeatureDisabled": "spcode feature disabled, skipping auto-load",
+      "errorAlreadyLoaded": "Another project {previous} is already loaded, did not switch to {current}",
+      "errorGitError": "Project load failed, see status chip for details",
+      "errorNetwork": "spcode service not responding",
+      "errorGeneric": "Project load failed: {reason}"
+    }
   },
   "time": {
     "today": "Today",
