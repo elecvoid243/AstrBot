@@ -115,6 +115,19 @@ const iconInfo = computed(() =>
   props.isNewFile ? NEW_FILE_ICON : ICON_MAP[props.file.status],
 );
 
+/** Leaf label shown in the directory-tree row. Ancestor directories
+ *  are already rendered as parent nodes, so the leaf only needs the
+ *  bare filename; the full repo-relative path is still surfaced via
+ *  the row's `title` tooltip for disambiguation (e.g. two `README.md`
+ *  living under different dirs). Handles both POSIX `/` and Windows
+ *  `\` separators defensively. */
+const displayName = computed(() => {
+  const p = props.file.path;
+  const sep = p.includes("\\") ? "\\" : "/";
+  const idx = p.lastIndexOf(sep);
+  return idx === -1 ? p : p.slice(idx + 1);
+});
+
 const spcodeStatus = useSpcodeProjectStatus();
 /** Spec §6.2: button visible only when project is loaded + umo present. */
 const showRestoreButton = computed(() => {
@@ -198,7 +211,7 @@ function rowKey(): string {
         <v-icon v-if="isSelected" :size="14">mdi-check-bold</v-icon>
       </button>
       <v-icon :size="16" :color="iconInfo.color">{{ iconInfo.icon }}</v-icon>
-      <span class="git-diff-file-path">{{ file.path }}</span>
+      <span class="git-diff-file-path" :title="file.path">{{ displayName }}</span>
       <!-- Stats: diff rows show real additions/deletions from the
            patch. New-file stubs show +N −0 where N is the actual
            line count from the file-browser content cache
