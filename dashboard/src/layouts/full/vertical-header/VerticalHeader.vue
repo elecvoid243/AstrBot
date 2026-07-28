@@ -1147,8 +1147,18 @@ onMounted(async () => {
     </div>
 
     <div class="header-actions" :class="{ 'chat-header-actions': isChatPath }">
+      <!--
+        Workspace files panel toggle button - HIDDEN on this branch.
+        Reason: GitDiffSidebar (spcode-backed workspace preview) supersedes
+        upstream's WorkspaceFilesPanel for workspace inspection (#9432).
+        Kept here, reachable via the imported WorkspaceFilesPanel still
+        mounted in Chat.vue, so future upstream rebases can re-enable it
+        by reverting this v-if back to "isChatPath && chatHeader.projectId".
+        See commit "merge: integrate upstream/master v4.26.8 into all"
+        (e3c6c381c) on the all branch for context.
+      -->
       <v-btn
-        v-if="isChatPath && chatHeader.projectId"
+        v-if="false"
         class="chat-action-btn workspace-files-trigger"
         :class="{
           'workspace-files-trigger--active': chatHeader.workspaceFilesOpen,
