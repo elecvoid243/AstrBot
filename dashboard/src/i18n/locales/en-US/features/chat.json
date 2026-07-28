@@ -1109,5 +1109,16 @@
     "cancelled": "Cancelled",
     "cancel": "Cancel",
     "cancelAria": "Cancel this choice box"
+  },
+  "search": {
+    "title": "Search messages",
+    "placeholder": "Search conversation history...",
+    "loading": "Searching...",
+    "error": "Search failed, please try again",
+    "retry": "Retry",
+    "noResults": "No matching messages found",
+    "matches": "matches",
+    "prevPage": "Prev",
+    "nextPage": "Next"
   }
 }

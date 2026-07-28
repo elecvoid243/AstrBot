@@ -1142,5 +1142,16 @@
     "cancelled": "已取消",
     "cancel": "取消",
     "cancelAria": "取消此候选框"
+  },
+  "search": {
+    "title": "搜索消息",
+    "placeholder": "搜索历史消息...",
+    "loading": "搜索中...",
+    "error": "搜索失败，请稍后重试",
+    "retry": "重试",
+    "noResults": "未找到匹配的消息",
+    "matches": "条匹配",
+    "prevPage": "上一页",
+    "nextPage": "下一页"
   }
 }
