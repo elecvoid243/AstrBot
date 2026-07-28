@@ -795,6 +795,7 @@ import {
   Moon,
   PanelLeft,
   Pencil,
+  Search,
   Settings,
   SquarePen,
   Sun,
@@ -934,6 +935,7 @@ const editingProject = ref<Project | null>(null);
 const projectDialogError = ref("");
 const savingProject = ref(false);
 const sessionTitleDialogOpen = ref(false);
+const searchDialogOpen = ref(false);
 const sessionTitleDraft = ref("");
 const editingSessionTitleId = ref("");
 const refreshProjectSessionsAfterTitleSave = ref(false);
@@ -1493,6 +1495,20 @@ function getSelectedProviderSelection() {
 }
 
 provide("isDark", isDark);
+
+async function scrollToMessageFromQuery() {
+  const idxStr = route.query.scrollToIndex as string | undefined;
+  if (!idxStr) return;
+  const target = parseInt(idxStr, 10);
+  if (isNaN(target) || target < 0) return;
+  await nextTick();
+  await new Promise((r) => setTimeout(r, 300));
+  const el = document.querySelector(`[data-message-index="${target}"]`) as HTMLElement | null;
+  if (!el) return;
+  el.scrollIntoView({ block: "center" });
+  const { scrollToIndex: _, ...rest } = route.query;
+  router.replace({ query: rest });
+}
 
 watch(
   [chatHeaderTitle, chatHeaderSubtitle],

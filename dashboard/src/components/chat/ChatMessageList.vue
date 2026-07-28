@@ -10,10 +10,9 @@
         :key="msg.id || `${msgIndex}-${msg.created_at || ''}`"
         v-show="!isCollapsedInherited(msgIndex)"
         class="message-row"
+        :data-message-index="msgIndex"
         :class="[
           isUserMessage(msg) ? 'from-user' : 'from-bot',
-        ]"
-        :data-message-index="msgIndex"
           {
             'branch-divider-row': isBranchDivider(msg),
             'inherited-row': isInheritedMessage(msgIndex),

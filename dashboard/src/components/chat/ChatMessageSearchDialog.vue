@@ -72,7 +72,7 @@
 <script setup lang="ts">
 import { ref, watch, nextTick } from 'vue';
 import { useRouter } from 'vue-router';
-import { Search, X, ChevronDown } from 'lucide-vue-next';
+import { Search, X, ChevronDown } from "@lucide/vue";
 import { messageApi, type SearchConversation, type SearchMatch } from '@/api/messages';
 import { useModuleI18n } from '@/i18n/composables';
 
