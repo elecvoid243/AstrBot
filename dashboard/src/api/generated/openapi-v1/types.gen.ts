@@ -108,6 +108,9 @@ export type ChatProjectRequest = {
     description?: string;
     workspace_type?: 'session' | 'project' | 'custom';
     workspace_path?: string;
+    spcode_auto_load?: (boolean) | null;
+    spcode_force?: (boolean) | null;
+    spcode_no_codegraph?: (boolean) | null;
 };
 
 export type workspace_type = 'session' | 'project' | 'custom';

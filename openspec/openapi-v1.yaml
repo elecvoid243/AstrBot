@@ -5527,6 +5527,18 @@ components:
           enum: [session, project, custom]
         workspace_path:
           type: string
+        spcode_auto_load:
+          type: boolean
+          nullable: true
+          default: true
+        spcode_force:
+          type: boolean
+          nullable: true
+          default: false
+        spcode_no_codegraph:
+          type: boolean
+          nullable: true
+          default: false
       additionalProperties: false
 
     MessagePart:
