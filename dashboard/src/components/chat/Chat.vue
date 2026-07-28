@@ -407,6 +407,7 @@
         v-else-if="selectedProject"
         :project="selectedProject"
         :sessions="projectSessions"
+        :umo="currentUmo"
         @select-session="selectProjectSession"
         @edit-session-title="editProjectSessionTitle"
         @delete-session="deleteProjectSession"
@@ -792,6 +793,10 @@ import {
 } from "@lucide/vue";
 import { chatApi, providerApi } from "@/api/v1";
 import { useSpcodeProjectStatus } from "@/composables/useSpcodeProjectStatus";
+import {
+  useSpcodeProjectAutoLoad,
+  ProjectLoadError,
+} from "@/composables/useSpcodeProjectAutoLoad";
 import { useSpcodeCodegraphStatus } from "@/composables/useSpcodeCodegraphStatus";
 import { useSpcodeVivadoStatus } from "@/composables/useSpcodeVivadoStatus";
 import { useSpcodePlanMode } from "@/composables/useSpcodePlanMode";
@@ -863,6 +868,7 @@ const { tm } = useModuleI18n("features/chat");
 // apply updates and so the refresh-on-session-change handler can call
 // the plugin's HTTP API.
 const spcodeStatus = useSpcodeProjectStatus();
+const { silentLoad } = useSpcodeProjectAutoLoad();
 const codegraphStatus = useSpcodeCodegraphStatus();
 const vivadoStatus = useSpcodeVivadoStatus();
 // Plan/build mode singleton. Mirrors the spcodeStatus lifecycle so
@@ -1612,6 +1618,55 @@ watch(
   },
   { immediate: true },
 );
+
+// spcode auto-load: when the active project is 'project' type and the
+// session changes, silently trigger spcode load (does not pollute
+// chat history). On success, refresh the chip; on failure, toast only —
+// never block chat.
+async function tryAutoLoadSpcodeForSession(umo: string): Promise<void> {
+  const project = selectedProject.value;
+  if (!project) return;
+  if (project.workspace_type !== "project") return;
+  if (project.spcode_auto_load === false) return;
+  if (!project.workspace_path) return;
+
+  try {
+    const data = await silentLoad({ project, umo });
+    if (data?.loaded) {
+      await spcodeStatus.refresh(umo);
+    }
+  } catch (err) {
+    if (err instanceof ProjectLoadError) {
+      const reason = err.reason;
+      let msg = tm("project.spcode.errorGeneric", { reason });
+      if (reason === "feature_disabled") {
+        msg = tm("project.spcode.errorFeatureDisabled");
+      } else if (reason === "no_project_loaded") {
+        msg = tm("project.spcode.errorAlreadyLoaded", {
+          previous: err.data.previous_directory ?? "?",
+          current: err.data.directory ?? "?",
+        });
+      } else if (reason === "path_unsafe") {
+        msg = tm("project.spcode.errorPathUnsafe");
+      } else if (reason === "git_error") {
+        msg = tm("project.spcode.errorGitError");
+      } else if (reason === "network_timeout") {
+        msg = tm("project.spcode.errorNetwork");
+      }
+      toast.error(msg);
+    } else {
+      console.warn("[spcode auto-load] unexpected error:", err);
+      toast.error(tm("project.spcode.errorNetwork"));
+    }
+  }
+}
+
+watch(currSessionId, (next) => {
+  if (!next) return;
+  const umo = resolveCurrentUmo(next);
+  if (!umo) return;
+  void tryAutoLoadSpcodeForSession(umo);
+});
 
 /**
  * Build the unified message origin (umo) string for a session id,
