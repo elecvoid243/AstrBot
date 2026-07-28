@@ -9,7 +9,15 @@
 // the spcode v2.21.1 git-status endpoint started returning recursive
 // untracked paths (see webapi-git-status-api.md §6), the UI had no
 // matching way to render the tree — this module fills that gap by
-// splitting each path on the first `/` and recursing into the tail.
+// folding each file into one section per ancestor directory.
+//
+// 2026-07-28 (rev): switched from a strip-as-you-recurse bucket
+// pass to a fold-over-full-paths pass. The earlier design mutated
+// `file.path` (stripped the ancestor prefix) so selection sets,
+// stage/unstage/restore calls, and new-file lookups all received
+// truncated paths the backend could not resolve. The fold keeps
+// `file.path` verbatim (full repo-relative POSIX path) and records
+// section membership by directory prefix instead.
 //
 // Pure function (no Vue, no axios) so it is unit-testable under
 // `node --test` (see tests/buildDirectorySections.test.mjs).
@@ -34,7 +42,9 @@ export interface DiffSection {
   additions: number;
   /** Direct-file-only deletions. */
   deletions: number;
-  /** Files that directly live in this section (no '/' in path). */
+  /** Files that directly live in this section. Paths are verbatim
+   *  repo-relative (NOT stripped) so selection / stage / restore /
+   *  new-file lookups can round-trip to the backend unchanged. */
   files: SpcodeGitDiffFile[];
   /** Sub-directory sections, recursively the same shape. */
   children: DiffSection[];
@@ -49,35 +59,24 @@ function scopeBadge(scope: GitDiffScope): DiffSection["badgeKind"] {
   return "unstaged";
 }
 
-/** Sum additions/deletions across a list of direct files. */
-function sumStats(files: SpcodeGitDiffFile[]): {
-  additions: number;
-  deletions: number;
-} {
-  let additions = 0;
-  let deletions = 0;
-  for (const f of files) {
-    additions += f.additions;
-    deletions += f.deletions;
-  }
-  return { additions, deletions };
-}
-
 /**
- * Group a flat file list into a tree of `DiffSection` by recursively
- * splitting on the first `/` of each path. Bucket insertion order is
- * preserved (= first-seen order in `list`), matching the previous
- * flat-section behavior so the user sees the same diff sequence.
+ * Group a flat file list into a tree of `DiffSection` by folding
+ * each file into one section per ancestor directory. Bucket
+ * first-seen order is preserved (= the order files appear in
+ * `list`), matching the previous flat-section behavior so the user
+ * sees the same diff sequence.
  *
- * Algorithm:
- *   - Empty list → [].
- *   - If every file has no '/' (all leaves), emit a single section:
- *       - parentPath === "" → synthetic "<root>" section.
- *       - parentPath !== "" → section at parentPath containing all files.
- *   - Otherwise, bucket the list by its first '/'-segment; for each
- *     (head, items) bucket, recurse with the stripped paths. The
- *     recursion naturally terminates because each recursion peels
- *     off at least one '/'.
+ * Args:
+ *   list:       flat list of files in any scope.
+ *   parentPath: accumulated ancestor path; "" means the repo root.
+ *               When non-empty, every input file is treated as
+ *               living under parentPath (the prefix is prepended
+ *               before folding) and the single parentPath section
+ *               is returned.
+ *   scope:      active diff scope, drives the per-section badge.
+ *
+ * Returns:
+ *   DiffSection[] of (possibly empty) sections. Empty list → [].
  *
  * Idempotent: same input → same output, including ids. No exceptions
  * are thrown on any well-formed input.
@@ -89,84 +88,108 @@ export function buildDirectorySections(
 ): DiffSection[] {
   if (list.length === 0) return [];
 
-  // All-leaf shortcut: emit one section without splitting.
-  const allLeaves = list.every((f) => !f.path.includes("/"));
-  if (allLeaves) {
-    const { additions, deletions } = sumStats(list);
-    if (parentPath === "") {
-      return [
-        {
-          id: "dir:",
-          label: "<root>",
-          fullPath: "",
-          fileCount: list.length,
-          additions,
-          deletions,
-          files: list,
-          children: [],
-          badgeKind: scopeBadge(scope),
-        },
-      ];
+  // When a non-empty parentPath is supplied, re-anchor every file
+  // under it so the fold below produces the expected single
+  // section at parentPath.
+  const anchored =
+    parentPath === ""
+      ? list
+      : list.map((f) => ({ ...f, path: `${parentPath}/${f.path}` }));
+
+  // filesByDir: full dir path → files directly inside it.
+  // childDirsByDir: full dir path → set of direct child dir paths.
+  // dirOrder: first-seen order of directories (drives section order).
+  const filesByDir = new Map<string, SpcodeGitDiffFile[]>();
+  const childDirsByDir = new Map<string, Set<string>>();
+  const dirOrder: string[] = [];
+  const ensureDir = (dir: string): void => {
+    if (!filesByDir.has(dir)) {
+      filesByDir.set(dir, []);
+      dirOrder.push(dir);
     }
-    return [
-      {
-        id: `dir:${parentPath}`,
-        label: parentPath.slice(parentPath.lastIndexOf("/") + 1),
-        fullPath: parentPath,
-        fileCount: list.length,
-        additions,
-        deletions,
-        files: list,
-        children: [],
-        badgeKind: scopeBadge(scope),
-      },
-    ];
+  };
+  for (const f of anchored) {
+    const dir = f.path.includes("/")
+      ? f.path.slice(0, f.path.lastIndexOf("/"))
+      : "";
+    ensureDir(dir);
+    filesByDir.get(dir)!.push(f);
+    if (!dir) continue;
+    // Register every ancestor dir and its direct child.
+    const segs = dir.split("/");
+    for (let i = 0; i < segs.length; i++) {
+      const anc = segs.slice(0, i).join("/");
+      const child = segs.slice(0, i + 1).join("/");
+      ensureDir(anc);
+      let children = childDirsByDir.get(anc);
+      if (!children) {
+        children = new Set();
+        childDirsByDir.set(anc, children);
+      }
+      children.add(child);
+    }
   }
 
-  // Mixed leaves + nested: bucket by first '/'-segment and recurse.
-  // The current section is `parentPath`. Its direct files are
-  // items that have no '/' (handled by the recursion's leaf path).
-  // The buckets' recursion returns nested sections.
-  const directFiles = list.filter((f) => !f.path.includes("/"));
-  const nested = list.filter((f) => f.path.includes("/"));
-  const buckets = new Map<string, SpcodeGitDiffFile[]>();
-  for (const f of nested) {
-    const slash = f.path.indexOf("/");
-    const head = f.path.slice(0, slash);
-    const rest = f.path.slice(slash + 1);
-    // Spread to avoid mutating the caller's array; the recursive
-    // call will peel off the next segment from `rest`.
-    const bucket = buckets.get(head) ?? [];
-    bucket.push({ ...f, path: rest });
-    buckets.set(head, bucket);
+  // Materialise sections in first-seen order.
+  const sectionsByDir = new Map<string, DiffSection>();
+  for (const dir of dirOrder) {
+    const files = filesByDir.get(dir)!;
+    let additions = 0;
+    let deletions = 0;
+    for (const f of files) {
+      additions += f.additions;
+      deletions += f.deletions;
+    }
+    sectionsByDir.set(dir, {
+      id: `dir:${dir}`,
+      label: dir === "" ? "<root>" : dir.slice(dir.lastIndexOf("/") + 1),
+      fullPath: dir,
+      fileCount: files.length,
+      additions,
+      deletions,
+      files,
+      children: [],
+      badgeKind: scopeBadge(scope),
+    });
   }
-  const children: DiffSection[] = [];
-  for (const [head, items] of buckets) {
-    const childPath = parentPath ? `${parentPath}/${head}` : head;
-    children.push(...buildDirectorySections(items, childPath, scope));
+  // Attach children (order within a parent follows first-seen dir
+  // order, matching the previous flat behavior). The synthetic
+  // <root> section (dir === "") is NOT a tree parent: it is a flat
+  // bucket of repo-root files, so top-level directories stay its
+  // siblings rather than being duplicated underneath it.
+  for (const dir of dirOrder) {
+    if (dir === "") continue;
+    const childSet = childDirsByDir.get(dir);
+    if (!childSet) continue;
+    const parent = sectionsByDir.get(dir)!;
+    for (const child of childSet) {
+      parent.children.push(sectionsByDir.get(child)!);
+    }
   }
-  // Edge case: top-level call with no direct files and only nested
-  // items. In that case there is no real "root" directory to
-  // represent — promote the children up to the top level so we
-  // don't show a synthetic "<root>" wrapper with no files of its
-  // own. (Recursive calls always emit their section because the
-  // parent explicitly asked for it.)
-  if (parentPath === "" && directFiles.length === 0) {
-    return children;
+
+  // Re-anchored recursion: return just the parentPath section.
+  if (parentPath !== "") {
+    const sec = sectionsByDir.get(parentPath);
+    return sec ? [sec] : [];
   }
-  const { additions, deletions } = sumStats(directFiles);
-  const section: DiffSection = {
-    id: `dir:${parentPath}`,
-    label: parentPath === "" ? "<root>" : parentPath.slice(parentPath.lastIndexOf("/") + 1),
-    fullPath: parentPath,
-    fileCount: directFiles.length,
-    additions,
-    deletions,
-    files: directFiles,
-    children,
-    badgeKind: scopeBadge(scope),
-  };
-  return [section];
+
+  // Top-level sections: the synthetic <root> (only when it has
+  // direct files) plus every dir with no '/' in its path. Dirs
+  // that are only ancestors (no direct files) still appear here —
+  // they are the real top-level directories the user expects.
+  const top: DiffSection[] = [];
+  for (const dir of dirOrder) {
+    if (dir === "") {
+      if (filesByDir.get(dir)!.length > 0) {
+        top.push(sectionsByDir.get(dir)!);
+      }
+      continue;
+    }
+    if (!dir.includes("/")) {
+      top.push(sectionsByDir.get(dir)!);
+    }
+  }
+  return top;
 }
 
 /**

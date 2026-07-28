@@ -32,6 +32,8 @@ const props = defineProps<{
   isDiscardableFor: (f: SpcodeGitDiffFile) => boolean;
   isSectionFullySelected: (s: DiffSection) => boolean;
   isSectionPartiallySelected: (s: DiffSection) => boolean;
+  /** Set of `${file.path}#${hunkIndex}` keys currently in flight. */
+  discardingHunks?: ReadonlySet<string>;
   // i18n helpers
   selectableAriaLabel: (path: string) => string;
   // Callbacks
@@ -207,7 +209,6 @@ function onChildOpenFile(path: string): void {
         :on-unstage="(p: string) => emit('unstage', p)"
         :on-restore="(p: string) => emit('restore', p)"
         :on-open-file="(p: string) => emit('open-file', p)"
-        :on-toggle-select="(p: string, selected: boolean) => onToggleSelect(p, selected)"
         :is-staging="isStagingForPath(f.path)"
         :is-unstaging="isUnstagingForPath(f.path)"
         :is-new-file="newFilePaths?.has(f.path) ?? false"
@@ -215,6 +216,7 @@ function onChildOpenFile(path: string): void {
         :is-selected="isSelected(f.path)"
         :selectable-aria-label="selectableAriaLabel(f.path)"
         :on-discard-hunk="onFileDiscardHunk"
+        :discarding-hunks="discardingHunks"
         :discardable="isDiscardableFor(f)"
         :scope="scope"
         @toggle="emit('toggle', f.path)"
@@ -222,6 +224,7 @@ function onChildOpenFile(path: string): void {
         @stage="emit('stage', f.path)"
         @unstage="emit('unstage', f.path)"
         @open-file="emit('open-file', f.path)"
+        @select="(selected: boolean) => onToggleSelect(f.path, selected)"
       />
 
       <!-- Recursive children: same component instance, depth+1.
@@ -256,6 +259,7 @@ function onChildOpenFile(path: string): void {
         :on-file-restore="onFileRestore"
         :on-file-open="onFileOpen"
         :on-file-discard-hunk="onFileDiscardHunk"
+        :discarding-hunks="discardingHunks"
         :scope="scope"
         @toggle="onChildToggle"
         @restore="onChildRestore"

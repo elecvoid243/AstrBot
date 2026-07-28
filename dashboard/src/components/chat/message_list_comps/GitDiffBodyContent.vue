@@ -721,6 +721,7 @@ function isSectionPartiallySelected(section: DiffSection): boolean {
       :on-file-restore="(p: string) => emit('restore', p)"
       :on-file-open="(p: string) => emit('open-file', p)"
       :on-file-discard-hunk="onDiscardHunk"
+      :discarding-hunks="discardingHunks"
       :scope="selectedScope"
       @toggle="emit('toggle', $event)"
       @restore="emit('restore', $event)"

@@ -262,7 +262,7 @@ describe("DiffDirectoryNode", () => {
   it("forwards file row events via emit", async () => {
     const sec = buildDirectorySections([file("a/x.py")], "", "unstaged")[0];
     const w = mountNode(sec, 0, { showStage: true });
-    // The stubbed GitDiffFileItem renders a <div data-path="x.py">
+    // The stubbed GitDiffFileItem renders a <div data-path="a/x.py">
     // Find it under the section body (NOT under the section header)
     const fileRow = w.find(".git-diff-section-body .git-diff-file-item");
     expect(fileRow.exists()).toBe(true);
@@ -270,7 +270,7 @@ describe("DiffDirectoryNode", () => {
     // re-emits. We verify the parent's emit surface sees the path.
     await fileRow.trigger("click");
     expect(w.emitted("toggle")).toBeTruthy();
-    expect(w.emitted("toggle")![0]).toEqual(["x.py"]);
+    expect(w.emitted("toggle")![0]).toEqual(["a/x.py"]);
   });
 
   // 10. section.files = [] still renders header

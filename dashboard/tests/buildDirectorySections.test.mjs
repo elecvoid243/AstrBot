@@ -88,7 +88,7 @@ test("buildDirectorySections: multi-level nesting", () => {
   assert.equal(b.fullPath, "a/b");
   assert.equal(b.id, "dir:a/b");
   assert.equal(b.fileCount, 1);
-  assert.equal(b.files[0].path, "c.py");
+  assert.equal(b.files[0].path, "a/b/c.py");
   assert.equal(b.children.length, 0);
 });
 
@@ -102,12 +102,12 @@ test("buildDirectorySections: mixed top + nested", () => {
   assert.equal(result.length, 1);
   const a = result[0];
   assert.equal(a.fileCount, 1);
-  assert.equal(a.files[0].path, "x.py");
+  assert.equal(a.files[0].path, "a/x.py");
   assert.equal(a.additions, 1);
   assert.equal(a.children.length, 1);
   const b = a.children[0];
   assert.equal(b.fileCount, 1);
-  assert.equal(b.files[0].path, "y.py");
+  assert.equal(b.files[0].path, "a/b/y.py");
   assert.equal(b.additions, 2);
 });
 
@@ -129,7 +129,7 @@ test("buildDirectorySections: deep nesting chain", () => {
   }
   assert.deepEqual(labels, ["a", "b", "c", "d"]);
   assert.equal(cur.fileCount, 1);
-  assert.equal(cur.files[0].path, "e.txt");
+  assert.equal(cur.files[0].path, "a/b/c/d/e.txt");
 });
 
 // 7. <root> identifier is set for repo-root files
