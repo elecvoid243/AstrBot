@@ -826,6 +826,7 @@ import ThreadPanel from "@/components/chat/ThreadPanel.vue";
 import RefsSidebar from "@/components/chat/message_list_comps/RefsSidebar.vue";
 import TodoSidebar from "@/components/chat/message_list_comps/TodoSidebar.vue";
 import GitDiffSidebar from "@/components/chat/GitDiffSidebar.vue";
+import ChatMessageSearchDialog from "@/components/chat/ChatMessageSearchDialog.vue";
 import { useSessions, type Session } from "@/composables/useSessions";
 import { useFileComments } from "@/composables/useFileComments";
 import { buildWebchatUmoDetails } from "@/utils/chatConfigBinding";
