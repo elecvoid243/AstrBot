@@ -65,6 +65,7 @@ class SQLiteDatabase(BaseDatabase):
             await self._ensure_persona_custom_error_message_column(conn)
             await self._ensure_platform_message_history_checkpoint_column(conn)
             await self._ensure_chatui_project_workspace_columns(conn)
+            await self._ensure_chatui_project_spcode_columns(conn)
             await conn.commit()
 
     async def _ensure_persona_folder_columns(self, conn) -> None:
@@ -144,6 +145,36 @@ class SQLiteDatabase(BaseDatabase):
         if "workspace_path" not in columns:
             await conn.execute(
                 text("ALTER TABLE chatui_projects ADD COLUMN workspace_path VARCHAR")
+            )
+
+    async def _ensure_chatui_project_spcode_columns(self, conn) -> None:
+        """Ensure chatui_projects has spcode integration columns (BOOLEAN)."""
+        result = await conn.execute(text("PRAGMA table_info(chatui_projects)"))
+        columns = {row[1] for row in result.fetchall()}
+
+        # spcode 集成（2026-07-28）：自动加载 / 强制 / 无 codegraph 三个开关。
+        # Task 1 在 SQLModel 上新增了这些字段；新库由 metadata.create_all 自动建出，
+        # 老库需要在这里补齐，否则 insert/update 会因缺列失败。
+        if "spcode_auto_load" not in columns:
+            await conn.execute(
+                text(
+                    "ALTER TABLE chatui_projects "
+                    "ADD COLUMN spcode_auto_load BOOLEAN NOT NULL DEFAULT 1"
+                )
+            )
+        if "spcode_force" not in columns:
+            await conn.execute(
+                text(
+                    "ALTER TABLE chatui_projects "
+                    "ADD COLUMN spcode_force BOOLEAN NOT NULL DEFAULT 0"
+                )
+            )
+        if "spcode_no_codegraph" not in columns:
+            await conn.execute(
+                text(
+                    "ALTER TABLE chatui_projects "
+                    "ADD COLUMN spcode_no_codegraph BOOLEAN NOT NULL DEFAULT 0"
+                )
             )
 
     # ====
