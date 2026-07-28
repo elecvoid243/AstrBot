@@ -43,7 +43,7 @@ const props = defineProps<{
   onFileUnstage: (path: string) => void;
   onFileRestore: (path: string) => void;
   onFileOpen: (path: string) => void;
-  onFileDiscardHunk: (params: {
+  onFileDiscardHunk?: (params: {
     file: string;
     hunkIndex: number;
     patchText: string;
