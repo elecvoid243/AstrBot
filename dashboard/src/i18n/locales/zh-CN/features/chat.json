@@ -224,7 +224,30 @@
     "loadingSessions": "加载对话中...",
     "noSessions": "该项目暂无对话",
     "noProjects": "暂无项目",
-    "confirmDelete": "确定要删除项目 \"{title}\" 吗？项目中的对话不会被删除。"
+    "confirmDelete": "确定要删除项目 \"{title}\" 吗？项目中的对话不会被删除。",
+    "spcode": {
+      "sectionTitle": "代码项目集成（spcode）",
+      "path": "代码项目根目录（绝对路径）",
+      "pathHint": "必须是绝对路径,且目录存在。spcode 会在该目录下注入 AGENTS.md 并加载 codegraph。",
+      "autoLoad": "打开会话时静默加载",
+      "autoLoadHint": "该文件夹下的会话被打开/创建时,会自动调用 /project load(不向聊天框产生消息)。",
+      "force": "强制覆盖已加载项目",
+      "forceHint": "若当前会话已通过 /project load 加载了其他目录,自动切换。",
+      "noCodegraph": "仅加载 AGENTS.md(跳过 codegraph)",
+      "noCodegraphHint": "适合轻量场景,加载更快但缺少代码图谱索引。",
+      "chipLoaded": "已加载: {directory}",
+      "chipLoading": "正在加载...",
+      "chipFailed": "加载失败",
+      "chipNoSession": "未选择会话",
+      "chipDisabled": "spcode 功能未启用",
+      "errorPathUnsafe": "项目路径不允许",
+      "errorFeatureDisabled": "spcode 功能未启用,已跳过自动加载",
+      "errorAlreadyLoaded": "已加载其他项目 {previous},未切换到 {current}",
+      "errorForceFailed": "强制切换失败",
+      "errorGitError": "项目加载失败,详见状态条",
+      "errorNetwork": "spcode 服务无响应",
+      "errorGeneric": "项目加载失败: {reason}"
+    }
   },
   "time": {
     "today": "今天",
