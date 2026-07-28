@@ -325,7 +325,8 @@
       "group": {
         "root": "Корень",
         "staged": "В индексе",
-        "unstaged": "Не в индексе"
+        "unstaged": "Не в индексе",
+        "subdirAria": "Выбрать все файлы в {parent}/{name}"
       },
       "toolbar": {
         "expandAll": "Развернуть все",

@@ -336,7 +336,8 @@
       "group": {
         "root": "Repo root",
         "staged": "Staged",
-        "unstaged": "Unstaged"
+        "unstaged": "Unstaged",
+        "subdirAria": "Select all files in {parent}/{name}"
       },
       "toolbar": {
         "expandAll": "Expand all",
