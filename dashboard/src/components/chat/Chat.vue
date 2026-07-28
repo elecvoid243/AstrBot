@@ -136,6 +136,14 @@
         <section class="sidebar-section session-list">
           <div class="sidebar-section-header">
             <span>{{ tm("conversation.title") }}</span>
+            <button
+              class="search-btn"
+              type="button"
+              :title="tm('search.title')"
+              @click="searchDialogOpen = true"
+            >
+              <Search :size="14" />
+            </button>
           </div>
           <div
             v-for="session in sessions"
@@ -758,6 +766,8 @@
       @fullscreen-change="gitDiffFullscreen = $event"
     />
   </div>
+
+<ChatMessageSearchDialog v-model="searchDialogOpen" />
 </template>
 
 <script setup lang="ts">
@@ -3689,6 +3699,22 @@ kbd {
 .is-dark .scroll-marker-strip .scroll-marker-dot {
   border-color: rgba(255, 255, 255, 0.15);
 }
+
+.sidebar-section-header .search-btn {
+  margin-left: auto;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: rgba(var(--v-theme-on-surface), 0.45);
+  display: flex;
+  align-items: center;
+  padding: 3px 6px;
+  border-radius: 4px;
+}
+.sidebar-section-header .search-btn:hover {
+  background: rgba(var(--v-theme-on-surface), 0.06);
+  color: var(--v-theme-on-surface);
+}
 </style>
 
 <!-- Teleporter tooltip: 全局样式 (非 scoped, 因 Teleport 到 body) -->
@@ -3719,5 +3745,21 @@ kbd {
 }
 .scroll-dot-tooltip.is-dark .scroll-dot-tooltip-text {
   color: #e0e0e0;
+}
+
+.sidebar-section-header .search-btn {
+  margin-left: auto;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: rgba(var(--v-theme-on-surface), 0.45);
+  display: flex;
+  align-items: center;
+  padding: 3px 6px;
+  border-radius: 4px;
+}
+.sidebar-section-header .search-btn:hover {
+  background: rgba(var(--v-theme-on-surface), 0.06);
+  color: var(--v-theme-on-surface);
 }
 </style>
