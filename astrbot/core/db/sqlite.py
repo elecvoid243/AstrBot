@@ -1924,8 +1924,24 @@ class SQLiteDatabase(BaseDatabase):
         description: str | None = None,
         workspace_type: str = "session",
         workspace_path: str | None = None,
+        spcode_auto_load: bool = True,
+        spcode_force: bool = False,
+        spcode_no_codegraph: bool = False,
     ) -> ChatUIProject:
-        """Create a new ChatUI project."""
+        """Create a new ChatUI project.
+
+        Args:
+            creator: Username of the project creator.
+            title: Title of the project.
+            emoji: Emoji icon for the project.
+            description: Description of the project.
+            workspace_type: Workspace mode (session, project, or custom).
+            workspace_path: Custom workspace path.
+            spcode_auto_load: 若 True,该 project 下的会话被打开/创建时,
+                前端会静默 POST /spcode/project-load(...).
+            spcode_force: 静默 load 时若 umo 已加载其他项目,是否强制覆盖。
+            spcode_no_codegraph: 挂载时跳过 codegraph(只 load AGENTS.md)。
+        """
         async with self.get_db() as session:
             session: AsyncSession
             async with session.begin():
@@ -1936,6 +1952,9 @@ class SQLiteDatabase(BaseDatabase):
                     description=description,
                     workspace_type=workspace_type,
                     workspace_path=workspace_path,
+                    spcode_auto_load=spcode_auto_load,
+                    spcode_force=spcode_force,
+                    spcode_no_codegraph=spcode_no_codegraph,
                 )
                 session.add(project)
                 await session.flush()
@@ -1980,8 +1999,28 @@ class SQLiteDatabase(BaseDatabase):
         description: str | None = None,
         workspace_type: str | None = None,
         workspace_path: str | None = None,
+        spcode_auto_load: bool | None = None,
+        spcode_force: bool | None = None,
+        spcode_no_codegraph: bool | None = None,
     ) -> None:
-        """Update a ChatUI project."""
+        """Update a ChatUI project.
+
+        Args:
+            project_id: The ID of the project to update.
+            title: New title, or None to leave unchanged.
+            emoji: New emoji, or None to leave unchanged.
+            description: New description, or None to leave unchanged.
+            workspace_type: New workspace type, or None to leave unchanged.
+            workspace_path: New workspace path, or None to leave unchanged.
+                Note: when workspace_type is not None, this is written
+                unconditionally (see pre-existing behavior).
+            spcode_auto_load: 若 True,该 project 下的会话被打开/创建时,
+                前端会静默 POST /spcode/project-load(...). None 表示不变。
+            spcode_force: 静默 load 时若 umo 已加载其他项目,是否强制覆盖。
+                None 表示不变。
+            spcode_no_codegraph: 挂载时跳过 codegraph(只 load AGENTS.md)。
+                None 表示不变。
+        """
         async with self.get_db() as session:
             session: AsyncSession
             async with session.begin():
@@ -1995,6 +2034,12 @@ class SQLiteDatabase(BaseDatabase):
                 if workspace_type is not None:
                     values["workspace_type"] = workspace_type
                     values["workspace_path"] = workspace_path
+                if spcode_auto_load is not None:
+                    values["spcode_auto_load"] = spcode_auto_load
+                if spcode_force is not None:
+                    values["spcode_force"] = spcode_force
+                if spcode_no_codegraph is not None:
+                    values["spcode_no_codegraph"] = spcode_no_codegraph
 
                 await session.execute(
                     update(ChatUIProject)
