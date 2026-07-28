@@ -88,6 +88,156 @@ class ConversationService:
             },
         }
 
+    async def search_messages(
+        self,
+        *,
+        q: str,
+        page: int,
+        page_size: int,
+    ) -> dict:
+        """Search message content across webchat conversations.
+
+        Args:
+            q: Search keyword (required, min 1 char).
+            page: Page number (1-based).
+            page_size: Items per page.
+
+        Returns:
+            Dict with 'results' (list of conversation groups with matches)
+            and 'pagination' metadata.
+        """
+        q = q.strip()
+        if not q:
+            return {
+                "results": [],
+                "pagination": {
+                    "page": 1,
+                    "page_size": page_size,
+                    "total": 0,
+                    "total_pages": 1,
+                },
+            }
+
+        page = max(page, 1)
+        page_size = max(1, min(page_size, 50))
+
+        all_conversations = []
+        search_page = 1
+        scan_limit = 1000
+        while len(all_conversations) < scan_limit:
+            batch, _ = await self.conv_mgr.get_all_conversations(
+                page=search_page,
+                page_size=200,
+            )
+            webchat_batch = [
+                c for c in batch if c and c.get("user_id", "").startswith("webchat:")
+            ]
+            all_conversations.extend(webchat_batch)
+            if len(batch) < 200:
+                break
+            search_page += 1
+
+        lower_q = q.lower()
+        grouped_results = {}
+
+        for conv in all_conversations:
+            cid = conv.get("cid")
+            if not cid:
+                continue
+            history_str = conv.get("history", "[]")
+            try:
+                history = json.loads(history_str) if history_str else []
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(history, list):
+                continue
+
+            conv_matches = []
+            for idx, msg in enumerate(history):
+                if not isinstance(msg, dict):
+                    continue
+                role = msg.get("role", "")
+                if role not in ("user", "assistant"):
+                    continue
+
+                text_parts = []
+                content = msg.get("content", "")
+                if isinstance(content, str):
+                    text_parts.append(content)
+                elif isinstance(content, list):
+                    for part in content:
+                        if isinstance(part, dict) and part.get("type") == "text":
+                            text_parts.append(part.get("text", ""))
+
+                full_text = " ".join(text_parts)
+                if not full_text:
+                    continue
+
+                lower_text = full_text.lower()
+                pos = lower_text.find(lower_q)
+                if pos == -1:
+                    continue
+
+                ctx_len = 50
+                start = max(0, pos - ctx_len)
+                end = min(len(full_text), pos + len(q) + ctx_len)
+                snippet = full_text[start:end]
+
+                if start > 0 and snippet[0] != " ":
+                    space = snippet.find(" ", 10)
+                    if space != -1:
+                        snippet = snippet[space + 1 :]
+                if end < len(full_text) and snippet[-1] != " ":
+                    space = snippet.rfind(" ", -20)
+                    if space != -1:
+                        snippet = snippet[: space + 1]
+
+                if start > 0:
+                    snippet = "..." + snippet
+                if end < len(full_text):
+                    snippet = snippet + "..."
+
+                match_offset = snippet.lower().find(lower_q)
+                conv_matches.append(
+                    {
+                        "message_index": idx,
+                        "role": role,
+                        "snippet": snippet,
+                        "match_offset": max(0, match_offset),
+                    }
+                )
+
+            if conv_matches:
+                safe_cid = str(cid) if cid else "unknown"
+                display_cid = safe_cid[:8] if len(safe_cid) >= 8 else safe_cid
+                grouped_results[cid] = {
+                    "session_id": cid,
+                    "title": conv.get("title") or f"对话 {display_cid}",
+                    "updated_at": conv.get("updated_at", 0) or 0,
+                    "matches": conv_matches,
+                }
+
+        sorted_results = sorted(
+            grouped_results.values(),
+            key=lambda x: x["updated_at"],
+            reverse=True,
+        )
+
+        total = len(sorted_results)
+        total_pages = (total + page_size - 1) // page_size if total > 0 else 1
+        offset = (page - 1) * page_size
+        page_results = sorted_results[offset : offset + page_size]
+
+        return {
+            "results": page_results,
+            "pagination": {
+                "page": page,
+                "page_size": page_size,
+                "total": total,
+                "total_pages": total_pages,
+            },
+        }
+
     async def get_conversation_detail(self, data: object) -> dict:
         payload = self._payload(data)
         user_id, cid = self._require_user_and_cid(payload)
