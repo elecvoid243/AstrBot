@@ -34,7 +34,10 @@ export function useProjects() {
         emoji?: string,
         description?: string,
         workspaceType: WorkspaceType = 'project',
-        workspacePath?: string
+        workspacePath?: string,
+        spcodeAutoLoad?: boolean,
+        spcodeForce?: boolean,
+        spcodeNoCodegraph?: boolean
     ) {
         try {
             const res = await chatApi.createProject({
@@ -42,7 +45,10 @@ export function useProjects() {
                 emoji: emoji || '📁',
                 description,
                 workspace_type: workspaceType,
-                workspace_path: workspacePath
+                workspace_path: workspacePath,
+                spcode_auto_load: spcodeAutoLoad,
+                spcode_force: spcodeForce,
+                spcode_no_codegraph: spcodeNoCodegraph
             });
             if (res.data.status === 'ok') {
                 await getProjects();
@@ -61,7 +67,10 @@ export function useProjects() {
         emoji?: string,
         description?: string,
         workspaceType?: WorkspaceType,
-        workspacePath?: string
+        workspacePath?: string,
+        spcodeAutoLoad?: boolean,
+        spcodeForce?: boolean,
+        spcodeNoCodegraph?: boolean
     ) {
         try {
             const res = await chatApi.updateProject(projectId, {
@@ -69,7 +78,10 @@ export function useProjects() {
                 emoji,
                 description,
                 workspace_type: workspaceType,
-                workspace_path: workspacePath
+                workspace_path: workspacePath,
+                spcode_auto_load: spcodeAutoLoad,
+                spcode_force: spcodeForce,
+                spcode_no_codegraph: spcodeNoCodegraph
             });
             if (res.data.status === 'ok') {
                 await getProjects();

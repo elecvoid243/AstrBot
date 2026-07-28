@@ -1648,12 +1648,35 @@ watch(
   { immediate: true },
 );
 
-// spcode auto-load: when the active project is 'project' type and the
-// session changes, silently trigger spcode load (does not pollute
-// chat history). On success, refresh the chip; on failure, toast only —
-// never block chat.
-async function tryAutoLoadSpcodeForSession(umo: string): Promise<void> {
-  const project = selectedProject.value;
+// Resolve the full Project that owns `sessionId`, suitable for driving the
+// silent spcode load. The sidebar's `selectedProject` is cleared the instant
+// a session opens (selectSession sets selectedProjectId=null), so it is NOT a
+// reliable source here. Instead we map the session back to its project via the
+// sessionProjects reverse-map (populated by loadSessionMessages and by the
+// new-session send path) and look the full Project up in the sidebar list —
+// the only place carrying workspace_type / workspace_path / spcode_* fields.
+// selectedProject is kept only as a last-resort id source for the narrow
+// window where a brand-new session is created inside a project context.
+function resolveProjectForAutoLoad(sessionId: string): Project | null {
+  const projectId =
+    sessionProjects[sessionId]?.project_id ??
+    selectedProject.value?.project_id ??
+    null;
+  if (!projectId) return null;
+  return projects.value.find((p) => p.project_id === projectId) ?? null;
+}
+
+// spcode auto-load: when the active session belongs to a 'project'-type
+// project, silently trigger spcode load (does not pollute chat history).
+// On success, refresh the chip; on failure, toast only — never block chat.
+// Triggered both from the currSessionId watcher and, as a timing-safe
+// backstop, right after loadSessionMessages resolves in selectSession (the
+// watcher can fire before the session→project reverse-map is populated).
+async function tryAutoLoadSpcodeForSession(
+  umo: string,
+  sessionId: string,
+): Promise<void> {
+  const project = resolveProjectForAutoLoad(sessionId);
   if (!project) return;
   if (project.workspace_type !== "project") return;
   if (project.spcode_auto_load === false) return;
@@ -1694,7 +1717,7 @@ watch(currSessionId, (next) => {
   if (!next) return;
   const umo = resolveCurrentUmo(next);
   if (!umo) return;
-  void tryAutoLoadSpcodeForSession(umo);
+  void tryAutoLoadSpcodeForSession(umo, next);
 });
 
 /**
@@ -2002,6 +2025,9 @@ async function saveProject(formData: ProjectFormData, projectId?: string) {
         formData.description,
         formData.workspace_type,
         formData.workspace_path,
+        formData.spcode_auto_load,
+        formData.spcode_force,
+        formData.spcode_no_codegraph,
       );
     } else {
       await createProject(
@@ -2010,6 +2036,9 @@ async function saveProject(formData: ProjectFormData, projectId?: string) {
         formData.description,
         formData.workspace_type,
         formData.workspace_path,
+        formData.spcode_auto_load,
+        formData.spcode_force,
+        formData.spcode_no_codegraph,
       );
     }
     projectDialogOpen.value = false;
@@ -2039,6 +2068,15 @@ async function selectSession(sessionId: string, pushRoute = true) {
   }
   if (!loadedSessions[sessionId]) {
     await loadSessionMessages(sessionId);
+  }
+  // Timing-safe backstop for spcode auto-load: the currSessionId watcher can
+  // fire before loadSessionMessages populates the session→project reverse-map,
+  // so resolveProjectForAutoLoad would miss on that tick. Re-evaluate now that
+  // the map is filled. silentLoad is idempotent, so a duplicate trigger (when
+  // the watcher already succeeded) is a harmless no-op on the server.
+  {
+    const umo = resolveCurrentUmo(sessionId);
+    if (umo) void tryAutoLoadSpcodeForSession(umo, sessionId);
   }
   scrollToBottom();
   closeMobileSidebar();
