@@ -31,6 +31,10 @@ class ConversationService:
     ) -> None:
         self.db_helper = db_helper
         self.conv_mgr = core_lifecycle.conversation_manager
+        # 2026-07-28 (elecvoid243): message search reads the same
+        # platform-message-history store the ChatUI renders from (the legacy
+        # conversations table is no longer the source of truth for webchat).
+        self.platform_history_mgr = core_lifecycle.platform_message_history_manager
 
     async def list_conversations(
         self,
@@ -94,17 +98,38 @@ class ConversationService:
         q: str,
         page: int,
         page_size: int,
+        username: str,
     ) -> dict:
-        """Search message content across webchat conversations.
+        """Search message content across the current user's chat sessions.
+
+        The ChatUI sidebar and message list are backed by the platform-session
+        and platform-message-history tables, NOT the legacy conversations
+        table. A clickable result must therefore carry a platform
+        ``session_id`` and a ``message_index`` that line up with what
+        ``ChatService.get_session`` returns; otherwise clicking a result lands
+        on an empty "new chat" view (the old code returned a conversation
+        ``cid`` that the chat-session read path cannot resolve).
+
+        To guarantee that alignment this method iterates the same sessions the
+        sidebar shows (``get_platform_sessions_by_creator_paginated`` for the
+        authenticated user) and reads each session's history with the exact
+        call ``get_session`` uses (``platform_history_mgr.get(..., page=1,
+        page_size=1000)``). The enumerate index over that list is the
+        ``message_index``, which matches the frontend ``data-message-index``
+        because the read path is order-preserving and 1:1 (the sanitizer keeps
+        order/length and the frontend maps history to records without
+        filtering).
 
         Args:
             q: Search keyword (required, min 1 char).
             page: Page number (1-based).
             page_size: Items per page.
+            username: Authenticated dashboard user; only their sessions are
+                searched, mirroring the sidebar and avoiding cross-user leaks.
 
         Returns:
-            Dict with 'results' (list of conversation groups with matches)
-            and 'pagination' metadata.
+            Dict with 'results' (session groups with matches) and
+            'pagination' metadata.
         """
         q = q.strip()
         if not q:
@@ -121,65 +146,72 @@ class ConversationService:
         page = max(page, 1)
         page_size = max(1, min(page_size, 50))
 
-        all_conversations = []
-        search_page = 1
+        # Collect the user's sessions (same source as the sidebar). The
+        # accessor is paginated, so loop; cap the scan to avoid runaway work.
+        all_sessions: list = []
+        scan_page = 1
         scan_limit = 1000
-        while len(all_conversations) < scan_limit:
-            # 2026-07-28 fix message search (elecvoid243): use the verified
-            # get_filtered_conversations accessor (returns
-            # (list[Conversation], total)) instead of the non-existent
-            # ConversationManager.get_all_conversations, and read Conversation
-            # fields as attributes. Business-ify DB errors so the route maps
-            # them to ApiError instead of a generic HTTP 500.
+        while len(all_sessions) < scan_limit:
             try:
-                batch, _total = await self.conv_mgr.get_filtered_conversations(
-                    page=search_page,
+                (
+                    batch,
+                    _total,
+                ) = await self.db_helper.get_platform_sessions_by_creator_paginated(
+                    creator=username,
+                    page=scan_page,
                     page_size=200,
                 )
             except Exception as exc:
-                logger.error(f"消息搜索查询出错: {exc!s}\n{traceback.format_exc()}")
-                raise ConversationServiceError(f"消息搜索查询出错: {exc!s}") from exc
-            webchat_batch = [
-                c for c in batch if c and (c.user_id or "").startswith("webchat:")
-            ]
-            all_conversations.extend(webchat_batch)
+                logger.error(f"消息搜索查询会话出错: {exc!s}\n{traceback.format_exc()}")
+                raise ConversationServiceError(
+                    f"消息搜索查询会话出错: {exc!s}"
+                ) from exc
+            # Each row is {"session": <PlatformSession>, ...}; unwrap it.
+            for item in batch:
+                session = item.get("session") if isinstance(item, dict) else item
+                if session is not None:
+                    all_sessions.append(session)
             if len(batch) < 200:
                 break
-            search_page += 1
+            scan_page += 1
 
         lower_q = q.lower()
-        grouped_results = {}
+        grouped_results: dict[str, dict] = {}
 
-        for conv in all_conversations:
-            cid = conv.cid
-            if not cid:
+        for session in all_sessions:
+            session_id = getattr(session, "session_id", "") or ""
+            platform_id = getattr(session, "platform_id", "") or ""
+            if not session_id:
                 continue
-            history_str = conv.history or "[]"
+
+            # Same read call as ChatService.get_session so indices align.
             try:
-                history = json.loads(history_str) if history_str else []
-            except json.JSONDecodeError:
+                history_ls = await self.platform_history_mgr.get(
+                    platform_id=platform_id,
+                    user_id=session_id,
+                    page=1,
+                    page_size=1000,
+                )
+            except Exception as exc:
+                # One corrupt session must not break the whole search.
+                logger.warning(f"消息搜索读取历史失败 session={session_id}: {exc!s}")
                 continue
-            if not isinstance(history, list):
-                continue
 
-            conv_matches = []
-            for idx, msg in enumerate(history):
-                if not isinstance(msg, dict):
+            conv_matches: list[dict] = []
+            for idx, record in enumerate(history_ls):
+                content = self._record_content(record)
+                if not isinstance(content, dict):
                     continue
-                role = msg.get("role", "")
-                if role not in ("user", "assistant"):
+                ctype = content.get("type")
+                if ctype == "user":
+                    role = "user"
+                elif ctype == "bot":
+                    role = "assistant"
+                else:
+                    # system / branch_info / etc. carry no searchable prose.
                     continue
 
-                text_parts = []
-                content = msg.get("content", "")
-                if isinstance(content, str):
-                    text_parts.append(content)
-                elif isinstance(content, list):
-                    for part in content:
-                        if isinstance(part, dict) and part.get("type") == "text":
-                            text_parts.append(part.get("text", ""))
-
-                full_text = " ".join(text_parts)
+                full_text = self._extract_search_text(content)
                 if not full_text:
                     continue
 
@@ -218,12 +250,12 @@ class ConversationService:
                 )
 
             if conv_matches:
-                safe_cid = str(cid) if cid else "unknown"
-                display_cid = safe_cid[:8] if len(safe_cid) >= 8 else safe_cid
-                grouped_results[cid] = {
-                    "session_id": cid,
-                    "title": conv.title or f"对话 {display_cid}",
-                    "updated_at": conv.updated_at or 0,
+                display_sid = session_id[:8] if len(session_id) >= 8 else session_id
+                title = getattr(session, "display_name", "") or f"会话 {display_sid}"
+                grouped_results[session_id] = {
+                    "session_id": session_id,
+                    "title": title,
+                    "updated_at": self._session_updated_at(session),
                     "matches": conv_matches,
                 }
 
@@ -247,6 +279,78 @@ class ConversationService:
                 "total_pages": total_pages,
             },
         }
+
+    @staticmethod
+    def _record_content(record: object) -> object:
+        """Return the dict content of a platform-history record.
+
+        The read path yields objects whose ``content`` is already a dict, but
+        fall back to ``model_dump()`` for pydantic-style records and to
+        ``json.loads`` if a backend ever stores it as a JSON string.
+        """
+        content = getattr(record, "content", None)
+        if isinstance(content, dict):
+            return content
+        dumped = getattr(record, "model_dump", None)
+        if callable(dumped):
+            try:
+                content = dumped().get("content")
+            except Exception:
+                content = None
+        if isinstance(content, dict):
+            return content
+        if isinstance(content, str):
+            try:
+                parsed = json.loads(content)
+                return parsed if isinstance(parsed, dict) else None
+            except json.JSONDecodeError:
+                return None
+        return None
+
+    @staticmethod
+    def _extract_search_text(content: dict) -> str:
+        """Collect user-visible prose from a history content dict.
+
+        Mirrors what the ChatUI renders: the ``text`` of plain / markdown
+        parts and the ``think`` of reasoning parts, joined into one string.
+        Non-text parts (images, tool calls, interactive boxes) are skipped so
+        searching matches what the user actually reads.
+        """
+        parts = content.get("message")
+        if isinstance(parts, str):
+            return parts
+        if not isinstance(parts, list):
+            return ""
+        chunks: list[str] = []
+        for part in parts:
+            if isinstance(part, str):
+                chunks.append(part)
+                continue
+            if not isinstance(part, dict):
+                continue
+            text = part.get("text")
+            if isinstance(text, str) and text:
+                chunks.append(text)
+            think = part.get("think")
+            if isinstance(think, str) and think:
+                chunks.append(think)
+        return " ".join(chunks)
+
+    @staticmethod
+    def _session_updated_at(session: object) -> int:
+        """Best-effort epoch seconds for a session's updated_at, for sorting."""
+        raw = getattr(session, "updated_at", None)
+        if raw is None:
+            return 0
+        ts = getattr(raw, "timestamp", None)
+        if callable(ts):
+            try:
+                return int(ts())
+            except Exception:
+                return 0
+        if isinstance(raw, (int, float)):
+            return int(raw)
+        return 0
 
     async def get_conversation_detail(self, data: object) -> dict:
         payload = self._payload(data)

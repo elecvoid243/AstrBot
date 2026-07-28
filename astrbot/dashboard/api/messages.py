@@ -38,7 +38,12 @@ async def search_messages(
     Returns results grouped by conversation with snippet previews.
     """
     try:
-        result = await service.search_messages(q=q, page=page, page_size=page_size)
+        result = await service.search_messages(
+            q=q,
+            page=page,
+            page_size=page_size,
+            username=_auth.username,
+        )
         return ok(result)
     except ConversationServiceError as exc:
         # 2026-07-28 (elecvoid243): map to ApiError (which has a handler) so
