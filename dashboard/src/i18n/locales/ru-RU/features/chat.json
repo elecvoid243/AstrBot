@@ -243,7 +243,6 @@
       "errorPathUnsafe": "Путь к проекту запрещён",
       "errorFeatureDisabled": "Функция spcode отключена, автозагрузка пропущена",
       "errorAlreadyLoaded": "Уже загружен другой проект {previous}, переключение на {current} не выполнено",
-      "errorForceFailed": "Не удалось принудительно переключиться",
       "errorGitError": "Не удалось загрузить проект, подробности в строке состояния",
       "errorNetwork": "Сервис spcode не отвечает",
       "errorGeneric": "Не удалось загрузить проект: {reason}"

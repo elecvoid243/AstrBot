@@ -243,7 +243,6 @@
       "errorPathUnsafe": "项目路径不允许",
       "errorFeatureDisabled": "spcode 功能未启用,已跳过自动加载",
       "errorAlreadyLoaded": "已加载其他项目 {previous},未切换到 {current}",
-      "errorForceFailed": "强制切换失败",
       "errorGitError": "项目加载失败,详见状态条",
       "errorNetwork": "spcode 服务无响应",
       "errorGeneric": "项目加载失败: {reason}"

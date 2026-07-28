@@ -243,7 +243,6 @@
       "errorPathUnsafe": "Project path not allowed",
       "errorFeatureDisabled": "spcode feature disabled, skipping auto-load",
       "errorAlreadyLoaded": "Another project {previous} is already loaded, did not switch to {current}",
-      "errorForceFailed": "Force switch failed",
       "errorGitError": "Project load failed, see status chip for details",
       "errorNetwork": "spcode service not responding",
       "errorGeneric": "Project load failed: {reason}"
