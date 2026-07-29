@@ -224,6 +224,7 @@ class Context:
         contexts: list[Message] | None = None,
         max_steps: int = 30,
         tool_call_timeout: int = 120,
+        tool_call_timeout_exclude: list[str] | None = None,
         **kwargs: Any,
     ) -> LLMResponse:
         """Run an agent loop that allows the LLM to call tools iteratively until a final answer is produced.
@@ -337,13 +338,17 @@ class Context:
                 "read_tool", request.func_tool.get_tool("astrbot_file_read_tool")
             )
 
+        run_context_kwargs: dict[str, Any] = {
+            "context": agent_context,
+            "tool_call_timeout": tool_call_timeout,
+        }
+        if tool_call_timeout_exclude is not None:
+            run_context_kwargs["tool_call_timeout_exclude"] = tool_call_timeout_exclude
+
         await agent_runner.reset(
             provider=prov,
             request=request,
-            run_context=AgentContextWrapper(
-                context=agent_context,
-                tool_call_timeout=tool_call_timeout,
-            ),
+            run_context=AgentContextWrapper(**run_context_kwargs),
             tool_executor=tool_executor,
             agent_hooks=agent_hooks,
             streaming=streaming,

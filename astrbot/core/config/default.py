@@ -160,6 +160,11 @@ DEFAULT_CONFIG = {
         "reachability_check": False,
         "max_agent_step": 30,
         "tool_call_timeout": 120,
+        "tool_call_timeout_exclude": [
+            "wait_for_subagent",
+            "orchestrate_tasks",
+            "ask_user_choice",
+        ],
         "tool_schema_mode": "full",
         "repeated_tool_call_notice": {
             "enable": True,
@@ -2976,6 +2981,10 @@ CONFIG_METADATA_2 = {
                     "tool_call_timeout": {
                         "type": "int",
                     },
+                    "tool_call_timeout_exclude": {
+                        "type": "list",
+                        "items": {"type": "string"},
+                    },
                     "tool_schema_mode": {
                         "type": "string",
                     },
@@ -3885,6 +3894,14 @@ CONFIG_METADATA_3 = {
                     "provider_settings.tool_call_timeout": {
                         "description": "工具调用超时时间（秒）",
                         "type": "int",
+                        "condition": {
+                            "provider_settings.agent_runner_type": "local",
+                        },
+                    },
+                    "provider_settings.tool_call_timeout_exclude": {
+                        "description": "不受超时限制的工具",
+                        "type": "list",
+                        "hint": "填写不受工具调用超时时间限制的工具名称。这些工具将使用 3600 秒的固定超时。",
                         "condition": {
                             "provider_settings.agent_runner_type": "local",
                         },

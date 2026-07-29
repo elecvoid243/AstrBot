@@ -965,6 +965,7 @@ class FunctionToolExecutor(BaseFunctionToolExecutor[AstrAgentContext]):
         provider_settings = cfg.get("provider_settings") or {}
         config = MainAgentBuildConfig(
             tool_call_timeout=run_context.tool_call_timeout,
+            tool_call_timeout_exclude=run_context.tool_call_timeout_exclude,
             streaming_response=provider_settings.get("stream", False),
             provider_settings=provider_settings,
         )
@@ -1078,8 +1079,8 @@ class FunctionToolExecutor(BaseFunctionToolExecutor[AstrAgentContext]):
         while True:
             try:
                 if (
-                    tool.name == "wait_for_subagent" or tool.name == "orchestrate_tasks"
-                ):  # wait工具有自己的超时，避免受到tool_call_timeout影响
+                    tool.name in run_context.tool_call_timeout_exclude
+                ):  # Excluded tools use a fixed 3600s timeout
                     resp = await asyncio.wait_for(
                         anext(wrapper),
                         timeout=3600,

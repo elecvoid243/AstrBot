@@ -424,8 +424,12 @@ class CronJobManager:
 
         provider_settings = cfg.get("provider_settings", {}) or {}
         tool_call_timeout = provider_settings.get("tool_call_timeout", 120)
+        tool_call_timeout_exclude = provider_settings.get(
+            "tool_call_timeout_exclude", ["wait_for_subagent", "orchestrate_tasks"]
+        )
         config = MainAgentBuildConfig(
             tool_call_timeout=tool_call_timeout,
+            tool_call_timeout_exclude=tool_call_timeout_exclude,
             llm_safety_mode=False,
             streaming_response=False,
             provider_settings=provider_settings,

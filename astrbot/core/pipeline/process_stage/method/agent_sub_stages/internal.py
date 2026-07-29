@@ -61,6 +61,9 @@ class InternalAgentSubStage(Stage):
         ]
         self.max_step: int = settings.get("max_agent_step", 30)
         self.tool_call_timeout: int = settings.get("tool_call_timeout", 60)
+        self.tool_call_timeout_exclude: list[str] = settings.get(
+            "tool_call_timeout_exclude", ["wait_for_subagent", "orchestrate_tasks"]
+        )
         self.tool_schema_mode: str = settings.get("tool_schema_mode", "full")
         if self.tool_schema_mode not in ("skills_like", "full"):
             logger.warning(
@@ -130,6 +133,7 @@ class InternalAgentSubStage(Stage):
 
         self.main_agent_cfg = MainAgentBuildConfig(
             tool_call_timeout=self.tool_call_timeout,
+            tool_call_timeout_exclude=self.tool_call_timeout_exclude,
             tool_schema_mode=self.tool_schema_mode,
             sanitize_context_by_modalities=self.sanitize_context_by_modalities,
             kb_agentic_mode=self.kb_agentic_mode,

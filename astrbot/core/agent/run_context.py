@@ -17,6 +17,10 @@ class ContextWrapper(Generic[TContext]):
     messages: list[Message] = Field(default_factory=list)
     """This field stores the llm message context for the agent run, agent runners will maintain this field automatically."""
     tool_call_timeout: int = 120  # Default tool call timeout in seconds
+    tool_call_timeout_exclude: list[str] = Field(
+        default_factory=lambda: ["wait_for_subagent", "orchestrate_tasks"]
+    )
+    """Tool names that are excluded from tool_call_timeout and use a fixed 3600s timeout instead."""
 
 
 NoContext = ContextWrapper[None]

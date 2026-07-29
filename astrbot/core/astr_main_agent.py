@@ -160,6 +160,10 @@ class MainAgentBuildConfig:
     When the tool call exceeds this time,
     a timeout error as a tool result will be returned.
     """
+    tool_call_timeout_exclude: list[str] = field(
+        default_factory=lambda: ["wait_for_subagent", "orchestrate_tasks"]
+    )
+    """Tool names excluded from tool_call_timeout, using a fixed 3600s timeout instead."""
     tool_schema_mode: str = "full"
     """The tool schema mode, can be 'full' or 'skills-like'."""
     repeated_tool_notice_enabled: bool = True
@@ -1789,6 +1793,7 @@ async def build_main_agent(
         run_context=AgentContextWrapper(
             context=astr_agent_ctx,
             tool_call_timeout=config.tool_call_timeout,
+            tool_call_timeout_exclude=config.tool_call_timeout_exclude,
         ),
         tool_executor=FunctionToolExecutor(),
         agent_hooks=MAIN_AGENT_HOOKS,
