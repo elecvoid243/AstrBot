@@ -328,6 +328,10 @@
           "description": "Output Tool Call Results",
           "hint": "Only takes effect when \"Output Function Call Status\" is enabled, and shows at most 70 characters."
         },
+        "show_subagent_progress": {
+          "description": "Show SubAgent Progress",
+          "hint": "Only effective in WebChat. Displays SubAgent text streams and tool call progress in real-time during conversations."
+        },
         "buffer_intermediate_messages": {
           "description": "Merge Agent Intermediate Messages",
           "hint": "When enabled, intermediate text generated during multi-step tool calls in non-streaming mode will be buffered and sent as a single merged reply after the Agent finishes."

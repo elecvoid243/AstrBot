@@ -330,6 +330,10 @@
           "description": "输出函数调用返回结果",
           "hint": "仅在启用“输出函数调用状态”时生效，且最多展示 70 个字符。"
         },
+        "show_subagent_progress": {
+          "description": "展示子代理执行过程",
+          "hint": "仅在 WebChat 生效，在对话中实时展示 SubAgent 的文本流与工具调用过程。"
+        },
         "buffer_intermediate_messages": {
           "description": "合并 Agent 中间消息",
           "hint": "开启后，非流式模式下多步工具调用过程中产生的中间文本将缓冲，待 Agent 完成后合并为一条回复发送。"
