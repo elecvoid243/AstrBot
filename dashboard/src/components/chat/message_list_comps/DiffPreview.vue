@@ -939,8 +939,13 @@ const { tm } = useModuleI18n("features/chat");
 
 const isCollapsed = ref(false);
 const showAllLines = ref(false);
+// Fullscreen is declared next to the inline state so the effective
+// line cap can treat both as independent expand signals (fullscreen
+// always renders the full diff; the inline "show all" state stays
+// untouched when entering or leaving fullscreen).
+const isFullscreen = ref(false);
 const effectiveMaxLines = computed(() =>
-  showAllLines.value ? Infinity : props.maxLines,
+  isFullscreen.value || showAllLines.value ? Infinity : props.maxLines,
 );
 
 // UI #8: per-hunk fold state. Local to the component, so re-mounting
@@ -1076,7 +1081,10 @@ const toggleCollapsed = () => {
 };
 
 // ── Fullscreen state (spec 2026-06-30-diff-fullscreen-design.md §4) ─
-const isFullscreen = ref(false);
+// `isFullscreen` is declared with the other reactive state above
+// (next to `showAllLines`) so `effectiveMaxLines` can include it in
+// the cap. The button / overlay refs and the enter / exit functions
+// stay colocated with the fullscreen-specific helpers below.
 const fullscreenBtnRef = ref<HTMLElement | null>(null);
 const overlayRef = ref<HTMLElement | null>(null);
 
