@@ -391,26 +391,38 @@
       </div>
     </div>
 
-    <!-- Inline-comment editor. Rendered inside the preview root (as
-         a sibling of the body) so it scrolls together with the
-         diff in the parent container. Hidden when the diff is
-         collapsed — there's no point editing a comment the user
-         can't see the context for. `v-if` (not v-show) so a closed
-         editor fully tears down its DOM (and the textarea's
-         keydown listener). -->
-    <FileCommentEditor
+    <!-- Inline-comment editor dock. The editor is wrapped in a
+         `position: sticky; bottom: 0` dock so it pins to the bottom
+         of the *visible* scroll viewport instead of sitting at the
+         very end of the diff. Previously the editor rendered as a
+         plain sibling after the body; opening it focused the
+         textarea, and the browser's default focus-scroll yanked the
+         viewport down to the diff tail — disorienting on long diffs.
+         With the dock sticky, the editor is already inside the
+         viewport when it mounts, so the same focus() no longer
+         triggers a jump and the user keeps reading the line they
+         clicked. The dock carries the v-if (not the editor) so a
+         closed editor leaves no empty sticky bar behind. Hidden
+         when collapsed — no point editing a comment whose context
+         the user can't see. `v-if` (not v-show) fully tears down
+         the editor DOM (and its textarea keydown listener). -->
+    <div
       v-if="!isCollapsed && activeEditLine !== null && isCommentable"
-      :line="activeEditLine"
-      :comment-id="activeEditCommentId"
-      :initial-text="editorInitialText"
-      :line-content="editorContext?.lineContent ?? null"
-      :context-before="editorContext?.contextBefore ?? null"
-      :context-after="editorContext?.contextAfter ?? null"
-      :file-path="filePath"
-      @save="onSaveComment"
-      @cancel="closeEditor"
-      @delete="onDeleteComment"
-    />
+      class="diff-comment-dock"
+    >
+      <FileCommentEditor
+        :line="activeEditLine"
+        :comment-id="activeEditCommentId"
+        :initial-text="editorInitialText"
+        :line-content="editorContext?.lineContent ?? null"
+        :context-before="editorContext?.contextBefore ?? null"
+        :context-after="editorContext?.contextAfter ?? null"
+        :file-path="filePath"
+        @save="onSaveComment"
+        @cancel="closeEditor"
+        @delete="onDeleteComment"
+      />
+    </div>
   </div>
 
   <!-- Fullscreen overlay — Teleported to <body> to escape fixed-position
@@ -796,24 +808,32 @@
             </div>
           </div>
 
-          <!-- Inline-comment editor (fullscreen copy). Same state as
-               the normal view, so when the user opens the editor
-               while fullscreen and then exits fullscreen, the
-               editor simply migrates from the overlay to the normal
-               view — no state to re-create. -->
-          <FileCommentEditor
+          <!-- Inline-comment editor dock (fullscreen copy). Same
+               sticky-dock treatment as the normal view: pins to the
+               bottom of the fullscreen scroll viewport
+               (.diff-fullscreen-body) so opening a comment never
+               jumps the overlay to the diff tail. Same reactive
+               state as the normal view, so when the user opens the
+               editor while fullscreen and then exits fullscreen, the
+               editor simply migrates from the overlay dock to the
+               normal-view dock — no state to re-create. -->
+          <div
             v-if="!isCollapsed && activeEditLine !== null && isCommentable"
-            :line="activeEditLine"
-            :comment-id="activeEditCommentId"
-            :initial-text="editorInitialText"
-            :line-content="editorContext?.lineContent ?? null"
-            :context-before="editorContext?.contextBefore ?? null"
-            :context-after="editorContext?.contextAfter ?? null"
-            :file-path="filePath"
-            @save="onSaveComment"
-            @cancel="closeEditor"
-            @delete="onDeleteComment"
-          />
+            class="diff-comment-dock"
+          >
+            <FileCommentEditor
+              :line="activeEditLine"
+              :comment-id="activeEditCommentId"
+              :initial-text="editorInitialText"
+              :line-content="editorContext?.lineContent ?? null"
+              :context-before="editorContext?.contextBefore ?? null"
+              :context-after="editorContext?.contextAfter ?? null"
+              :file-path="filePath"
+              @save="onSaveComment"
+              @cancel="closeEditor"
+              @delete="onDeleteComment"
+            />
+          </div>
         </div>
       </div>
     </div>
@@ -1721,6 +1741,47 @@ const statsDels = computed(() => {
 
 .diff-body {
   border-top: 1px solid var(--diff-border);
+}
+
+/* ── Inline-comment dock ───────────────────────────────────────────
+   The comment editor is wrapped in this dock and pinned to the
+   bottom of the scroll viewport with `position: sticky`. This is
+   what stops the "open comment → page jumps to the diff tail"
+   behaviour: a sticky element that is already inside the viewport
+   does not get scrolled into view when its textarea receives focus,
+   so the user stays parked on the line they clicked.
+
+   The dock owns all the chrome (opaque surface background, rounded
+   corners, layered shadow, top hairline). The editor's own
+   border-top and 60%-alpha background are neutralised via :deep so
+   the two layers don't double up — the dock reads as a single
+   floating card sitting above the diff rows, not a translucent
+   strip bleeding the rows through it. `overflow: hidden` clips the
+   editor's inner corners to the dock's radius. z-index sits above
+   the diff rows (and above the body's sticky summary header, which
+   lives at the top and never overlaps the bottom dock). */
+.diff-comment-dock {
+  position: sticky;
+  bottom: 0;
+  z-index: 6;
+  margin-top: 8px;
+  border-radius: 10px;
+  background: rgb(var(--v-theme-surface));
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.14);
+  box-shadow:
+    0 -10px 28px -16px rgba(0, 0, 0, 0.5),
+    0 8px 22px -12px rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+}
+.diff-comment-dock :deep(.comment-editor) {
+  border-top: 0;
+  background: transparent;
+}
+.diff-preview.is-dark .diff-comment-dock {
+  border-color: rgba(255, 255, 255, 0.16);
+  box-shadow:
+    0 -10px 30px -14px rgba(0, 0, 0, 0.7),
+    0 8px 24px -12px rgba(0, 0, 0, 0.6);
 }
 
 .diff-truncation-warning {
