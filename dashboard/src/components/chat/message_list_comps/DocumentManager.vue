@@ -16,7 +16,6 @@ import {
 } from "vue";
 import { useSpcodeProjectStatus } from "@/composables/useSpcodeProjectStatus";
 import { useSpcodeGitFile } from "@/composables/useSpcodeGitFile";
-import { useSpcodeDocs } from "@/composables/useSpcodeDocs";
 // 2026-07-22 docs-rename-remove-endpoints: workspace tab's
 // rename/remove flow uses the generic spcode/file-rename and
 // spcode/file-remove endpoints (accepts umo/worktree). The
@@ -25,6 +24,7 @@ import { useSpcodeDocs } from "@/composables/useSpcodeDocs";
 // actions through the same file composables the workspace uses.
 import { useSpcodeFileRename } from "@/composables/useSpcodeFileRename";
 import { useSpcodeFileRemove } from "@/composables/useSpcodeFileRemove";
+import { useSpcodeFileWrite } from "@/composables/useSpcodeFileWrite";
 import { useSpcodeFileBrowser } from "@/composables/useSpcodeFileBrowser";
 import { useSpcodeFileSearch } from "@/composables/useSpcodeFileSearch";
 import { copyToClipboard } from "@/utils/clipboard";
@@ -89,9 +89,10 @@ const props = defineProps<{
    * "项目根" segment and the docsRoot path math both reflect
    * the worktree the user is currently looking at.
    *
-   * The CRUD composable (useSpcodeDocs) is rooted at `worktree`
-   * separately, so the listing/preview path (= this prop) and
-   * the writes path (= :worktree) are in sync.
+   * The write composables (useSpcodeFileWrite / useSpcodeFileRename /
+   * useSpcodeFileRemove) are rooted at `worktree` separately, so the
+   * listing/preview path (= this prop) and the writes path (= :worktree)
+   * are in sync.
    */
   projectRoot: string | null;
   isDark?: boolean;
@@ -116,7 +117,7 @@ const editMode = ref<boolean>(false);
 const editBuffer = ref<string>("");
 const saveError = ref<string | null>(null);
 // 2026-07-26 save-success-toast: flipped to a localized "Saved"
-// string after docsApi.save resolves r.ok. Auto-dismissed after
+// string after fileWrite.save resolves r.ok. Auto-dismissed after
 // SAVE_SUCCESS_TTL_MS so the inline green confirmation in the
 // editor toolbar disappears on its own. Cleared on every file
 // switch (see selectedDoc watcher) so a stale message from a
@@ -171,7 +172,10 @@ const fileBrowser = useSpcodeFileBrowser(
     ),
   ),
 );
-const docsApi = useSpcodeDocs(computed(() => props.worktree));
+// 2026-07-30: save/create route through the generic file-write endpoint
+// (POST /spcode/file-write) instead of the markdown-only POST /spcode/docs,
+// so the editor preserves the on-disk encoding / newline style on overwrite.
+const fileWrite = useSpcodeFileWrite(computed(() => props.worktree));
 // See import comment above: rename/remove use the workspace's
 // generic file endpoints, not the docs PATCH/DELETE pair.
 const fileRename = useSpcodeFileRename(computed(() => props.worktree));
@@ -1033,12 +1037,12 @@ function onRecentRemove(payload: { path: string }): void {
 async function onSave(content: string) {
   if (!selectedDoc.value) return;
   saveError.value = null;
-  // docsApi.save expects a project-relative path (the backend
+  // fileWrite.save expects a project-relative path (the backend
   // resolves it against projectRoot via _validate_repo_relative_file).
   // selectedDoc is docsRoot-relative, so we have to glue docsRoot
   // on the front. For docsRoot="." the file is already at the root
   // and projectRelativeFromDoc returns selectedDoc unchanged.
-  const r = await docsApi.save({
+  const r = await fileWrite.save({
     path: projectRelativeFromDoc(docsRoot.value, selectedDoc.value),
     content,
   });
@@ -1167,7 +1171,7 @@ function onCreateNew(name: string) {
   selectedDoc.value = cleanName;
   editBuffer.value = "";
   editMode.value = true;
-  void docsApi
+  void fileWrite
     .save({
       path: projectRelativeFromDoc(docsRoot.value, cleanName),
       content: "",
@@ -1358,7 +1362,7 @@ onBeforeUnmount(() => {
     saveSuccessTimer = null;
   }
   gitFile.dispose();
-  docsApi.dispose();
+  fileWrite.dispose();
 });
 </script>
 
@@ -1695,9 +1699,9 @@ onBeforeUnmount(() => {
               <DocumentEditor
                 :initial-content="editBuffer"
                 :file-relative="selectedDoc"
-                :is-saving="docsApi.isSaving.value"
-                :is-deleting="docsApi.isDeleting.value"
-                :is-renaming="docsApi.isRenaming.value"
+                :is-saving="fileWrite.isSaving.value"
+                :is-deleting="fileRemove.isRemoving.value"
+                :is-renaming="fileRename.isRenaming.value"
                 :rename-error-message="renameError"
                 :save-success-message="saveSuccessMessage"
                 @save="onSave"
