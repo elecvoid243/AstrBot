@@ -35,6 +35,20 @@ function buildDiffContent(totalLines: number): string {
   return `@@ -0,0 +1,${totalLines} @@\n${body}\n`;
 }
 
+/**
+ * Build a diff large enough that its raw text length exceeds the
+ * default `maxChars` (2000) so the `truncated` computed becomes
+ * `true`. Each line carries a padding string to inflate the byte
+ * count without changing the parse-count of lines / hunks.
+ */
+function buildLongDiffContent(totalLines: number, padding: string): string {
+  const body = Array.from(
+    { length: totalLines },
+    (_, i) => `+line ${i + 1} ${padding}`,
+  ).join("\n");
+  return `@@ -0,0 +1,${totalLines} @@\n${body}\n`;
+}
+
 interface DiffPreviewInternals {
   isFullscreen: boolean;
   showAllLines: boolean;
@@ -42,12 +56,32 @@ interface DiffPreviewInternals {
   enterFullscreen: () => void;
   exitFullscreen: () => void;
   collapsedOverflow: number;
+  truncated: boolean;
+  showTruncationWarning: boolean;
 }
 
 function mountDiff(totalLines = 100): VueWrapper {
   return mount(DiffPreview, {
     props: {
       content: buildDiffContent(totalLines),
+      filePath: "sample.txt",
+      maxLines: 30,
+    },
+    global: { stubs: STUB_CHILDREN },
+  });
+}
+
+/**
+ * Mount variant that produces a diff whose raw text is long enough
+ * (>2000 chars) to engage the `truncated` computed, so the
+ * truncation-warning v-if has something to assert against.
+ */
+function mountLongDiff(): VueWrapper {
+  // 300 lines × ~30 chars per padded line ≈ >9 KB. Plenty beyond
+  // the 2000-char default `maxChars`, so `truncated === true`.
+  return mount(DiffPreview, {
+    props: {
+      content: buildLongDiffContent(300, "abcdefghijklmnopqrstuvwxyz"),
       filePath: "sample.txt",
       maxLines: 30,
     },
@@ -135,5 +169,91 @@ describe("DiffPreview fullscreen expansion", () => {
     expect(vm.isFullscreen).toBe(false);
     expect(vm.showAllLines).toBe(true);
     expect(vm.effectiveMaxLines).toBe(Number.POSITIVE_INFINITY);
+  });
+});
+
+describe("DiffPreview truncation warning visibility", () => {
+  beforeEach(() => {
+    document.body.style.overflow = "";
+  });
+
+  afterEach(() => {
+    document.body.style.overflow = "";
+  });
+
+  it("renders the yellow truncation warning in the default collapsed view", () => {
+    const wrapper = mountLongDiff();
+    const vm = wrapper.vm as unknown as DiffPreviewInternals;
+
+    expect(vm.truncated).toBe(true);
+    expect(vm.collapsedOverflow).toBeGreaterThan(0);
+    expect(vm.showTruncationWarning).toBe(true);
+
+    const warnings = wrapper.findAll(".diff-truncation-warning");
+    expect(warnings.length).toBe(1);
+    expect(warnings[0].text()).toContain("Diff truncated");
+  });
+
+  it("hides the warning after the user clicks 'Show all' inline", async () => {
+    const wrapper = mountLongDiff();
+    const vm = wrapper.vm as unknown as DiffPreviewInternals;
+
+    expect(vm.showTruncationWarning).toBe(true);
+
+    vm.showAllLines = true;
+    await nextTick();
+
+    // `truncated` (raw length) is unchanged, but the visible clip
+    // is gone, so the user-facing warning should disappear.
+    expect(vm.truncated).toBe(true);
+    expect(vm.collapsedOverflow).toBe(0);
+    expect(vm.showTruncationWarning).toBe(false);
+    expect(wrapper.findAll(".diff-truncation-warning").length).toBe(0);
+  });
+
+  it("hides the warning when entering fullscreen", async () => {
+    const wrapper = mountLongDiff();
+    const vm = wrapper.vm as unknown as DiffPreviewInternals;
+
+    expect(vm.showTruncationWarning).toBe(true);
+
+    vm.enterFullscreen();
+    await nextTick();
+
+    // Same reasoning as the 'show all' path: fullscreen lifts the
+    // `maxLines` cap, so there is nothing to warn about.
+    expect(vm.truncated).toBe(true);
+    expect(vm.collapsedOverflow).toBe(0);
+    expect(vm.showTruncationWarning).toBe(false);
+
+    const inlineWarnings = wrapper.findAll(".diff-truncation-warning");
+    expect(inlineWarnings.length).toBe(0);
+
+    const overlay = document.body.querySelector(".diff-fullscreen-overlay");
+    expect(overlay).not.toBeNull();
+    expect(overlay!.querySelectorAll(".diff-truncation-warning").length).toBe(
+      0,
+    );
+  });
+
+  it("hides the warning after exiting fullscreen when the user never clicked 'show all'", async () => {
+    const wrapper = mountLongDiff();
+    const vm = wrapper.vm as unknown as DiffPreviewInternals;
+
+    expect(vm.showTruncationWarning).toBe(true);
+
+    vm.enterFullscreen();
+    await nextTick();
+    expect(vm.showTruncationWarning).toBe(false);
+
+    vm.exitFullscreen();
+    await nextTick();
+
+    // Exit should restore the original truncation state.
+    expect(vm.isFullscreen).toBe(false);
+    expect(vm.showAllLines).toBe(false);
+    expect(vm.collapsedOverflow).toBeGreaterThan(0);
+    expect(vm.showTruncationWarning).toBe(true);
+    expect(wrapper.findAll(".diff-truncation-warning").length).toBe(1);
   });
 });
