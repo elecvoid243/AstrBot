@@ -406,23 +406,25 @@
          when collapsed — no point editing a comment whose context
          the user can't see. `v-if` (not v-show) fully tears down
          the editor DOM (and its textarea keydown listener). -->
-    <div
-      v-if="!isCollapsed && activeEditLine !== null && isCommentable"
-      class="diff-comment-dock"
-    >
-      <FileCommentEditor
-        :line="activeEditLine"
-        :comment-id="activeEditCommentId"
-        :initial-text="editorInitialText"
-        :line-content="editorContext?.lineContent ?? null"
-        :context-before="editorContext?.contextBefore ?? null"
-        :context-after="editorContext?.contextAfter ?? null"
-        :file-path="filePath"
-        @save="onSaveComment"
-        @cancel="closeEditor"
-        @delete="onDeleteComment"
-      />
-    </div>
+    <Teleport :to="sidebarScrollContainer" :disabled="!sidebarScrollContainer">
+      <div
+        v-if="!isCollapsed && activeEditLine !== null && isCommentable"
+        class="diff-comment-dock"
+      >
+        <FileCommentEditor
+          :line="activeEditLine"
+          :comment-id="activeEditCommentId"
+          :initial-text="editorInitialText"
+          :line-content="editorContext?.lineContent ?? null"
+          :context-before="editorContext?.contextBefore ?? null"
+          :context-after="editorContext?.contextAfter ?? null"
+          :file-path="filePath"
+          @save="onSaveComment"
+          @cancel="closeEditor"
+          @delete="onDeleteComment"
+        />
+      </div>
+    </Teleport>
   </div>
 
   <!-- Fullscreen overlay — Teleported to <body> to escape fixed-position
@@ -841,7 +843,15 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, nextTick, watch, onBeforeUnmount } from "vue";
+import {
+  computed,
+  ref,
+  nextTick,
+  watch,
+  onBeforeUnmount,
+  inject,
+  type Ref,
+} from "vue";
 import { useModuleI18n } from "@/i18n/composables";
 import type { GitDiffScope } from "@/composables/parseSpcodeGitDiff";
 import {
@@ -954,6 +964,24 @@ const isCurrentHunkDiscarding = (hi: number): boolean => {
 };
 
 const { tm } = useModuleI18n("features/chat");
+
+// Scroll container that owns the diff in the sidebar view, injected
+// from GitDiffSidebar. The comment dock <Teleport>s to it so it
+// becomes a direct child of the scroller and `position: sticky;
+// bottom: 0` sticks reliably. In-place sticky does NOT work here
+// because the dock is nested deep inside GitDiffFileItem /
+// DiffDirectoryNode, and those layout ancestors disrupt the sticky
+// scroll-ancestor / containing-block relationship — the symptom was
+// the dock sitting at the document tail and the editor's focus()
+// yanking the viewport down there on long diffs. When there is no
+// provider (DiffPreview embedded in a ToolCallCard / file preview /
+// document manager) the inject yields null, the Teleport is
+// disabled, and the dock falls back to in-place rendering — i.e.
+// prior behaviour, no regression for those callers.
+const sidebarScrollContainer = inject<Ref<HTMLElement | null>>(
+  "diffScrollContainer",
+  ref<HTMLElement | null>(null),
+);
 
 // ── State ──────────────────────────────────────────────────────────
 
