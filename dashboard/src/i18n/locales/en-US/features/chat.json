@@ -400,6 +400,18 @@
         "loadingAria": "Discarding hunk {hunk}"
       }
     },
+    "fileReviewCard": {
+      "title": "File review comments",
+      "commentsCount": "{count} comments",
+      "filesCount": "{count} files",
+      "note": "Located by line content · line numbers are approximate",
+      "commentTag": "Comment",
+      "lineMeta": "Line {line}",
+      "lineRangeMeta": "Lines {start}–{end}",
+      "lineBadge": "L{line}",
+      "collapseAria": "Collapse comments for {path}",
+      "expandAria": "Expand comments for {path}"
+    },
     "fileBrowser": {
       "title": "Workspace Browser",
       "viewMode": {

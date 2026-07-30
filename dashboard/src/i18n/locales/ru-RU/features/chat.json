@@ -389,6 +389,18 @@
         "loadingAria": "Отмена hunk {hunk}"
       }
     },
+    "fileReviewCard": {
+      "title": "Комментарии к проверке файлов",
+      "commentsCount": "{count} комм.",
+      "filesCount": "{count} файл(ов)",
+      "note": "Поиск по содержимому строк · номера строк приблизительны",
+      "commentTag": "Комментарий",
+      "lineMeta": "Строка {line}",
+      "lineRangeMeta": "Строки {start}–{end}",
+      "lineBadge": "L{line}",
+      "collapseAria": "Свернуть комментарии для {path}",
+      "expandAria": "Развернуть комментарии для {path}"
+    },
     "fileBrowser": {
       "title": "Обзор рабочей области",
       "viewMode": {

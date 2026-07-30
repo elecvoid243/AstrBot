@@ -191,12 +191,10 @@
                         }}</span>
                       </button>
 
-                      <div
+                      <UserPlainMessagePart
                         v-else-if="part.type === 'plain' && isUserMessage(msg)"
-                        class="plain-content"
-                      >
-                        {{ part.text || "" }}
-                      </div>
+                        :text="part.text || ''"
+                      />
 
                       <div
                         v-else-if="
@@ -521,6 +519,7 @@ import IPythonToolBlock from "@/components/chat/message_list_comps/IPythonToolBl
 import RefsSidebar from "@/components/chat/message_list_comps/RefsSidebar.vue";
 import ActionRef from "@/components/chat/message_list_comps/ActionRef.vue";
 import MarkdownMessagePart from "@/components/chat/message_list_comps/MarkdownMessagePart.vue";
+import UserPlainMessagePart from "@/components/chat/message_list_comps/UserPlainMessagePart.vue";
 import InteractiveChoiceBox from "@/components/chat/message_list_comps/InteractiveChoiceBox.vue";
 import {
   isInteractiveChoicePayload,

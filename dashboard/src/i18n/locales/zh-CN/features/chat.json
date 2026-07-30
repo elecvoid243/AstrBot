@@ -400,6 +400,18 @@
         "loadingAria": "正在丢弃 hunk {hunk}"
       }
     },
+    "fileReviewCard": {
+      "title": "文件审查评论",
+      "commentsCount": "{count} 条评论",
+      "filesCount": "{count} 个文件",
+      "note": "行内容指纹定位 · 行号仅供参考",
+      "commentTag": "评论",
+      "lineMeta": "第 {line} 行",
+      "lineRangeMeta": "第 {start}–{end} 行",
+      "lineBadge": "L{line}",
+      "collapseAria": "折叠 {path} 的评论",
+      "expandAria": "展开 {path} 的评论"
+    },
     "fileBrowser": {
       "title": "工作区浏览",
       "viewMode": {
