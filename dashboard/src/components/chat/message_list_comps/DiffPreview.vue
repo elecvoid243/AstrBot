@@ -95,7 +95,7 @@
 
     <!-- Diff hunks — hidden when collapsed -->
     <div v-if="!isCollapsed" class="diff-body">
-      <div v-if="truncated" class="diff-truncation-warning">
+      <div v-if="showTruncationWarning" class="diff-truncation-warning">
         ⚠ Diff truncated (showing first
         {{ maxChars.toLocaleString() }} characters)
       </div>
@@ -521,7 +521,7 @@
 
           <!-- Diff body -->
           <div v-if="!isCollapsed" class="diff-body">
-            <div v-if="truncated" class="diff-truncation-warning">
+            <div v-if="showTruncationWarning" class="diff-truncation-warning">
               ⚠ Diff truncated (showing first
               {{ maxChars.toLocaleString() }} characters)
             </div>
@@ -1414,6 +1414,18 @@ const truncated = computed(() => {
   const raw = extractDiffContent(props.content);
   return raw.length > props.maxChars;
 });
+
+// Yellow "Diff truncated" banner is only useful when there is
+// actually hidden content the user can recover by expanding.
+// `truncated` alone fires whenever the raw text exceeds `maxChars`,
+// which would keep the warning visible inside the fullscreen
+// overlay (and after a non-fullscreen "show all"). Combine it with
+// the existing `collapsedOverflow` signal so the banner follows
+// the effective rendering cap (fullscreen OR showAll lifts the
+// cap → banner disappears → no misleading warning).
+const showTruncationWarning = computed(
+  () => truncated.value && collapsedOverflow.value > 0,
+);
 
 const collapsedOverflow = computed(() => {
   if (showAllLines.value) return 0;
