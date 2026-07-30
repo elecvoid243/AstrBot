@@ -915,7 +915,8 @@ function fileErrorMessage(state: GitShowFetchState): string | null {
 /* 2026-07-18 git-log-filter-redesign: collapsed the previous
    2-column / 4-row layout into a symmetric 3×2 grid. Five filter
    fields + the actions row fill six equal cells (Ref / 作者 / 路径
-   on row 1, 起始时间 / 数量 / [应用 重置] on row 2). The sidebar is
+   on row 1, 起始时间 / 数量 / [筛选 重设筛选条件] on row 2). The
+   sidebar is
    resizable (GitDiffSidebar.sidebarWidth), so 1fr tracks keep the
    columns equal at any width the user drags to; at the typical
    ~600–800px panel this yields ~180–250px per cell. The 数量 cell

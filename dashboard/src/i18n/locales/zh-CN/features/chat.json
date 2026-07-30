@@ -850,8 +850,8 @@
             "sincePlaceholder": "2026-06-01",
             "n": "数量",
             "nPlaceholder": "20",
-            "apply": "应用",
-            "reset": "重置"
+            "apply": "筛选",
+            "reset": "重设筛选条件"
           },
           "empty": "暂无提交记录",
           "emptyRepository": "仓库还没有任何提交",

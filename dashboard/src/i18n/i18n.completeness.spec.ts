@@ -23,6 +23,40 @@ const localizations: Array<[string, Record<string, unknown>]> = [
   ["ru-RU", chatRu as unknown as Record<string, unknown>],
 ];
 
+describe("spcodeProjectLoad git-workflow history filter i18n completeness", () => {
+  // 2026-07-30: the Git history panel's "应用/重置" buttons were
+  // renamed to "筛选/重设筛选条件" in zh-CN. Pin the two key paths
+  // across all three locales so a future accidental rename (or a
+  // fix that only updates one file) cannot desync the button copy.
+  for (const [locale, dict] of localizations) {
+    it(`${locale} defines spcodeProjectLoad…history.filter.apply + .reset`, () => {
+      const nodes = dict.spcodeProjectLoad as
+        | Record<string, unknown>
+        | undefined;
+      const diffSidebar = nodes?.diffSidebar as
+        | Record<string, unknown>
+        | undefined;
+      const gitWorkflow = diffSidebar?.gitWorkflow as
+        | Record<string, unknown>
+        | undefined;
+      const history = gitWorkflow?.history as
+        | Record<string, unknown>
+        | undefined;
+      const filter = history?.filter as
+        | Record<string, unknown>
+        | undefined;
+      expect(
+        typeof filter?.apply,
+        `${locale} missing history.filter.apply string`,
+      ).toBe("string");
+      expect(
+        typeof filter?.reset,
+        `${locale} missing history.filter.reset string`,
+      ).toBe("string");
+    });
+  }
+});
+
 describe("interactiveChoice i18n completeness", () => {
   for (const [locale, dict] of localizations) {
     it(`${locale} defines interactiveChoice.cancelled`, () => {
