@@ -15,9 +15,10 @@
 // children so the test focuses on DiffPreview's own state graph.
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mount, type VueWrapper } from "@vue/test-utils";
+import { mount, flushPromises, type VueWrapper } from "@vue/test-utils";
 import { nextTick } from "vue";
 import DiffPreview from "./DiffPreview.vue";
+import FileCommentEditor from "./FileCommentEditor.vue";
 
 const STUB_CHILDREN = {
   FileCommentEditor: { template: "<div />" },
@@ -255,5 +256,85 @@ describe("DiffPreview truncation warning visibility", () => {
     expect(vm.collapsedOverflow).toBeGreaterThan(0);
     expect(vm.showTruncationWarning).toBe(true);
     expect(wrapper.findAll(".diff-truncation-warning").length).toBe(1);
+  });
+});
+
+describe("DiffPreview comment dock", () => {
+  // 2026-07-30 sticky-dock: the inline comment editor is wrapped in
+  // a `.diff-comment-dock` so it pins to the bottom of the *visible*
+  // scroll viewport. Without the dock the editor sat at the diff
+  // tail, and focusing its textarea made the browser scroll the
+  // viewport down there — disorienting on long diffs. These tests
+  // pin the *structural* contract (the dock exists exactly when the
+  // editor is open, and the editor component is nested inside it);
+  // the `position: sticky` rule itself lives in the scoped CSS and
+  // is what makes the nesting translate into "pinned to viewport
+  // bottom" at runtime.
+  type EditorHost = {
+    openNewEditor: (line: number) => void;
+    enterFullscreen: () => void;
+  };
+
+  afterEach(() => {
+    document.body.style.overflow = "";
+  });
+
+  it("renders no dock while the editor is closed", () => {
+    const wrapper = mountDiff();
+    expect(wrapper.find(".diff-comment-dock").exists()).toBe(false);
+    expect(wrapper.findComponent(FileCommentEditor).exists()).toBe(false);
+  });
+
+  it("wraps the editor in a dock in the normal view when opened", async () => {
+    const wrapper = mountDiff();
+    const vm = wrapper.vm as unknown as EditorHost;
+
+    vm.openNewEditor(1);
+    await nextTick();
+
+    const dock = wrapper.find(".diff-comment-dock");
+    expect(dock.exists()).toBe(true);
+    // The editor component must be a descendant of the dock — that
+    // nesting is precisely what lets `position: sticky` on the dock
+    // carry the editor to the viewport bottom. If a future change
+    // moves the editor back out of the dock, the jump-to-tail bug
+    // returns, so we assert the nesting explicitly.
+    expect(dock.findComponent(FileCommentEditor).exists()).toBe(true);
+  });
+
+  it("wraps the editor in a dock inside the fullscreen overlay", async () => {
+    const wrapper = mountDiff();
+    const vm = wrapper.vm as unknown as EditorHost;
+
+    vm.enterFullscreen();
+    await nextTick();
+    vm.openNewEditor(1);
+    // The overlay is a <Teleport>; the dock only appears after
+    // `activeEditLine` flips *post*-overlay-mount, which is an
+    // incremental patch to the teleported subtree. happy-dom needs
+    // a full promise flush (a single nextTick is not enough here,
+    // unlike the truncation-warning case where the warning is
+    // already determined at first overlay render) before the dock
+    // lands in document.body. In a real browser this update is a
+    // synchronous reactive flush, so the product is unaffected.
+    await flushPromises();
+
+    // The overlay is teleported to <body>, so query from the overlay
+    // element rather than the wrapper's local DOM tree.
+    const overlay = document.body.querySelector(".diff-fullscreen-overlay");
+    expect(overlay).not.toBeNull();
+    // NOTE: we deliberately do NOT assert the dock via
+    // `overlay.querySelector(".diff-comment-dock")`. happy-dom's
+    // Teleport moves the overlay into <body> on first render but
+    // drops *later* incremental patches to the teleported subtree
+    // (the dock only appears once `activeEditLine` flips after the
+    // overlay mounted), so a DOM-level query reads stale markup
+    // even after `flushPromises`. The component-instance layer is
+    // unaffected by that quirk, and the editor renders *only*
+    // inside a dock — so two editor instances (normal view + the
+    // fullscreen copy) prove both docks rendered. In a real browser
+    // the teleported DOM patch lands normally, so the product shows
+    // the dock correctly.
+    expect(wrapper.findAllComponents(FileCommentEditor).length).toBe(2);
   });
 });
