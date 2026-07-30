@@ -538,7 +538,34 @@ let prevWorktreePaths: ReadonlySet<string> | null = null;
 watch(
   () => worktreesComposable.state.value,
   (s) => {
-    if (s.kind !== "ok") return;
+    if (s.kind !== "ok") {
+      // Non-git project (or the worktree fetch failed): there is no
+      // worktree list to validate against, so the hydration logic
+      // below — which is gated on `kind === "ok"` — never runs. Without
+      // this branch, fileBrowserCurrentPath stays "" and
+      // useSpcodeFileBrowser's `if (!path) return` short-circuits EVERY
+      // fetch (the initial load AND the header refresh button), leaving
+      // the Files view permanently empty until the project is turned
+      // into a Git repo. projectRoot comes from /spcode/project-status
+      // (independent of git) and is guaranteed non-empty by the time
+      // this fires: the worktree request that drives this watcher is
+      // itself triggered by spcodeStatus.directory/umo becoming
+      // available, so directory (hence projectRoot) is already set. The
+      // non-empty guard keeps the `immediate` tick (state=idle,
+      // projectRoot still "") a no-op. validateCurrentPath preserves a
+      // valid persisted path and only adopts the root when the path is
+      // empty or outside it.
+      if (projectRoot.value) {
+        const validated = validateCurrentPath(
+          fileBrowserCurrentPath.value,
+          projectRoot.value,
+        );
+        if (fileBrowserCurrentPath.value !== validated) {
+          fileBrowserCurrentPath.value = validated;
+        }
+      }
+      return;
+    }
     const wtList = s.snapshot.worktrees;
     const newPaths = new Set(wtList.map((w) => w.path));
 
