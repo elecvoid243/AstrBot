@@ -461,7 +461,7 @@
            clicking the fullscreen button inside the overlay is a
            no-op (the button is at the normal view and is not rendered
            here because it is behind the overlay). -->
-      <div class="diff-fullscreen-body">
+      <div ref="fullscreenBodyRef" class="diff-fullscreen-body">
         <div
           class="diff-preview is-fullscreen"
           :class="{ 'is-dark': isDark, collapsed: isCollapsed, 'is-split': viewMode === 'split' }"
@@ -810,32 +810,42 @@
             </div>
           </div>
 
-          <!-- Inline-comment editor dock (fullscreen copy). Same
-               sticky-dock treatment as the normal view: pins to the
-               bottom of the fullscreen scroll viewport
-               (.diff-fullscreen-body) so opening a comment never
-               jumps the overlay to the diff tail. Same reactive
-               state as the normal view, so when the user opens the
-               editor while fullscreen and then exits fullscreen, the
-               editor simply migrates from the overlay dock to the
-               normal-view dock — no state to re-create. -->
-          <div
-            v-if="!isCollapsed && activeEditLine !== null && isCommentable"
-            class="diff-comment-dock"
-          >
-            <FileCommentEditor
-              :line="activeEditLine"
-              :comment-id="activeEditCommentId"
-              :initial-text="editorInitialText"
-              :line-content="editorContext?.lineContent ?? null"
-              :context-before="editorContext?.contextBefore ?? null"
-              :context-after="editorContext?.contextAfter ?? null"
-              :file-path="filePath"
-              @save="onSaveComment"
-              @cancel="closeEditor"
-              @delete="onDeleteComment"
-            />
-          </div>
+          <!-- Inline-comment editor dock (fullscreen copy),
+               teleported to the fullscreen scroll container
+               (.diff-fullscreen-body) for the same reason as the
+               normal view: a `position: sticky` element is
+               constrained to its *parent's* box, and in place the
+               parent is `.diff-preview.is-fullscreen` with the dock
+               sitting at its very end — so the sticky window
+               collapses to the document tail and the editor's
+               focus() yanks the viewport there. Teleporting makes
+               the scroller the dock's parent, restoring the
+               standard sticky-to-viewport-bottom behaviour. The
+               overlay (and therefore this ref) only exists while
+               fullscreen, so `:disabled` falls back to in-place
+               rendering for the single frame before the ref binds.
+               Same reactive state as the normal view, so toggling
+               fullscreen migrates the editor between the two docks
+               without re-creating state. -->
+          <Teleport :to="fullscreenBodyRef" :disabled="!fullscreenBodyRef">
+            <div
+              v-if="!isCollapsed && activeEditLine !== null && isCommentable"
+              class="diff-comment-dock"
+            >
+              <FileCommentEditor
+                :line="activeEditLine"
+                :comment-id="activeEditCommentId"
+                :initial-text="editorInitialText"
+                :line-content="editorContext?.lineContent ?? null"
+                :context-before="editorContext?.contextBefore ?? null"
+                :context-after="editorContext?.contextAfter ?? null"
+                :file-path="filePath"
+                @save="onSaveComment"
+                @cancel="closeEditor"
+                @delete="onDeleteComment"
+              />
+            </div>
+          </Teleport>
         </div>
       </div>
     </div>
@@ -982,6 +992,17 @@ const sidebarScrollContainer = inject<Ref<HTMLElement | null>>(
   "diffScrollContainer",
   ref<HTMLElement | null>(null),
 );
+
+// Template ref for the fullscreen overlay's scroll container
+// (.diff-fullscreen-body). The fullscreen comment dock <Teleport>s
+// to it (see the fullscreen dock in the template) for the same
+// reason as the normal view: a `position: sticky` element is
+// constrained to its parent's box, and in place that parent is
+// `.diff-preview.is-fullscreen` with the dock at its very end, so
+// the sticky window collapses to the document tail. Null until the
+// overlay renders; the dock's `:disabled` falls back to in-place
+// for the single frame before the ref binds.
+const fullscreenBodyRef = ref<HTMLElement | null>(null);
 
 // ── State ──────────────────────────────────────────────────────────
 
