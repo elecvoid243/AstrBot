@@ -4,7 +4,7 @@
 // (uncontrolled buffer, transition-only dirty-change, getValue
 // expose); dirtiness is driven by typing into the stub's textarea.
 import { describe, expect, it, vi } from "vitest";
-import { mount } from "@vue/test-utils";
+import { flushPromises, mount } from "@vue/test-utils";
 
 // Self-contained i18n mock (returns the key + k=v params).
 const tmMock = vi.fn(
@@ -89,6 +89,24 @@ async function setEditorDirty(w: ReturnType<typeof mountEditor>): Promise<void> 
   await w.vm.$nextTick();
 }
 
+function dispatchKeydown(options: {
+  key: string;
+  ctrlKey?: boolean;
+  metaKey?: boolean;
+}): KeyboardEvent {
+  // The component's onKeyDown listener is attached on `document`
+  // (capture phase), so dispatch there — mirroring DocumentEditor.spec.
+  const ev = new KeyboardEvent("keydown", {
+    key: options.key,
+    ctrlKey: options.ctrlKey ?? false,
+    metaKey: options.metaKey ?? false,
+    bubbles: true,
+    cancelable: true,
+  });
+  document.dispatchEvent(ev);
+  return ev;
+}
+
 describe("GitIgnoreEditor", () => {
   it("renders the .gitignore title and the new-file hint when isNewFile", () => {
     const w = mountEditor({ isNewFile: true });
@@ -125,6 +143,48 @@ describe("GitIgnoreEditor", () => {
     expect((saveBtn.element as HTMLButtonElement).disabled).toBe(false);
     await saveBtn.trigger("click");
     expect(w.emitted("save")).toEqual([["x"]]);
+  });
+
+  it("Ctrl+S while dirty emits save with the buffer and preventDefaults", async () => {
+    const w = mountEditor();
+    await setEditorDirty(w);
+    const ev = dispatchKeydown({ key: "s", ctrlKey: true });
+    await flushPromises();
+    expect(ev.defaultPrevented).toBe(true);
+    expect(w.emitted("save")).toEqual([["x"]]);
+  });
+
+  it("Cmd+S (metaKey) while dirty emits save", async () => {
+    const w = mountEditor();
+    await setEditorDirty(w);
+    dispatchKeydown({ key: "s", metaKey: true });
+    await flushPromises();
+    expect(w.emitted("save")).toEqual([["x"]]);
+  });
+
+  it("uppercase S (Caps Lock) with Ctrl still saves", async () => {
+    const w = mountEditor();
+    await setEditorDirty(w);
+    dispatchKeydown({ key: "S", ctrlKey: true });
+    await flushPromises();
+    expect(w.emitted("save")).toEqual([["x"]]);
+  });
+
+  it("Ctrl+S is a no-op when the buffer is clean", async () => {
+    const w = mountEditor();
+    const ev = dispatchKeydown({ key: "s", ctrlKey: true });
+    await flushPromises();
+    // The browser dialog is still suppressed, but no save is emitted.
+    expect(ev.defaultPrevented).toBe(true);
+    expect(w.emitted("save")).toBeFalsy();
+  });
+
+  it("Ctrl+S is a no-op while a save is in flight", async () => {
+    const w = mountEditor({ isSaving: true });
+    await setEditorDirty(w);
+    dispatchKeydown({ key: "s", ctrlKey: true });
+    await flushPromises();
+    expect(w.emitted("save")).toBeFalsy();
   });
 
   it("renders the inline save error bar", () => {

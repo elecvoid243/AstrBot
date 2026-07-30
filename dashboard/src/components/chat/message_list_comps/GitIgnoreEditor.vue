@@ -5,7 +5,7 @@
      loading/saving; this component is purely presentational:
      content in via v-model, save/cancel/retry out via events. -->
 <script setup lang="ts">
-import { onBeforeUnmount, ref } from "vue";
+import { onBeforeUnmount, onMounted, ref } from "vue";
 import { useModuleI18n } from "@/i18n/composables";
 import CodeMirrorEditor from "./CodeMirrorEditor.vue";
 
@@ -47,6 +47,22 @@ function onSaveClick(): void {
   emit("save", editorRef.value?.getValue() ?? "");
 }
 
+// 2026-07-30 keyboard shortcut: Ctrl/Cmd+S saves, mirroring the
+// DocumentEditor contract. preventDefault() suppresses the browser's
+// "save webpage" dialog; the isDirty / isSaving guard keeps the chord
+// a no-op exactly when the toolbar save button is disabled (clean
+// buffer, or a save already in flight). Registered on the capture
+// phase so it runs before any bubble-phase document listener.
+function onKeyDown(e: KeyboardEvent): void {
+  const isMod = e.metaKey || e.ctrlKey;
+  if (isMod && (e.key === "s" || e.key === "S")) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (isDirty.value && !props.isSaving) onSaveClick();
+  }
+}
+onMounted(() => document.addEventListener("keydown", onKeyDown, true));
+
 // Two-click discard: first Cancel click while dirty arms the
 // confirmation (button relabels); a second click within 3s emits.
 // Auto-disarm so a stray arm never lingers.
@@ -67,6 +83,7 @@ function onCancelClick(): void {
 }
 onBeforeUnmount(() => {
   if (disarmTimer) clearTimeout(disarmTimer);
+  document.removeEventListener("keydown", onKeyDown, true);
 });
 </script>
 
