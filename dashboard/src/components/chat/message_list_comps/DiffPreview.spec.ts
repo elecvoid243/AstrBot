@@ -16,7 +16,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mount, flushPromises, type VueWrapper } from "@vue/test-utils";
-import { nextTick } from "vue";
+import { nextTick, ref } from "vue";
 import DiffPreview from "./DiffPreview.vue";
 import FileCommentEditor from "./FileCommentEditor.vue";
 
@@ -336,5 +336,39 @@ describe("DiffPreview comment dock", () => {
     // the teleported DOM patch lands normally, so the product shows
     // the dock correctly.
     expect(wrapper.findAllComponents(FileCommentEditor).length).toBe(2);
+  });
+
+  it("teleports the dock into the provided scroll container", async () => {
+    // The actual fix: with a provider, the dock must relocate into
+    // the injected scroller (so `position: sticky` sticks to it)
+    // instead of staying inside the component's own .diff-preview
+    // tree. Asserting both sides makes this a real regression guard
+    // — a future change that drops the <Teleport> would leave the
+    // dock in .diff-preview and fail the second expectation, while
+    // the no-provider test above would still pass.
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    try {
+      const wrapper = mount(DiffPreview, {
+        props: {
+          content: buildDiffContent(40),
+          filePath: "sample.txt",
+          maxLines: 30,
+        },
+        global: {
+          stubs: STUB_CHILDREN,
+          provide: { diffScrollContainer: ref(container) },
+        },
+      });
+      const vm = wrapper.vm as unknown as EditorHost;
+
+      vm.openNewEditor(1);
+      await nextTick();
+
+      expect(container.querySelector(".diff-comment-dock")).not.toBeNull();
+      expect(wrapper.find(".diff-comment-dock").exists()).toBe(false);
+    } finally {
+      document.body.removeChild(container);
+    }
   });
 });

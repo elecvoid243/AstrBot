@@ -82,6 +82,19 @@ import BranchSwitchConfirmDialog from "@/components/chat/message_list_comps/Bran
 import BranchDeleteConfirmDialog from "@/components/chat/message_list_comps/BranchDeleteConfirmDialog.vue";
 const { tm } = useModuleI18n("features/chat");
 
+// Scroll container for the body (Files / Diff / History). Provided
+// to descendant DiffPreview instances so their comment dock can
+// <Teleport> out of the deeply-nested GitDiffFileItem subtree and
+// become a direct child of the scroller. A `position: sticky`
+// element only sticks when its scroll ancestor equals its
+// containing block with no layout ancestors in between; the deep
+// nesting inside the diff list breaks that, so an in-place sticky
+// dock rendered at the document tail and the editor's focus-scroll
+// jumped the viewport there. Teleporting to the scroller restores
+// the textbook sticky setup (see DiffPreview sidebarScrollContainer).
+const sidebarBodyRef = ref<HTMLElement | null>(null);
+provide("diffScrollContainer", sidebarBodyRef);
+
 // ── localStorage persistence (spec 2026-06-20 §5.1 + §6) ────────────
 // Persists 4 view-state keys across page reloads. Values are loaded
 // once at component creation and saved on every change (most are
@@ -4193,7 +4206,7 @@ watch(
         </div>
 
         <!-- Body: Files / Diff / History -->
-        <div class="git-diff-sidebar-body">
+        <div ref="sidebarBodyRef" class="git-diff-sidebar-body">
           <!-- 2026-07-18 workspace-search-parity: the files-view search
              toolbar moved INTO FileBrowserView (mirroring
              DocumentManager) so it travels with the file-area
