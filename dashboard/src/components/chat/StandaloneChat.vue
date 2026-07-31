@@ -231,6 +231,7 @@ import {
 } from "@/components/chat/attachmentPresentation";
 import { useMediaHandling } from "@/composables/useMediaHandling";
 import { useFileComments } from "@/composables/useFileComments";
+import { useInlineAnnotations } from "@/composables/useInlineAnnotations";
 import {
   displayParts as displayMessageParts,
   messageBlocks as buildMessageBlocks,
@@ -269,10 +270,12 @@ const imagePreview = reactive({ visible: false, url: "" });
 // resetForSession() is invoked from the currSessionId watcher below so
 // comments are scoped to the active chat session per spec §2.
 const fileComments = useFileComments();
+const inlineAnnotations = useInlineAnnotations();
 
 watch(currSessionId, (newId, oldId) => {
   if (oldId && newId !== oldId) {
     fileComments.resetForSession();
+    inlineAnnotations.resetForSession();
   }
 });
 

@@ -51,6 +51,7 @@ import DocumentPathBar from "./DocumentPathBar.vue";
 import FileBrowserCodeView from "./FileBrowserCodeView.vue";
 import SearchPanel from "./SearchPanel.vue";
 import FileCommentEditor from "./FileCommentEditor.vue";
+import InlineAskEditor from "./InlineAskEditor.vue";
 import { useDocumentMarkdownHighlight } from "@/composables/useDocumentMarkdownHighlight";
 import {
   useFileComments,
@@ -68,6 +69,8 @@ import RecentFilesBlock from "./RecentFilesBlock.vue";
 import MarkdownView from "@/components/shared/MarkdownView.vue";
 import BinaryPreview from "./binary_preview/BinaryPreview.vue";
 import { useResizableSplit } from "@/composables/useResizableSplit";
+import { useInlineAnnotations } from "@/composables/useInlineAnnotations";
+import { useSpcodeBtw } from "@/composables/useSpcodeBtw";
 import {
   projectRelativePath,
   docsRootRelativePath,
@@ -1194,6 +1197,7 @@ function onBackToCurrent() {
 
 function onRequestAddComment(line: number): void {
   if (!rawFilePath.value || !rawContent.value) return;
+  inlineAskState.value = null;
   const ctx = extractLineContext(rawContent.value, line);
   if (!ctx) return;
   activeEditLine.value = line;
@@ -1214,6 +1218,7 @@ function onRequestAddRange(payload: {
   selection: string;
 }): void {
   if (!rawFilePath.value || !rawContent.value) return;
+  inlineAskState.value = null;
   const ctx = extractRangeLineContext(
     rawContent.value,
     payload.startLine,
@@ -1337,6 +1342,99 @@ function closeCommentEditor(): void {
   activeEditContext.value = null;
 }
 
+// --- 2026-07-30 inline-ask ---
+const inlineAnnotations = useInlineAnnotations();
+const btw = useSpcodeBtw();
+
+const inlineAskState = ref<{
+  startLine: number;
+  endLine: number;
+  selection: string;
+} | null>(null);
+
+function onRequestAskInline(payload: {
+  startLine: number;
+  endLine: number;
+  selection: string;
+}): void {
+  closeCommentEditor();
+  inlineAskState.value = payload;
+}
+
+function onCloseInlineAsk(): void {
+  inlineAskState.value = null;
+}
+
+function buildInlineAskPrompt(params: {
+  filePath: string;
+  startLine: number;
+  endLine: number;
+  selection: string;
+  question: string;
+  fileContent: string;
+}): string {
+  const lines = params.fileContent.split("\n");
+  const ctxStart = Math.max(0, params.startLine - 1 - 3);
+  const ctxEnd = Math.min(lines.length, params.endLine + 3);
+  const contextLines = lines
+    .slice(ctxStart, ctxEnd)
+    .map((l, i) => `${ctxStart + i + 1}: ${l}`)
+    .join("\n");
+  return [
+    `File: ${params.filePath}`,
+    `Lines ${params.startLine}-${params.endLine} (with ±3 context):`,
+    "```",
+    contextLines,
+    "```",
+    `Selected text (lines ${params.startLine}-${params.endLine}):`,
+    "```",
+    params.selection,
+    "```",
+    `User question: ${params.question}`,
+  ].join("\n");
+}
+
+async function onSubmitInlineAsk(payload: {
+  question: string;
+  startLine: number;
+  endLine: number;
+  selection: string;
+}): Promise<void> {
+  const path = rawFilePath.value;
+  const content = rawContent.value;
+  if (!path || !content) return;
+  const ann = inlineAnnotations.addAnnotation({
+    filePath: path,
+    startLine: payload.startLine,
+    endLine: payload.endLine,
+    selection: payload.selection,
+    question: payload.question,
+  });
+  inlineAskState.value = null;
+  const prompt = buildInlineAskPrompt({
+    filePath: path,
+    startLine: payload.startLine,
+    endLine: payload.endLine,
+    selection: payload.selection,
+    question: payload.question,
+    fileContent: content,
+  });
+  const result = await btw.ask({ prompt });
+  if (result.ok) {
+    inlineAnnotations.setReply(ann.id, result.reply);
+  } else {
+    const errMsg =
+      result.reason === "network"
+        ? tm("spcodeProjectLoad.fileBrowser.inlineAsk.error")
+        : result.reason;
+    inlineAnnotations.setError(ann.id, errMsg);
+  }
+}
+
+function onDeleteAnnotation(id: string): void {
+  inlineAnnotations.deleteAnnotation(id);
+}
+
 /** Single teardown hook: detach the Esc listener, release the body
  *  scroll lock if it was applied, and dispose of the long-lived
  *  composables. Kept as one hook (instead of three small ones) per
@@ -1363,6 +1461,7 @@ onBeforeUnmount(() => {
   }
   gitFile.dispose();
   fileWrite.dispose();
+  btw.dispose();
 });
 </script>
 
@@ -1882,10 +1981,13 @@ onBeforeUnmount(() => {
                   :is-dark="isDark"
                   :scroll-to-line="searchScrollToLine"
                   :selection-commentable="!selectedRevision"
+                  :annotations="inlineAnnotations.annotationsForFile(rawFilePath)"
                   @request-add="onRequestAddComment"
                   @request-edit="onRequestEditComment"
                   @request-add-range="onRequestAddRange"
+                  @request-ask-inline="onRequestAskInline"
                   @copy-selection="onRequestCopySelection"
+                  @delete-annotation="onDeleteAnnotation"
                 />
                 <div
                   v-else-if="rawIsBinary"
@@ -1922,6 +2024,15 @@ onBeforeUnmount(() => {
                   @save="onSaveComment"
                   @cancel="closeCommentEditor"
                   @delete="onDeleteComment"
+                />
+                <InlineAskEditor
+                  v-if="inlineAskState !== null && rawFilePath"
+                  :start-line="inlineAskState.startLine"
+                  :end-line="inlineAskState.endLine"
+                  :selection="inlineAskState.selection"
+                  :file-path="rawFilePath"
+                  @submit="onSubmitInlineAsk"
+                  @cancel="onCloseInlineAsk"
                 />
               </div>
               <div

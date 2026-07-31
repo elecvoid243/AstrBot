@@ -513,6 +513,15 @@
           "collapseContext": "Скрыть контекст кода"
         }
       },
+      "inlineAsk": {
+        "addButton": "Спросить",
+        "title": "Спросить по выделению",
+        "submit": "Отправить",
+        "loading": "Думаю…",
+        "error": "Ошибка запроса",
+        "deleteAria": "Удалить аннотацию",
+        "tooltipDelete": "Удалить"
+      },
       "error": {
         "loadFailedTitle": "Не удалось загрузить",
         "pathNotFound": "Путь не найден",

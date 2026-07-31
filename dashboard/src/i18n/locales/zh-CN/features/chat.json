@@ -526,6 +526,15 @@
           "collapseContext": "收起代码上下文"
         }
       },
+      "inlineAsk": {
+        "addButton": "就地询问",
+        "title": "就地询问",
+        "submit": "提交",
+        "loading": "正在思考…",
+        "error": "请求失败",
+        "deleteAria": "删除此标注",
+        "tooltipDelete": "删除"
+      },
       "error": {
         "loadFailedTitle": "无法加载",
         "pathNotFound": "路径不存在",

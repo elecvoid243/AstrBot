@@ -26,6 +26,7 @@ import {
 } from "@/composables/useFileComments";
 import FileBrowserCodeView from "./FileBrowserCodeView.vue";
 import FileCommentEditor from "./FileCommentEditor.vue";
+import InlineAskEditor from "./InlineAskEditor.vue";
 import SelectionActionMenu from "./SelectionActionMenu.vue";
 import DiffPreview from "./DiffPreview.vue";
 import CodeMirrorEditor from "./CodeMirrorEditor.vue";
@@ -33,6 +34,8 @@ import MarkdownView from "@/components/shared/MarkdownView.vue";
 import { useSpcodeFileWrite } from "@/composables/useSpcodeFileWrite";
 import { useSpcodeFileRename } from "@/composables/useSpcodeFileRename";
 import { useSpcodeFileRemove } from "@/composables/useSpcodeFileRemove";
+import { useInlineAnnotations } from "@/composables/useInlineAnnotations";
+import { useSpcodeBtw } from "@/composables/useSpcodeBtw";
 
 /** Mirrors DocumentManager's viewMode union, trimmed to what the
  *  workspace pane actually renders: 'raw' (file content) and 'diff'
@@ -772,6 +775,8 @@ function onRequestAdd(line: number): void {
   const path = currentFilePath();
   const content = currentFileContent();
   if (!path || content === null) return;
+  // Close inline ask editor if open (mutual exclusion)
+  inlineAskState.value = null;
   activeEditLine.value = line;
   activeEditCommentId.value = null;
   activeEditRange.value = null;
@@ -792,6 +797,8 @@ function onRequestAddRange(payload: {
   const path = currentFilePath();
   const content = currentFileContent();
   if (!path || content === null) return;
+  // Close inline ask editor if open (mutual exclusion)
+  inlineAskState.value = null;
   activeEditLine.value = payload.startLine;
   activeEditCommentId.value = null;
   activeEditRange.value = payload;
@@ -914,6 +921,115 @@ function onDeleteComment(commentId: string): void {
   fileComments.deleteComment(commentId);
   closeEditor();
 }
+
+// --- 2026-07-30 inline-ask ---
+const inlineAnnotations = useInlineAnnotations();
+const btw = useSpcodeBtw();
+
+/** Inline ask editor state. Mutually exclusive with comment editor:
+ *  opening one closes the other. */
+const inlineAskState = ref<{
+  startLine: number;
+  endLine: number;
+  selection: string;
+} | null>(null);
+
+function onRequestAskInline(payload: {
+  startLine: number;
+  endLine: number;
+  selection: string;
+}): void {
+  // Close comment editor if open (mutual exclusion)
+  closeEditor();
+  inlineAskState.value = payload;
+}
+
+function onCloseInlineAsk(): void {
+  inlineAskState.value = null;
+}
+
+/** Build the LLM prompt for an inline ask request. */
+function buildInlineAskPrompt(params: {
+  filePath: string;
+  startLine: number;
+  endLine: number;
+  selection: string;
+  question: string;
+  fileContent: string;
+}): string {
+  const lines = params.fileContent.split("\n");
+  const ctxStart = Math.max(0, params.startLine - 1 - 3);
+  const ctxEnd = Math.min(lines.length, params.endLine + 3);
+  const contextLines = lines
+    .slice(ctxStart, ctxEnd)
+    .map((l, i) => `${ctxStart + i + 1}: ${l}`)
+    .join("\n");
+
+  return [
+    `File: ${params.filePath}`,
+    `Lines ${params.startLine}-${params.endLine} (with ±3 context):`,
+    "```",
+    contextLines,
+    "```",
+    `Selected text (lines ${params.startLine}-${params.endLine}):`,
+    "```",
+    params.selection,
+    "```",
+    `User question: ${params.question}`,
+  ].join("\n");
+}
+
+async function onSubmitInlineAsk(payload: {
+  question: string;
+  startLine: number;
+  endLine: number;
+  selection: string;
+}): Promise<void> {
+  const path = currentFilePath();
+  const content = currentFileContent();
+  if (!path || content === null) return;
+
+  // Create annotation in loading state
+  const ann = inlineAnnotations.addAnnotation({
+    filePath: path,
+    startLine: payload.startLine,
+    endLine: payload.endLine,
+    selection: payload.selection,
+    question: payload.question,
+  });
+
+  // Close the editor
+  inlineAskState.value = null;
+
+  // Build prompt and call LLM
+  const prompt = buildInlineAskPrompt({
+    filePath: path,
+    startLine: payload.startLine,
+    endLine: payload.endLine,
+    selection: payload.selection,
+    question: payload.question,
+    fileContent: content,
+  });
+
+  const result = await btw.ask({ prompt });
+  if (result.ok) {
+    inlineAnnotations.setReply(ann.id, result.reply);
+  } else {
+    const errMsg =
+      result.reason === "network"
+        ? tm("spcodeProjectLoad.fileBrowser.inlineAsk.error")
+        : result.reason;
+    inlineAnnotations.setError(ann.id, errMsg);
+  }
+}
+
+function onDeleteAnnotation(id: string): void {
+  inlineAnnotations.deleteAnnotation(id);
+}
+
+onBeforeUnmount(() => {
+  btw.dispose();
+});
 </script>
 
 <template>
@@ -1367,10 +1483,13 @@ function onDeleteComment(commentId: string): void {
             :active-edit-comment-id="activeEditCommentId"
             :is-dark="isDark"
             :scroll-to-line="props.scrollToLine ?? null"
+            :annotations="inlineAnnotations.annotationsForFile(state.snapshot.meta.path)"
             @request-add="onRequestAdd"
             @request-edit="onRequestEdit"
             @request-add-range="onRequestAddRange"
+            @request-ask-inline="onRequestAskInline"
             @copy-selection="onRequestCopySelection"
+            @delete-annotation="onDeleteAnnotation"
           />
           <FileCommentEditor
             v-if="activeEditLine !== null"
@@ -1386,6 +1505,15 @@ function onDeleteComment(commentId: string): void {
             @save="onSaveComment"
             @cancel="closeEditor"
             @delete="onDeleteComment"
+          />
+          <InlineAskEditor
+            v-if="inlineAskState !== null"
+            :start-line="inlineAskState.startLine"
+            :end-line="inlineAskState.endLine"
+            :selection="inlineAskState.selection"
+            :file-path="state.snapshot.meta.path"
+            @submit="onSubmitInlineAsk"
+            @cancel="onCloseInlineAsk"
           />
           <!-- 2026-07-17 selection-comment: copy-only menu for the
                rendered-markdown containers above (fixed position,

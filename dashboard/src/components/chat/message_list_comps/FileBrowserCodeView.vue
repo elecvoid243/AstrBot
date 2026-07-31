@@ -11,6 +11,10 @@ import {
   commentCoversLine,
   type FileComment,
 } from "@/composables/useFileComments";
+import {
+  useInlineAnnotations,
+  type InlineAnnotation,
+} from "@/composables/useInlineAnnotations";
 import SelectionActionMenu from "./SelectionActionMenu.vue";
 
 const props = withDefaults(
@@ -33,10 +37,13 @@ const props = withDefaults(
      * refer to a stale blob and shouldn't accept comments.
      */
     selectionCommentable?: boolean;
+    /** 2026-07-30 inline-ask: annotations for this file. */
+    annotations?: InlineAnnotation[];
   }>(),
   {
     scrollToLine: null,
     selectionCommentable: true,
+    annotations: () => [],
   },
 );
 
@@ -48,10 +55,19 @@ const emit = defineEmits<{
     endLine: number;
     selection: string;
   }): void;
+  (e: "request-ask-inline", payload: {
+    startLine: number;
+    endLine: number;
+    selection: string;
+  }): void;
   (e: "copy-selection", text: string): void;
+  (e: "delete-annotation", id: string): void;
 }>();
 
 const { tm } = useModuleI18n("features/chat");
+
+// 2026-07-30 inline-ask: annotation helpers (module-level singleton)
+const inlineAnnotations = useInlineAnnotations();
 
 /** Total line count derived from the Shiki output by counting
  *  `<span class="line">` wrappers. Single point that knows the
@@ -65,6 +81,14 @@ const lineCount = computed<number>(() => {
 const codeContentRef = ref<HTMLElement | null>(null);
 const hoveredLine = ref<number | null>(null);
 
+// 2026-07-30 inline-ask: tooltip state for annotation bubbles
+const annotationTooltip = ref<{
+  visible: boolean;
+  x: number;
+  y: number;
+  annotation: InlineAnnotation | null;
+}>({ visible: false, x: 0, y: 0, annotation: null });
+
 // 2026-07-17 selection-comment: gutter coverage now considers
 // range comments (commentCoversLine walks [line, endLine] for
 // comments with endLine > line). Single-line comments are just
@@ -77,6 +101,14 @@ function commentText(line: number): string {
 }
 function commentIdFor(line: number): string | null {
   return props.comments.find((c) => commentCoversLine(c, line))?.id ?? null;
+}
+
+// 2026-07-30 inline-ask: annotation helpers
+function hasAnnotation(line: number): boolean {
+  return props.annotations.some((a) => inlineAnnotations.annotationCoversLine(a, line));
+}
+function annotationForLine(line: number): InlineAnnotation | null {
+  return props.annotations.find((a) => inlineAnnotations.annotationCoversLine(a, line)) ?? null;
 }
 
 function onMouseMove(e: MouseEvent): void {
@@ -185,7 +217,20 @@ function onContentMouseUp(e: MouseEvent): void {
  *  Named so `onBeforeUnmount` can remove it (avoiding a listener
  *  leak across remounts of the same component instance). */
 function onDocMouseDown(e: MouseEvent): void {
-  if (!menuState.value) return;
+  if (!menuState.value) {
+    // Also close annotation tooltip on outside click
+    if (annotationTooltip.value.visible) {
+      const t = e.target;
+      if (
+        t instanceof HTMLElement &&
+        !t.closest(".annotation-tooltip") &&
+        !t.closest(".line-annotated")
+      ) {
+        closeAnnotationTooltip();
+      }
+    }
+    return;
+  }
   const t = e.target;
   if (t instanceof HTMLElement && t.closest(".selection-action-menu")) return;
   closeMenu();
@@ -216,9 +261,81 @@ function onMenuComment(): void {
   closeMenu();
 }
 
+function onMenuAskInline(): void {
+  if (!menuState.value) return;
+  emit("request-ask-inline", {
+    startLine: menuState.value.startLine,
+    endLine: menuState.value.endLine,
+    selection: menuState.value.selection,
+  });
+  closeMenu();
+}
+
 if (typeof window !== "undefined") {
   document.addEventListener("mousedown", onDocMouseDown);
   document.addEventListener("selectionchange", onSelectionChange);
+}
+
+// 2026-07-30 inline-ask: apply underline classes to annotated lines
+// via DOM manipulation after Vue renders the v-html content.
+watch(
+  [() => props.highlightedHtml, () => props.annotations, () => props.filePath],
+  async () => {
+    await nextTick();
+    applyAnnotationClasses();
+  },
+  { flush: "post" },
+);
+
+function applyAnnotationClasses(): void {
+  if (!codeContentRef.value) return;
+  const lineEls = codeContentRef.value.querySelectorAll<HTMLElement>(".line");
+  // Clear previous annotation classes
+  lineEls.forEach((el) => el.classList.remove("line-annotated"));
+  // Apply to annotated lines
+  for (const ann of props.annotations) {
+    for (let i = ann.startLine; i <= ann.endLine && i <= lineEls.length; i++) {
+      lineEls[i - 1]?.classList.add("line-annotated");
+    }
+  }
+}
+
+/** 2026-07-30 inline-ask: click on annotated line shows tooltip. */
+function onCodeContentClick(e: MouseEvent): void {
+  const target = e.target as HTMLElement | null;
+  if (!target || !codeContentRef.value) return;
+  // Walk up to the .line element
+  let lineEl: HTMLElement | null = target;
+  while (lineEl && !lineEl.classList.contains("line")) {
+    lineEl = lineEl.parentElement;
+  }
+  if (!lineEl || !lineEl.classList.contains("line-annotated")) {
+    annotationTooltip.value.visible = false;
+    return;
+  }
+  // Determine which line was clicked
+  const allLines = codeContentRef.value.querySelectorAll<HTMLElement>(".line");
+  const lineIdx = Array.from(allLines).indexOf(lineEl);
+  if (lineIdx < 0) return;
+  const lineNo = lineIdx + 1;
+  const ann = annotationForLine(lineNo);
+  if (!ann) return;
+  const rect = lineEl.getBoundingClientRect();
+  annotationTooltip.value = {
+    visible: true,
+    x: rect.left,
+    y: rect.bottom + 4,
+    annotation: ann,
+  };
+}
+
+function closeAnnotationTooltip(): void {
+  annotationTooltip.value.visible = false;
+}
+
+function onDeleteAnnotation(id: string): void {
+  emit("delete-annotation", id);
+  closeAnnotationTooltip();
 }
 
 onBeforeUnmount(() => {
@@ -325,6 +442,7 @@ watch(
       class="code-content"
       v-html="highlightedHtml"
       @mouseup="onContentMouseUp"
+      @click="onCodeContentClick"
     />
     <!-- 2026-07-17 selection-comment: action menu opens at the
          mouse-up position when the user drags across one or more
@@ -337,8 +455,52 @@ watch(
       :show-comment="props.selectionCommentable"
       @copy="onMenuCopy"
       @comment="onMenuComment"
+      @ask-inline="onMenuAskInline"
       @close="closeMenu"
     />
+    <!-- 2026-07-30 inline-ask: annotation tooltip bubble -->
+    <div
+      v-if="annotationTooltip.visible && annotationTooltip.annotation"
+      class="annotation-tooltip"
+      :style="{
+        left: annotationTooltip.x + 'px',
+        top: annotationTooltip.y + 'px',
+      }"
+      @mousedown.stop
+    >
+      <div class="annotation-tooltip-header">
+        <v-icon size="12">mdi-lightbulb-on-outline</v-icon>
+        <span class="annotation-tooltip-question">
+          {{ annotationTooltip.annotation.question }}
+        </span>
+        <button
+          type="button"
+          class="annotation-tooltip-delete"
+          :aria-label="tm('spcodeProjectLoad.fileBrowser.inlineAsk.deleteAria')"
+          @click="onDeleteAnnotation(annotationTooltip.annotation.id)"
+        >
+          <v-icon size="12">mdi-close</v-icon>
+        </button>
+      </div>
+      <div class="annotation-tooltip-body">
+        <template v-if="annotationTooltip.annotation.loading">
+          <v-progress-circular
+            indeterminate
+            size="14"
+            color="primary"
+            class="mr-2"
+          />
+          {{ tm("spcodeProjectLoad.fileBrowser.inlineAsk.loading") }}
+        </template>
+        <template v-else-if="annotationTooltip.annotation.error">
+          <v-icon size="12" color="error" class="mr-1">mdi-alert-circle-outline</v-icon>
+          {{ annotationTooltip.annotation.error }}
+        </template>
+        <template v-else>
+          {{ annotationTooltip.annotation.reply }}
+        </template>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -519,5 +681,71 @@ watch(
   .gutter-add-btn {
     font-size: 12px;
   }
+}
+/* 2026-07-30 inline-ask: underline effect on annotated lines */
+.code-content :deep(.line.line-annotated) {
+  text-decoration: underline;
+  text-decoration-color: rgb(var(--v-theme-primary));
+  text-decoration-style: wavy;
+  text-underline-offset: 3px;
+  cursor: pointer;
+  background: rgba(var(--v-theme-primary), 0.06);
+  border-radius: 2px;
+}
+/* 2026-07-30 inline-ask: annotation tooltip bubble */
+.annotation-tooltip {
+  position: fixed;
+  z-index: 1200;
+  max-width: 420px;
+  min-width: 200px;
+  background: rgba(var(--v-theme-surface), 0.97);
+  color: rgb(var(--v-theme-on-surface));
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.15);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+  font-size: 12.5px;
+  user-select: text;
+  overflow: hidden;
+}
+.annotation-tooltip-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.08);
+  background: rgba(var(--v-theme-primary), 0.04);
+}
+.annotation-tooltip-question {
+  flex: 1;
+  font-weight: 500;
+  color: rgba(var(--v-theme-on-surface), 0.7);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.annotation-tooltip-delete {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: rgba(var(--v-theme-on-surface), 0.4);
+  padding: 2px;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+}
+.annotation-tooltip-delete:hover {
+  color: rgb(var(--v-theme-error));
+  background: rgba(var(--v-theme-error), 0.1);
+}
+.annotation-tooltip-body {
+  padding: 8px 10px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 300px;
+  overflow-y: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
 }
 </style>

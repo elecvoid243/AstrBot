@@ -21,6 +21,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: "copy"): void;
   (e: "comment"): void;
+  (e: "ask-inline"): void;
   (e: "close"): void;
 }>();
 
@@ -29,10 +30,10 @@ const copied = ref(false);
 let closeTimer: ReturnType<typeof setTimeout> | null = null;
 
 function clampToViewport(x: number, y: number): { left: number; top: number } {
-  // Approximate menu size (140×40) — leave a 6px margin so the menu
-  // never touches the edge. Works for both item counts (1 or 2).
+  // Approximate menu size (220×40) — leave a 6px margin so the menu
+  // never touches the edge. Works for all item counts (1, 2, or 3).
   if (typeof window === "undefined") return { left: x, top: y };
-  const maxLeft = Math.max(6, window.innerWidth - 140);
+  const maxLeft = Math.max(6, window.innerWidth - 220);
   const maxTop = Math.max(6, window.innerHeight - 40);
   return {
     left: Math.min(Math.max(6, x), maxLeft),
@@ -51,6 +52,10 @@ function onCopy(): void {
 
 function onComment(): void {
   emit("comment");
+}
+
+function onAskInline(): void {
+  emit("ask-inline");
 }
 
 onBeforeUnmount(() => {
@@ -87,6 +92,16 @@ onBeforeUnmount(() => {
     >
       <v-icon size="12">mdi-comment-text-outline</v-icon>
       {{ tm("spcodeProjectLoad.fileBrowser.comment.addButton") }}
+    </button>
+    <button
+      v-if="showComment"
+      type="button"
+      class="selection-action-menu__item"
+      role="menuitem"
+      @click="onAskInline"
+    >
+      <v-icon size="12">mdi-lightbulb-on-outline</v-icon>
+      {{ tm("spcodeProjectLoad.fileBrowser.inlineAsk.addButton") }}
     </button>
   </div>
 </template>

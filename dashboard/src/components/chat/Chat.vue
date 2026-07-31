@@ -836,6 +836,7 @@ import GitDiffSidebar from "@/components/chat/GitDiffSidebar.vue";
 import ChatMessageSearchDialog from "@/components/chat/ChatMessageSearchDialog.vue";
 import { useSessions, type Session } from "@/composables/useSessions";
 import { useFileComments } from "@/composables/useFileComments";
+import { useInlineAnnotations } from "@/composables/useInlineAnnotations";
 import { buildWebchatUmoDetails } from "@/utils/chatConfigBinding";
 import {
   messageBlocks as buildMessageBlocks,
@@ -1363,9 +1364,11 @@ const {
 // the same instance. resetForSession() drops the current session's
 // comments so they don't leak across sessions (spec §2).
 const fileComments = useFileComments();
+const inlineAnnotations = useInlineAnnotations();
 watch(currSessionId, (newId, oldId) => {
   if (oldId && newId !== oldId) {
     fileComments.resetForSession();
+    inlineAnnotations.resetForSession();
   }
 });
 

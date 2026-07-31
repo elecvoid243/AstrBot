@@ -526,6 +526,15 @@
           "collapseContext": "Hide code context"
         }
       },
+      "inlineAsk": {
+        "addButton": "Ask Inline",
+        "title": "Ask Inline",
+        "submit": "Submit",
+        "loading": "Thinking…",
+        "error": "Request failed",
+        "deleteAria": "Delete this annotation",
+        "tooltipDelete": "Delete"
+      },
       "error": {
         "loadFailedTitle": "Failed to load",
         "pathNotFound": "Path not found",
