@@ -16,6 +16,7 @@ import {
   type InlineAnnotation,
 } from "@/composables/useInlineAnnotations";
 import SelectionActionMenu from "./SelectionActionMenu.vue";
+import MarkdownView from "@/components/shared/MarkdownView.vue";
 
 const props = withDefaults(
   defineProps<{
@@ -496,9 +497,14 @@ watch(
           <v-icon size="12" color="error" class="mr-1">mdi-alert-circle-outline</v-icon>
           {{ annotationTooltip.annotation.error }}
         </template>
-        <template v-else>
-          {{ annotationTooltip.annotation.reply }}
-        </template>
+        <!-- 2026-07-31: render LLM reply as markdown — models almost
+             always answer with markdown (code fences, lists, bold),
+             which reads poorly as raw pre-wrap plain text. -->
+        <MarkdownView
+          v-else
+          :source="annotationTooltip.annotation.reply ?? ''"
+          :is-dark="isDark"
+        />
       </div>
     </div>
   </div>
@@ -740,12 +746,23 @@ watch(
 .annotation-tooltip-body {
   padding: 8px 10px;
   line-height: 1.5;
-  white-space: pre-wrap;
   word-break: break-word;
   max-height: 300px;
   overflow-y: auto;
   display: flex;
   align-items: flex-start;
   gap: 4px;
+}
+/* 2026-07-31 markdown reply: MarkdownView renders block content,
+   so drop the flex-row / pre-wrap layout inherited from the
+   plain-text version and let the markdown-body fill the tooltip. */
+.annotation-tooltip-body :deep(.markdown-body) {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+}
+.annotation-tooltip-body :deep(.markdown-body pre) {
+  max-width: 100%;
+  overflow-x: auto;
 }
 </style>
