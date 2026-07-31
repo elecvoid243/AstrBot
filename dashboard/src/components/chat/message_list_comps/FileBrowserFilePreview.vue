@@ -25,6 +25,7 @@ import {
   type LineContext,
 } from "@/composables/useFileComments";
 import FileBrowserCodeView from "./FileBrowserCodeView.vue";
+import BinaryPreview from "./binary_preview/BinaryPreview.vue";
 import FileCommentEditor from "./FileCommentEditor.vue";
 import InlineAskEditor from "./InlineAskEditor.vue";
 import SelectionActionMenu from "./SelectionActionMenu.vue";
@@ -372,6 +373,30 @@ const isMarkdownFile = computed<boolean>(() => {
   if (props.state.kind !== "file") return false;
   const name = props.state.snapshot.meta.name.toLowerCase();
   return name.endsWith(".md") || name.endsWith(".markdown");
+});
+
+// 2026-07-31 workspace-image-preview: image extensions rendered inline
+// via <BinaryPreview>. Must stay in sync with the backend MIME_BY_EXT
+// whitelist and useSpcodeFileBinary's IMAGE_EXTS.
+const IMAGE_EXTS = [
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".gif",
+  ".webp",
+  ".svg",
+  ".bmp",
+  ".ico",
+];
+
+/** True when the selected file is an image we can preview inline.
+ *  Extension-based (matching the backend whitelist); both the current
+ *  working copy and historical-raw views route through BinaryPreview,
+ *  which re-fetches bytes via /spcode/file-binary with ETag caching. */
+const isImageFile = computed<boolean>(() => {
+  if (props.state.kind !== "file") return false;
+  const name = props.state.snapshot.meta.name.toLowerCase();
+  return IMAGE_EXTS.some((ext) => name.endsWith(ext));
 });
 
 /** True when the body should render markdown instead of the code
@@ -1388,6 +1413,22 @@ onBeforeUnmount(() => {
         current file. We deliberately DO NOT register a comment
         gutter here — see the historicalContent watcher above.
       -->
+          <!-- 2026-07-31 workspace-image-preview: image files render
+               inline through <BinaryPreview> (fetches bytes via
+               /spcode/file-binary, dispatches to ImagePreview). Placed
+               right after the historical-DIFF branch so images win over
+               every generic "binary file" placeholder below, for both
+               the current working copy and historical-raw views.
+               Edit mode and historical diff mode still take precedence
+               above. -->
+          <div v-else-if="isImageFile" class="preview-image">
+            <BinaryPreview
+              :path="props.fileRelativePath ?? ''"
+              :git-ref="props.selectedRevision ?? ''"
+              :worktree="props.worktree ?? null"
+            />
+          </div>
+
           <div
             v-else-if="isHistoricalRaw && props.historicalIsBinary"
             class="preview-binary"
@@ -1759,6 +1800,14 @@ onBeforeUnmount(() => {
   padding: 32px 16px;
   color: rgba(var(--v-theme-on-surface), 0.6);
   font-size: 13px;
+}
+/* 2026-07-31 workspace-image-preview: keeps the flex height chain so
+   BinaryPreview fills the pane and tall images scroll inside it. */
+.preview-image {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  padding: 8px;
 }
 .preview-symlink-info {
   font-family: ui-monospace, monospace;
