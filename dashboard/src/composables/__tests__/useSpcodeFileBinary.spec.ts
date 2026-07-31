@@ -86,6 +86,20 @@ describe("useSpcodeFileBinary — shell", () => {
     expect(data?.etag).toBe('W/"m1"');
   });
 
+  it("detects image kind from content-disposition filename (case-insensitive)", async () => {
+    mockGet.mockResolvedValueOnce(
+      okBlob(new Uint8Array([0x89, 0x50, 0x4e, 0x47]), {
+        "content-type": "image/png",
+        "content-disposition": 'inline; filename="Logo.PNG"',
+      }),
+    );
+    const c = withSetup(() => useSpcodeFileBinary(null));
+    await c.fetchBinary("assets/Logo.PNG", "");
+    const data = c.getData("assets/Logo.PNG", "");
+    expect(data?.kind).toBe("image");
+    expect(data?.filename).toBe("Logo.PNG");
+  });
+
   it("passes ref and worktree params when provided", async () => {
     mockGet.mockResolvedValueOnce(
       okBlob(new Uint8Array([0x25, 0x50, 0x44, 0x46]), {
