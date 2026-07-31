@@ -75,10 +75,9 @@ const checkboxStub = defineComponent({
   `,
 });
 
-// `buttonStub` mirrors the `value` prop (passed via fallthrough attrs by
-// `v-btn` inside a `v-btn-toggle`) onto a `data-value` attribute so the
-// `v-btn-toggle` stub below can read which option was clicked from the
-// native click event that bubbles up to it.
+// `buttonStub` mirrors any `value` fallthrough attr onto a `data-value`
+// attribute so group stubs (e.g. the radio group above) can identify a
+// clicked option from the native event bubbling up to them.
 const buttonStub = defineComponent({
   props: {
     disabled: { type: Boolean, default: false },
@@ -91,16 +90,28 @@ const buttonStub = defineComponent({
   `,
 });
 
-// Lightweight `v-btn-toggle` stub: it renders its `v-btn` slot and, on a
-// bubbling native click, re-emits the clicked button's `data-value` as
-// the new model value. This lets tests drive the segmented controls
-// (load mode / project kind) without a full Vuetify group binding.
-const btnToggleStub = defineComponent({
+// `radioStub` mirrors the `value` prop onto a `data-value` attribute so
+// the `v-radio-group` stub below can read which option was clicked from
+// the native click event that bubbles up to it. It renders as a native
+// button so the tests' `clickOption` helper can find it by label text.
+const radioStub = defineComponent({
+  props: {
+    value: { type: String, default: "" },
+    label: { type: String, default: "" },
+  },
+  template: `<button type="button" :data-value="value">{{ label }}</button>`,
+});
+
+// Lightweight `v-radio-group` stub: it renders its `v-radio` slot and,
+// on a bubbling native click, re-emits the clicked radio's `data-value`
+// as the new model value. This lets tests drive the mode / kind radio
+// groups without a full Vuetify group binding.
+const radioGroupStub = defineComponent({
   props: {
     modelValue: { type: String as PropType<string | null>, default: null },
   },
   emits: ["update:modelValue"],
-  template: `<div class="v-btn-toggle" @click="onClick"><slot /></div>`,
+  template: `<div class="v-radio-group" @click="onClick"><slot /></div>`,
   methods: {
     onClick(e: Event) {
       const target = e.target as HTMLElement | null;
@@ -123,7 +134,8 @@ const stubs = {
   "v-text-field": textFieldStub,
   "v-checkbox": checkboxStub,
   "v-btn": buttonStub,
-  "v-btn-toggle": btnToggleStub,
+  "v-radio": radioStub,
+  "v-radio-group": radioGroupStub,
   "v-divider": { template: "<hr />" },
   "v-spacer": { template: "<span />" },
   "v-list": { template: "<div><slot /></div>" },
@@ -198,7 +210,7 @@ describe("ProjectLoadDialog load-step options", () => {
     expect(wrapper.text()).toContain("加载 Codegraph");
   });
 
-  it("renders the mode and kind segmented controls with always-visible options", async () => {
+  it("renders the mode and kind radio groups with always-visible options", async () => {
     const wrapper = mountDialog();
     await openDialog(wrapper);
 

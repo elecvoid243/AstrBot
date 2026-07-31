@@ -294,7 +294,7 @@ function onUnload(): void {
 <template>
   <v-dialog v-model="dialogOpen" max-width="540">
     <v-card>
-      <v-card-title class="text-h6">
+      <v-card-title class="text-h3 pa-4 pb-0 pl-6">
         {{ dialogTitle }}
       </v-card-title>
       <v-card-text>
@@ -324,63 +324,66 @@ function onUnload(): void {
           <!--
             Project-only options (spec #1–#3). Replaces the old
             "Advanced settings" expansion panel: the AGENTS.md /
-            Codegraph toggles are now always visible, and a top-level
-            segmented control chooses between loading an existing
-            project and creating a new one.
+            Codegraph toggles are now always visible, and top-level
+            radio groups choose between loading an existing project
+            and creating a new one, and between the code / plain
+            project kinds.
           -->
           <template v-if="props.commandMode === 'project'">
             <div class="text-caption text-medium-emphasis mb-1">
               {{ tm("spcodeProjectLoad.dialog.modeLabel") }}
             </div>
-            <v-btn-toggle
+            <v-radio-group
               v-model="loadMode"
-              mandatory
-              variant="outlined"
-              divided
-              density="comfortable"
-              class="load-toggle mb-3"
+              inline
+              density="compact"
+              hide-details
+              class="option-radio-group mb-3"
             >
-              <v-btn value="existing" class="text-body-2">
-                {{ tm("spcodeProjectLoad.dialog.modeExisting") }}
-              </v-btn>
-              <v-btn value="create" class="text-body-2">
-                {{ tm("spcodeProjectLoad.dialog.modeCreate") }}
-              </v-btn>
-            </v-btn-toggle>
+              <v-radio
+                value="existing"
+                :label="tm('spcodeProjectLoad.dialog.modeExisting')"
+              />
+              <v-radio
+                value="create"
+                :label="tm('spcodeProjectLoad.dialog.modeCreate')"
+              />
+            </v-radio-group>
 
             <template v-if="loadMode === 'existing'">
               <div class="text-caption text-medium-emphasis mb-1">
                 {{ tm("spcodeProjectLoad.dialog.kindLabel") }}
               </div>
-              <v-btn-toggle
+              <v-radio-group
                 v-model="projectKind"
-                mandatory
-                variant="outlined"
-                divided
-                density="comfortable"
-                class="load-toggle mb-2"
+                inline
+                density="compact"
+                hide-details
+                class="option-radio-group mb-2"
               >
-                <v-btn value="code" class="text-body-2">
-                  {{ tm("spcodeProjectLoad.dialog.kindCode") }}
-                </v-btn>
-                <v-btn value="plain" class="text-body-2">
-                  {{ tm("spcodeProjectLoad.dialog.kindPlain") }}
-                </v-btn>
-              </v-btn-toggle>
-              <div class="load-options">
+                <v-radio
+                  value="code"
+                  :label="tm('spcodeProjectLoad.dialog.kindCode')"
+                />
+                <v-radio
+                  value="plain"
+                  :label="tm('spcodeProjectLoad.dialog.kindPlain')"
+                />
+              </v-radio-group>
+              <div class="load-options d-flex flex-wrap ga-6">
                 <v-checkbox
                   v-model="loadAgentsMd"
                   :label="tm('spcodeProjectLoad.dialog.loadAgentsMd')"
                   density="compact"
                   hide-details
-                  class="text-body-2"
+                  class="text-body-2 flex-grow-0"
                 />
                 <v-checkbox
                   v-model="loadCodegraph"
                   :label="tm('spcodeProjectLoad.dialog.loadCodegraph')"
                   density="compact"
                   hide-details
-                  class="text-body-2"
+                  class="text-body-2 flex-grow-0"
                 />
               </div>
             </template>
@@ -444,7 +447,7 @@ function onUnload(): void {
         </v-btn>
         <v-btn
           color="primary"
-          variant="elevated"
+          variant="tonal"
           :disabled="!canSubmit"
           @click="onConfirm"
         >
@@ -470,18 +473,21 @@ function onUnload(): void {
 }
 
 /*
- * Full-width segmented controls: the two buttons share the row evenly
- * and keep their label casing (Vuetify uppercases button text by
- * default, which looks wrong for these Chinese / sentence-case labels).
+ * Inline radio groups: remove the default message/details slot spacing
+ * so each group sits flush under its caption label, and keep the radio
+ * labels at body-2 size to match the rest of the dialog.
  */
-.load-toggle {
-  width: 100%;
+.option-radio-group :deep(.v-input__control) {
+  gap: 24px;
 }
 
-.load-toggle :deep(.v-btn) {
-  flex: 1 1 0;
-  text-transform: none;
-  letter-spacing: normal;
+.option-radio-group :deep(.v-selection-control) {
+  min-height: 28px;
+}
+
+.option-radio-group :deep(.v-label) {
+  font-size: 14px;
+  opacity: 1;
 }
 
 /*
