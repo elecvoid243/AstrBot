@@ -361,7 +361,16 @@
       "submit": "Load",
       "cancel": "Cancel",
       "unloadButton": "Unload current project",
-      "removeFromHistory": "Remove this history"
+      "removeFromHistory": "Remove this history",
+      "modeLabel": "Action",
+      "modeExisting": "Load existing project",
+      "modeCreate": "Create a new project",
+      "kindLabel": "Project type",
+      "kindCode": "Code project",
+      "kindPlain": "Plain project",
+      "autoInitGit": "Auto-initialize Git repository",
+      "overwriteTitle": "Overwrite current project",
+      "overwriteMessage": "A project is already loaded. Overwrite it? Choosing Yes unloads the current project before loading the new one."
     },
     "indicator": {
       "loadedLabel": "Project loaded",

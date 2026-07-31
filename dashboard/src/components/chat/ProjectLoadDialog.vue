@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useModuleI18n } from "@/i18n/composables";
+import { useSpcodeProjectStatus } from "@/composables/useSpcodeProjectStatus";
+import { useConfirmDialog } from "@/utils/confirmDialog";
 
 // ── Inline helpers (private, no exports) ────────────────────────────────
 const HISTORY_KEY = "chatui.spcode.projectPathHistory";
@@ -70,6 +72,9 @@ function removeFromPathHistory(path: string): void {
  *   cmdMode: Project-load or Codegraph-set command mode.
  *   loadAgentsMd: Whether the project load should run AGENTS.md steps.
  *   loadCodegraph: Whether the project load should run Codegraph steps.
+ *   extraFlags: Additional ``/project load`` flags appended verbatim
+ *     (e.g. ``create`` / ``git_init`` / ``replace``). Ignored for the
+ *     ``codegraph`` command mode. Defaults to no extra flags.
  *
  * Returns:
  *   The complete command string to submit through ChatInput.
@@ -80,6 +85,7 @@ function buildLoadCommand(
   cmdMode: "project" | "codegraph",
   loadAgentsMd: boolean,
   loadCodegraph: boolean,
+  extraFlags: string[] = [],
 ): string {
   const prefix = wakePrefix || "/";
   const trimmed = path.trim();
@@ -93,6 +99,7 @@ function buildLoadCommand(
       ? [
           loadAgentsMd ? "" : "no_agentsmd",
           loadCodegraph ? "" : "no_codegraph",
+          ...extraFlags,
         ].filter(Boolean)
       : [];
   return `${prefix}${verb} ${[finalPath, ...flags].join(" ")}`;
@@ -103,27 +110,33 @@ interface Props {
   wakePrefixes: string[];
   /**
    * Controls the command and UI layout:
-   * - `'project'` (default): ``/project load <path>`` with an unload button.
-   * - `'codegraph'`: ``/codegraph set <path>``, no unload button.
+   * - `'project'` (default): ``/project load <path>`` with the
+   *   mode/kind/options UI and an unload button.
+   * - `'codegraph'`: ``/codegraph set <path>``, no unload button and
+   *   none of the project-only options (unchanged from before).
    */
-  commandMode?: 'project' | 'codegraph';
+  commandMode?: "project" | "codegraph";
 }
 
 const props = withDefaults(defineProps<Props>(), {
   wakePrefixes: () => ["/"],
-  commandMode: 'project',
+  commandMode: "project",
 });
 
 const emit = defineEmits<{
   submit: [text: string];
 }>();
 
-// ── i18n ────────────────────────────────────────────────────────────────
+// ── i18n / shared singletons ────────────────────────────────────────────
 const { tm } = useModuleI18n("features/chat");
+// Module-level singletons: the loaded-project chip and the confirm
+// dialog are app-wide, so reading them here needs no prop plumbing.
+const spcodeStatus = useSpcodeProjectStatus();
+const confirmDialog = useConfirmDialog();
 
 // ── Derived ─────────────────────────────────────────────────────────────
 const dialogTitle = computed(() =>
-  props.commandMode === 'codegraph'
+  props.commandMode === "codegraph"
     ? tm("spcodeProjectLoad.dialog.codegraphTitle")
     : tm("spcodeProjectLoad.dialog.title"),
 );
@@ -131,9 +144,16 @@ const dialogTitle = computed(() =>
 // ── Reactive state ──────────────────────────────────────────────────────
 const dialogOpen = ref(false);
 const path = ref("");
+// Top-level choice: load an existing project vs. create a new one.
+const loadMode = ref<"existing" | "create">("existing");
+// Only meaningful when loadMode === "existing": code project (loads
+// AGENTS.md + Codegraph by default) vs. plain project (loads neither).
+const projectKind = ref<"code" | "plain">("code");
+// Always-visible checkboxes for the existing + code branch.
 const loadAgentsMd = ref(true);
 const loadCodegraph = ref(true);
-const advancedOpen = ref<string[]>([]);
+// Only meaningful when loadMode === "create".
+const autoInitGit = ref(true);
 
 // In-memory reactive source of truth for history; mirrors localStorage.
 const pathHistory = ref<string[]>(getPathHistory());
@@ -143,13 +163,25 @@ const recentPaths = computed<string[]>(() =>
 );
 const canSubmit = computed(() => path.value.trim().length > 0);
 
-// Reset `path` when the dialog opens (clear last input, preserve history dropdown).
+// Switching the project kind re-applies the spec's default selection
+// (code → both on, plain → both off). The user may still override the
+// checkboxes manually afterwards — this only fires on the kind toggle.
+watch(projectKind, (kind) => {
+  const isCode = kind === "code";
+  loadAgentsMd.value = isCode;
+  loadCodegraph.value = isCode;
+});
+
+// Reset transient input when the dialog opens (clear last path and
+// restore every option to its default; preserve the history dropdown).
 watch(dialogOpen, (open) => {
   if (open) {
     path.value = "";
+    loadMode.value = "existing";
+    projectKind.value = "code";
     loadAgentsMd.value = true;
     loadCodegraph.value = true;
-    advancedOpen.value = [];
+    autoInitGit.value = true;
   }
 });
 
@@ -171,18 +203,77 @@ function closeLoadDialog(): void {
 defineExpose({ openLoadDialog, closeLoadDialog });
 
 // ── Handlers ────────────────────────────────────────────────────────────
-function onConfirm(): void {
+/**
+ * Confirm the dialog: build the command for the current mode and emit
+ * it through ChatInput.
+ *
+ * For the ``project`` mode the effective AGENTS.md / Codegraph flags and
+ * the extra ``create`` / ``git_init`` / ``replace`` flags are derived
+ * from the mode/kind/options UI. When a project is already loaded we
+ * ask the user whether to overwrite; on confirm we append ``replace`` so
+ * the backend atomically unloads the old project inside the same load
+ * flow (the frontend deliberately does NOT fire ``/project unload`` and
+ * ``/project load`` as two chat commands — unload's state cleanup is
+ * async, so a closely-following load could still see the old project
+ * and be rejected). Cancelling the overwrite prompt leaves the dialog
+ * open so the user can adjust their input.
+ */
+async function onConfirm(): Promise<void> {
   const trimmed = path.value.trim();
   if (!trimmed) return;
+  const prefix = props.wakePrefixes[0] || "/";
+
+  // Codegraph mode: unchanged behavior (no mode/kind/overwrite logic).
+  if (props.commandMode === "codegraph") {
+    addToPathHistory(trimmed);
+    emit(
+      "submit",
+      buildLoadCommand(prefix, trimmed, "codegraph", loadAgentsMd.value, loadCodegraph.value),
+    );
+    dialogOpen.value = false;
+    return;
+  }
+
+  const isCreate = loadMode.value === "create";
+  // New project (spec #3) and existing plain project (spec #2) never
+  // load AGENTS.md / Codegraph; existing code project uses the
+  // (auto-toggled, user-overridable) checkboxes.
+  const effectiveAgentsMd =
+    !isCreate && projectKind.value === "code" && loadAgentsMd.value;
+  const effectiveCodegraph =
+    !isCreate && projectKind.value === "code" && loadCodegraph.value;
+
+  const extraFlags: string[] = [];
+  if (isCreate) {
+    extraFlags.push("create");
+    if (autoInitGit.value) extraFlags.push("git_init");
+  }
+
+  // Overwrite confirmation (spec #5).
+  if (spcodeStatus.status.value.loaded) {
+    const overwriteMsg = tm("spcodeProjectLoad.dialog.overwriteMessage");
+    const confirmed = confirmDialog
+      ? await confirmDialog({
+          title: tm("spcodeProjectLoad.dialog.overwriteTitle"),
+          message: overwriteMsg,
+        })
+      : window.confirm(overwriteMsg);
+    if (!confirmed) return; // keep the dialog open
+    extraFlags.push("replace");
+  }
+
   addToPathHistory(trimmed);
-  const text = buildLoadCommand(
-    props.wakePrefixes[0] || "/",
-    trimmed,
-    props.commandMode,
-    loadAgentsMd.value,
-    loadCodegraph.value,
+  emit(
+    "submit",
+    buildLoadCommand(
+      prefix,
+      trimmed,
+      "project",
+      effectiveAgentsMd,
+      effectiveCodegraph,
+      extraFlags,
+    ),
   );
-  emit("submit", text);
   dialogOpen.value = false;
 }
 
@@ -229,27 +320,60 @@ function onUnload(): void {
             clearable
             @keydown.esc="dialogOpen = false"
           />
-          <v-expansion-panels
-            v-if="props.commandMode === 'project'"
-            v-model="advancedOpen"
-            class="load-steps mb-2"
-            elevation="0"
-          >
-            <v-expansion-panel value="advanced">
-              <v-expansion-panel-title
-                class="text-body-2"
-                data-spacing="tight"
+
+          <!--
+            Project-only options (spec #1–#3). Replaces the old
+            "Advanced settings" expansion panel: the AGENTS.md /
+            Codegraph toggles are now always visible, and a top-level
+            segmented control chooses between loading an existing
+            project and creating a new one.
+          -->
+          <template v-if="props.commandMode === 'project'">
+            <div class="text-caption text-medium-emphasis mb-1">
+              {{ tm("spcodeProjectLoad.dialog.modeLabel") }}
+            </div>
+            <v-btn-toggle
+              v-model="loadMode"
+              mandatory
+              variant="outlined"
+              divided
+              density="comfortable"
+              class="load-toggle mb-3"
+            >
+              <v-btn value="existing" class="text-body-2">
+                {{ tm("spcodeProjectLoad.dialog.modeExisting") }}
+              </v-btn>
+              <v-btn value="create" class="text-body-2">
+                {{ tm("spcodeProjectLoad.dialog.modeCreate") }}
+              </v-btn>
+            </v-btn-toggle>
+
+            <template v-if="loadMode === 'existing'">
+              <div class="text-caption text-medium-emphasis mb-1">
+                {{ tm("spcodeProjectLoad.dialog.kindLabel") }}
+              </div>
+              <v-btn-toggle
+                v-model="projectKind"
+                mandatory
+                variant="outlined"
+                divided
+                density="comfortable"
+                class="load-toggle mb-2"
               >
-                {{ tm("spcodeProjectLoad.dialog.advancedSettings") }}
-              </v-expansion-panel-title>
-              <v-expansion-panel-text eager>
+                <v-btn value="code" class="text-body-2">
+                  {{ tm("spcodeProjectLoad.dialog.kindCode") }}
+                </v-btn>
+                <v-btn value="plain" class="text-body-2">
+                  {{ tm("spcodeProjectLoad.dialog.kindPlain") }}
+                </v-btn>
+              </v-btn-toggle>
+              <div class="load-options">
                 <v-checkbox
                   v-model="loadAgentsMd"
                   :label="tm('spcodeProjectLoad.dialog.loadAgentsMd')"
                   density="compact"
                   hide-details
                   class="text-body-2"
-                  data-compact="true"
                 />
                 <v-checkbox
                   v-model="loadCodegraph"
@@ -257,11 +381,21 @@ function onUnload(): void {
                   density="compact"
                   hide-details
                   class="text-body-2"
-                  data-compact="true"
                 />
-              </v-expansion-panel-text>
-            </v-expansion-panel>
-          </v-expansion-panels>
+              </div>
+            </template>
+
+            <div v-else class="load-options">
+              <v-checkbox
+                v-model="autoInitGit"
+                :label="tm('spcodeProjectLoad.dialog.autoInitGit')"
+                density="compact"
+                hide-details
+                class="text-body-2"
+              />
+            </div>
+          </template>
+
           <div v-if="recentPaths.length" class="mt-2">
             <div class="text-caption text-medium-emphasis mb-1">
               {{ tm("spcodeProjectLoad.dialog.historyLabel") }}
@@ -336,36 +470,40 @@ function onUnload(): void {
 }
 
 /*
- * Compact rendering for the two load-step checkboxes tucked under the
- * "Advanced settings" expansion panel. They must read at the same size
- * as the "Recent" rows above (font-size: 12px, checkbox box ~18px)
- * instead of Vuetify's default 24px checkbox and 14px label.
+ * Full-width segmented controls: the two buttons share the row evenly
+ * and keep their label casing (Vuetify uppercases button text by
+ * default, which looks wrong for these Chinese / sentence-case labels).
  */
-.load-steps :deep(.v-selection-control) {
+.load-toggle {
+  width: 100%;
+}
+
+.load-toggle :deep(.v-btn) {
+  flex: 1 1 0;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+/*
+ * Compact rendering for the always-visible option checkboxes so they
+ * read at the same size as the "Recent" rows (font-size: 12px, checkbox
+ * box ~18px) instead of Vuetify's default 24px checkbox and 14px label.
+ */
+.load-options :deep(.v-selection-control) {
   min-height: 24px;
 }
 
-.load-steps :deep(.v-expansion-panel-text) {
-  padding-top: 0;
-  padding-bottom: 4px;
-}
-
-.load-steps :deep(.v-expansion-panel-title[data-spacing="tight"]) {
-  min-height: 32px;
-  padding-block: 4px;
-}
-
-.load-steps :deep(.v-label) {
+.load-options :deep(.v-label) {
   font-size: 12px;
   line-height: 1.2;
 }
 
-.load-steps :deep(.v-selection-control__wrapper) {
+.load-options :deep(.v-selection-control__wrapper) {
   width: 18px;
   height: 18px;
 }
 
-.load-steps :deep(input[type="checkbox"]) {
+.load-options :deep(input[type="checkbox"]) {
   width: 18px;
   height: 18px;
 }

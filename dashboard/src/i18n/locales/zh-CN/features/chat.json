@@ -361,7 +361,16 @@
       "submit": "加载",
       "cancel": "取消",
       "unloadButton": "卸载当前加载目录",
-      "removeFromHistory": "删除此历史"
+      "removeFromHistory": "删除此历史",
+      "modeLabel": "操作",
+      "modeExisting": "加载已有项目",
+      "modeCreate": "新建一个项目",
+      "kindLabel": "项目类型",
+      "kindCode": "代码项目",
+      "kindPlain": "普通项目",
+      "autoInitGit": "自动初始化 Git 仓库",
+      "overwriteTitle": "覆盖当前项目",
+      "overwriteMessage": "当前已有项目加载，是否覆盖？选择「是」将先卸载当前项目再加载新项目。"
     },
     "indicator": {
       "loadedLabel": "已加载项目",
