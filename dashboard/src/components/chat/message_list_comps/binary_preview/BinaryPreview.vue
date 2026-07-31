@@ -1,7 +1,7 @@
 <!-- Author: elecvoid243, 2026-07-22
      Spec: docs/superpowers/specs/2026-07-22-binary-preview-design.md §4
      Container component for inline preview of binary files
-     (PDF/DOCX/XLSX/CSV/MD). Owns the useSpcodeFileBinary composable
+     (PDF/DOCX/XLSX/CSV/MD + images). Owns the useSpcodeFileBinary composable
      and dispatches to a kind-specific child previewer based on the
      decoded file extension.
 
@@ -24,6 +24,7 @@ import DocxPreview from "./DocxPreview.vue";
 import XlsxPreview from "./XlsxPreview.vue";
 import CsvPreview from "./CsvPreview.vue";
 import BinaryMarkdownPreview from "./BinaryMarkdownPreview.vue";
+import ImagePreview from "./ImagePreview.vue";
 
 const props = defineProps<{
   /** Workspace- or docsRoot-relative path to the file. */
@@ -106,6 +107,11 @@ const sizeLabel = computed<string>(() => {
       <BinaryMarkdownPreview
         v-else-if="previewKind === 'md'"
         :blob="data.blob"
+      />
+      <ImagePreview
+        v-else-if="previewKind === 'image'"
+        :blob="data.blob"
+        :filename="data.filename"
       />
     </div>
   </div>

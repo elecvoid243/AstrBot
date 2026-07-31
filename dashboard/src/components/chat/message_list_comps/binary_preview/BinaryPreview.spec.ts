@@ -42,6 +42,7 @@ const stubs = {
   XlsxPreview: { template: '<div class="xlsx-stub" />', props: ["blob"] },
   CsvPreview: { template: '<div class="csv-stub" />', props: ["blob"] },
   BinaryMarkdownPreview: { template: '<div class="md-stub" />', props: ["blob", "isDark"] },
+  ImagePreview: { template: '<div class="image-stub" />', props: ["blob", "filename"] },
   "v-progress-circular": { template: '<i class="circ" />' },
   "v-icon": { template: '<i class="icon" />' },
 };
@@ -208,6 +209,27 @@ describe("BinaryPreview — dispatch", () => {
     });
     await flushPromises();
     expect(wrapper.find(".md-stub").exists()).toBe(true);
+  });
+
+  it("renders ImagePreview for kind=image", async () => {
+    setState({ kind: "ok" });
+    setData({
+      blob: new Blob(),
+      path: "logo.png",
+      ref: "",
+      resolvedSha: "",
+      kind: "image",
+      size: 0,
+      filename: "logo.png",
+      etag: "",
+    });
+    const wrapper = mount(BinaryPreview, {
+      props: { path: "logo.png", gitRef: "", worktree: null },
+      global: { stubs },
+    });
+    await flushPromises();
+    expect(wrapper.find(".image-stub").exists()).toBe(true);
+    expect(wrapper.find(".pdf-stub").exists()).toBe(false);
   });
 });
 
