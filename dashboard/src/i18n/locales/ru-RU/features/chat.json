@@ -610,6 +610,59 @@
           "unknown": "Перенос не удался ({reason})"
         }
       },
+      "conflict": {
+        "banner": {
+          "merge": "Конфликт слияния",
+          "cherry_pick": "Конфликт cherry-pick",
+          "revert": "Конфликт revert",
+          "progress": "Разрешено {resolved}/{total}"
+        },
+        "file": {
+          "unresolvedGroup": "Ожидают ({count})",
+          "resolvedGroup": "Разрешены ({count})",
+          "binary": "Бинарный файл — только разрешение целиком",
+          "truncated": "Файл слишком большой — только разрешение целиком",
+          "oursLabel": "Текущая (ours · {label})",
+          "theirsLabel": "Входящая (theirs · {label})",
+          "hunkChoiceOurs": "ours",
+          "hunkChoiceTheirs": "theirs",
+          "hunkChoiceBase": "base",
+          "applyHunks": "Применить выбор ({chosen}/{total})",
+          "useOurs": "Весь файл ours",
+          "useTheirs": "Весь файл theirs",
+          "customEdit": "Редактировать вручную",
+          "customApply": "Сохранить и отметить разрешённым",
+          "customCancel": "Отменить правку"
+        },
+        "footer": {
+          "resolveAllOurs": "Все → ours",
+          "resolveAllTheirs": "Все → theirs",
+          "resolveAllConfirmTitle": "Разрешить все конфликты",
+          "resolveAllConfirm": "Разрешить оставшиеся {count} файл(ов) выбором {side}?",
+          "resolveAllAction": "Применить ко всем",
+          "continue": "Завершить {operation}",
+          "continueMessageLabel": "Сообщение коммита (необязательно)",
+          "continueBlocked": "Остались неразрешённые файлы",
+          "abort": "Прервать {operation}",
+          "abortConfirmTitle": "Прервать {operation}",
+          "abortConfirmMessage": "Прервать текущий {operation}? Все конфликтные изменения откатятся к состоянию до операции.",
+          "abortConfirmAction": "Прервать",
+          "cancel": "Отмена"
+        },
+        "op": { "merge": "слияние", "cherry_pick": "cherry-pick", "revert": "revert" },
+        "error": {
+          "no_conflict_in_progress": "Нет активной конфликтной операции",
+          "file_not_conflicted": "Этого файла нет в списке конфликтов",
+          "unresolved_conflicts_remain": "Осталось неразрешённых файлов: {count}",
+          "path_unsafe": "Небезопасный путь к файлу",
+          "invalid_param": "Некорректный параметр: {stderr}",
+          "hook_rejected": "Коммит отклонён хуком: {stderr}",
+          "identity_not_set": "Не настроены git user.name / user.email",
+          "git_error": "Операция не удалась: {stderr}",
+          "network": "Ошибка сети",
+          "unknown": "Операция не удалась ({reason})"
+        }
+      },
       "scopeBar": {
         "ariaLabel": "Выберите область diff"
       },

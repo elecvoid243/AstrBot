@@ -743,6 +743,59 @@
           "unknown": "Cherry-pick failed ({reason})"
         }
       },
+      "conflict": {
+        "banner": {
+          "merge": "Merge conflict",
+          "cherry_pick": "Cherry-pick conflict",
+          "revert": "Revert conflict",
+          "progress": "Resolved {resolved}/{total}"
+        },
+        "file": {
+          "unresolvedGroup": "Unresolved ({count})",
+          "resolvedGroup": "Resolved ({count})",
+          "binary": "Binary file — whole-file resolution only",
+          "truncated": "File too large — whole-file resolution only",
+          "oursLabel": "Current (ours · {label})",
+          "theirsLabel": "Incoming (theirs · {label})",
+          "hunkChoiceOurs": "ours",
+          "hunkChoiceTheirs": "theirs",
+          "hunkChoiceBase": "base",
+          "applyHunks": "Apply choices ({chosen}/{total})",
+          "useOurs": "Use ours (whole file)",
+          "useTheirs": "Use theirs (whole file)",
+          "customEdit": "Edit manually",
+          "customApply": "Save & mark resolved",
+          "customCancel": "Cancel edit"
+        },
+        "footer": {
+          "resolveAllOurs": "All → ours",
+          "resolveAllTheirs": "All → theirs",
+          "resolveAllConfirmTitle": "Resolve all conflicts",
+          "resolveAllConfirm": "Resolve the remaining {count} conflicted file(s) using {side}?",
+          "resolveAllAction": "Apply to all",
+          "continue": "Complete {operation}",
+          "continueMessageLabel": "Commit message (optional)",
+          "continueBlocked": "Conflicted files remain",
+          "abort": "Abort {operation}",
+          "abortConfirmTitle": "Abort {operation}",
+          "abortConfirmMessage": "Abort the current {operation}? All conflicted changes roll back to the pre-operation state.",
+          "abortConfirmAction": "Abort",
+          "cancel": "Cancel"
+        },
+        "op": { "merge": "merge", "cherry_pick": "cherry-pick", "revert": "revert" },
+        "error": {
+          "no_conflict_in_progress": "No conflict operation is in progress",
+          "file_not_conflicted": "That file is not in the conflict list",
+          "unresolved_conflicts_remain": "{count} conflicted file(s) remain",
+          "path_unsafe": "Unsafe file path",
+          "invalid_param": "Invalid parameter: {stderr}",
+          "hook_rejected": "Commit rejected by hook: {stderr}",
+          "identity_not_set": "git user.name / user.email is not configured",
+          "git_error": "Operation failed: {stderr}",
+          "network": "Network error",
+          "unknown": "Operation failed ({reason})"
+        }
+      },
       "scopeBar": {
         "ariaLabel": "Select diff scope"
       },

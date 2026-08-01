@@ -75,6 +75,8 @@ import {
 import { useSpcodeGitConflict } from "@/composables/useSpcodeGitConflict";
 import GitMergeDialog from "@/components/chat/GitMergeDialog.vue";
 import GitCherryPickDialog from "@/components/chat/GitCherryPickDialog.vue";
+import GitConflictPanel from "@/components/chat/GitConflictPanel.vue";
+import { classifyConflictReason } from "@/composables/parseSpcodeGitConflict";
 import { pluginExtensionApi } from "@/api/v1";
 import { useModuleI18n } from "@/i18n/composables";
 import GitDiffBodyContent from "@/components/chat/message_list_comps/GitDiffBodyContent.vue";
@@ -692,6 +694,11 @@ const gitLog = useSpcodeGitLog(selectedWorktree);
 // 2026-07-17 git-revert: History-view per-commit revert. The sidebar
 // owns the confirm dialog + the write call (mirroring stage/commit).
 const gitRevert = useSpcodeGitRevert();
+// 2026-08-01 git-merge / git-conflict: instantiated with the other
+// composables so the polling watchers (immediate:true) below can
+// safely reference them. Handler logic lives in the branch block.
+const gitMerge = useSpcodeGitMerge();
+const gitConflict = useSpcodeGitConflict(selectedWorktree);
 
 // ── .gitignore editor overlay (2026-07-17, latency rework 2026-07-18) ─
 // Spec: docs/superpowers/specs/2026-07-17-gitignore-editor-design.md
@@ -1543,8 +1550,13 @@ watch(
   (open) => {
     if (open && isGitRepo.value) {
       branchesComposable.startPolling(30_000);
+      // 2026-08-01 git-conflict: poll conflict-status on the same
+      // lifecycle so externally-triggered merges (agent in a terminal)
+      // light up the banner within one cadence.
+      gitConflict.startPolling(30_000);
     } else {
       branchesComposable.stopPolling();
+      gitConflict.stopPolling();
     }
   },
   { immediate: true },
@@ -1576,6 +1588,7 @@ watch(isGitRepo, (isRepo) => {
   if (isRepo) return;
   worktreesComposable.stopPolling();
   branchesComposable.stopPolling();
+  gitConflict.stopPolling();
   composable.stopPolling();
   gitStatus.stopPolling();
   gitLog.stopPolling();
@@ -2084,9 +2097,9 @@ function onBranchDeleteClick(b: { name: string; current: boolean }): void {
 // 2026-08-01 git-merge: branch-menu per-row "merge into current" action
 // plus the conflict lifecycle composable (banner/panel mounted later in
 // the template; instantiated here because merge/cherry-pick conflict
-// paths refresh it immediately).
-const gitMerge = useSpcodeGitMerge();
-const gitConflict = useSpcodeGitConflict(selectedWorktree);
+// paths refresh it immediately). NOTE: gitMerge/gitConflict themselves
+// are instantiated up with the other composables (~line 690) because
+// the polling watchers below run with immediate:true.
 const mergeDialogOpen = ref(false);
 const mergeSource = ref("");
 
@@ -2223,6 +2236,34 @@ async function onCherryPickSubmit(params: {
     meta.color,
     meta.withStderr ? result.stderr : undefined,
   );
+}
+
+// 2026-08-01 git-conflict: panel event fan-out (spec §4.5 refresh matrix).
+function onConflictFailed(payload: {
+  reason: string;
+  stderr?: string;
+  count?: number;
+}): void {
+  const meta = classifyConflictReason(payload.reason);
+  showSnackbar(
+    tm(meta.i18nKey, {
+      reason: payload.reason,
+      stderr: payload.stderr ?? "",
+      count: payload.count ?? 0,
+    }),
+    meta.color,
+    meta.withStderr ? payload.stderr : undefined,
+  );
+}
+
+async function onConflictResolved(): Promise<void> {
+  // A file was rewritten + staged on disk → refresh the diff/status views.
+  await Promise.allSettled([composable.refresh(), gitStatus.refresh()]);
+}
+
+async function onConflictCompleted(): Promise<void> {
+  // continue/abort moved or restored HEAD → full cascade.
+  await refreshAfterBranchChange();
 }
 
 async function onBranchDeleteConfirm(name: string): Promise<void> {
@@ -4312,6 +4353,16 @@ watch(
         </div>
         </div>
         <!-- /git-diff-sidebar-bw -->
+
+        <!-- 2026-08-01 git-conflict: banner + resolution panel, mounted
+             outside the per-view templates so it stays visible in every
+             view mode while a conflict operation is in progress. -->
+        <GitConflictPanel
+          :conflict="gitConflict"
+          @resolved="onConflictResolved"
+          @completed="onConflictCompleted"
+          @failed="onConflictFailed"
+        />
 
         <!-- Diff-only sub-UI: scope bar + truncation warning -->
         <template v-if="viewMode === 'diff'">

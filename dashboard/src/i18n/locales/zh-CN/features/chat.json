@@ -743,6 +743,59 @@
           "unknown": "cherry-pick 失败（{reason}）"
         }
       },
+      "conflict": {
+        "banner": {
+          "merge": "合并冲突",
+          "cherry_pick": "cherry-pick 冲突",
+          "revert": "revert 冲突",
+          "progress": "已解决 {resolved}/{total}"
+        },
+        "file": {
+          "unresolvedGroup": "待解决（{count}）",
+          "resolvedGroup": "已解决（{count}）",
+          "binary": "二进制文件，仅支持整文件解决",
+          "truncated": "文件过大，仅支持整文件解决",
+          "oursLabel": "当前（ours · {label}）",
+          "theirsLabel": "传入（theirs · {label}）",
+          "hunkChoiceOurs": "ours",
+          "hunkChoiceTheirs": "theirs",
+          "hunkChoiceBase": "base",
+          "applyHunks": "应用选择（{chosen}/{total}）",
+          "useOurs": "整文件用 ours",
+          "useTheirs": "整文件用 theirs",
+          "customEdit": "手动编辑",
+          "customApply": "保存并标记已解决",
+          "customCancel": "取消编辑"
+        },
+        "footer": {
+          "resolveAllOurs": "全部采用 ours",
+          "resolveAllTheirs": "全部采用 theirs",
+          "resolveAllConfirmTitle": "批量解决冲突",
+          "resolveAllConfirm": "确认对剩余 {count} 个冲突文件全部采用 {side}？",
+          "resolveAllAction": "全部应用",
+          "continue": "完成{operation}",
+          "continueMessageLabel": "提交信息（可选）",
+          "continueBlocked": "仍有未解决的冲突文件",
+          "abort": "中止{operation}",
+          "abortConfirmTitle": "中止{operation}",
+          "abortConfirmMessage": "确认中止当前{operation}？所有冲突改动将回滚到操作前状态。",
+          "abortConfirmAction": "中止",
+          "cancel": "取消"
+        },
+        "op": { "merge": "合并", "cherry_pick": "cherry-pick", "revert": "revert" },
+        "error": {
+          "no_conflict_in_progress": "当前没有进行中的冲突操作",
+          "file_not_conflicted": "该文件不在冲突列表中",
+          "unresolved_conflicts_remain": "仍有 {count} 个冲突文件未解决",
+          "path_unsafe": "文件路径不安全",
+          "invalid_param": "参数错误：{stderr}",
+          "hook_rejected": "提交被 hook 拒绝：{stderr}",
+          "identity_not_set": "未配置 git user.name / user.email",
+          "git_error": "操作失败：{stderr}",
+          "network": "网络连接失败",
+          "unknown": "操作失败（{reason}）"
+        }
+      },
       "scopeBar": {
         "ariaLabel": "选择 diff 范围"
       },
