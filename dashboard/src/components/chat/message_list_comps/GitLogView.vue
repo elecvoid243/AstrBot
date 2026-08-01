@@ -512,6 +512,7 @@ function fileErrorMessage(state: GitShowFetchState): string | null {
         v-model="localFilter.ref"
         :items="branchItems"
         :hide-no-data="branchItems.length === 0"
+        :list-props="{ density: 'compact', class: 'git-log-branch-list' }"
         :label="
           tm('spcodeProjectLoad.diffSidebar.gitWorkflow.history.filter.ref')
         "
@@ -1398,4 +1399,18 @@ function fileErrorMessage(state: GitShowFetchState): string | null {
 /* 2026-07-18: removed the prior (max-width: 760px) override — it
    duplicated the base 1fr 1fr and didn't account for the resizable
    sidebar. The auto-fit grid above handles width adaptation. */
+</style>
+
+<!-- 2026-08-02 branch-picker density fix: the ref combobox dropdown
+     renders in a teleported overlay (outside this component's DOM
+     subtree), so scoped styles cannot reach it. This unscoped block
+     targets the unique class passed via :list-props. -->
+<style>
+.git-log-branch-list .v-list-item-title {
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.git-log-branch-list .v-list-item {
+  min-height: 28px;
+}
 </style>
