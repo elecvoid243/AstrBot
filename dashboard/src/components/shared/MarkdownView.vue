@@ -27,6 +27,11 @@ import { computed } from "vue";
 import { useTheme } from "vuetify";
 import { MarkdownRender } from "markstream-vue";
 import { MARKDOWN_RENDER_MAX_LIVE_NODES } from "@/components/chat/markdownRenderConfig";
+import { registerDocumentViewMarkdownComponents } from "@/components/chat/chatMarkdownComponents";
+
+// Registers ShikiCodeBlock for the "document-view" custom-id (see
+// chatMarkdownComponents.ts); idempotent across multiple mounts.
+registerDocumentViewMarkdownComponents();
 
 const props = defineProps<{
   /** Raw markdown source. The component re-renders on change. */
