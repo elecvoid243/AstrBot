@@ -443,6 +443,17 @@ const currentBranchName = computed(() => {
   if (s.kind !== "ok") return null;
   return s.snapshot.current;
 });
+// 2026-08-01 branch-picker (spec 2026-08-01-git-history-branch-picker
+// §3): combobox items for the History view's ref filter — current
+// branch first, then locals, then remotes. Reuses the existing
+// branchList computed; empty while branches are not loaded (the
+// combobox then degrades to free input).
+const branchPickerItems = computed<string[]>(() => {
+  const cur = branchList.value.filter((b) => b.current && !b.remote);
+  const local = branchList.value.filter((b) => !b.current && !b.remote);
+  const remote = branchList.value.filter((b) => b.remote);
+  return [...cur, ...local, ...remote].map((b) => b.name);
+});
 // Parse git's upstream-track string ("ahead 3" / "behind 1, ahead 2")
 // into structured counts. Returns null when the field is empty (no
 // upstream configured) or malformed — the UI then simply hides the
@@ -4516,6 +4527,9 @@ watch(
             v-model:stats-open="statsOpen"
             :range="gitStatsRange"
             :top-files-limit="gitStatsTopFilesLimit"
+            :branch-items="branchPickerItems"
+            :current-branch="currentBranchName"
+            :active-ref="gitLog.filter.value.ref ?? null"
             @update:range="(v) => (gitStatsRange = v)"
             @update:top-files-limit="(v) => (gitStatsTopFilesLimit = v)"
             @apply="onLogApply"
