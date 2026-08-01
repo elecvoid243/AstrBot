@@ -553,6 +553,36 @@
         "expand": "Показать все рабочие деревья",
         "collapse": "Показать только текущее рабочее дерево"
       },
+      "merge": {
+        "rowAction": "Слить в текущую ветку",
+        "dialogTitle": "Слияние ветки",
+        "sourceLabel": "Исходная ветка",
+        "strategy": {
+          "label": "Стратегия слияния",
+          "default": "По умолчанию (fast-forward или merge commit)",
+          "noFf": "--no-ff (всегда создавать merge commit)",
+          "ffOnly": "--ff-only (только fast-forward)",
+          "squash": "--squash (сжать в индекс, без коммита)"
+        },
+        "messageLabel": "Сообщение merge-коммита (необязательно)",
+        "messageDisabledHint": "ff-only не создаёт merge commit — сообщение не требуется",
+        "submit": "Слить",
+        "cancel": "Отмена",
+        "success": "Ветка {source} слита ({sha})",
+        "successFf": "Fast-forward до {source} ({sha})",
+        "squashSuccess": "Squash-слияние {source}: файлов в индексе: {count} (без коммита)",
+        "alreadyUpToDate": "Уже актуально",
+        "conflictWarning": "Слияние {source} вызвало конфликты в {count} файл(ах) — разрешите их в панели конфликтов",
+        "error": {
+          "worktree_dirty": "Есть незакоммиченные изменения — сначала commit или stash",
+          "operation_in_progress": "Уже выполняется merge / cherry-pick / revert — завершите или прервите его",
+          "invalid_branch": "Некорректное имя ветки",
+          "unrelated_histories": "Ветки не имеют общей истории (unrelated histories)",
+          "git_error": "Слияние не удалось: {stderr}",
+          "network": "Ошибка сети",
+          "unknown": "Слияние не удалось ({reason})"
+        }
+      },
       "scopeBar": {
         "ariaLabel": "Выберите область diff"
       },

@@ -67,6 +67,10 @@ import {
   type BranchDeleteParams,
   type BranchSwitchParams,
 } from "@/composables/useSpcodeGitBranches";
+import { useSpcodeGitMerge } from "@/composables/useSpcodeGitMerge";
+import { classifyMergeReason } from "@/composables/parseSpcodeGitMerge";
+import { useSpcodeGitConflict } from "@/composables/useSpcodeGitConflict";
+import GitMergeDialog from "@/components/chat/GitMergeDialog.vue";
 import { pluginExtensionApi } from "@/api/v1";
 import { useModuleI18n } from "@/i18n/composables";
 import GitDiffBodyContent from "@/components/chat/message_list_comps/GitDiffBodyContent.vue";
@@ -2073,6 +2077,87 @@ function onBranchDeleteClick(b: { name: string; current: boolean }): void {
   deleteDialogOpen.value = true;
 }
 
+// 2026-08-01 git-merge: branch-menu per-row "merge into current" action
+// plus the conflict lifecycle composable (banner/panel mounted later in
+// the template; instantiated here because merge/cherry-pick conflict
+// paths refresh it immediately).
+const gitMerge = useSpcodeGitMerge();
+const gitConflict = useSpcodeGitConflict(selectedWorktree);
+const mergeDialogOpen = ref(false);
+const mergeSource = ref("");
+
+function onBranchMergeClick(b: {
+  name: string;
+  current: boolean;
+  remote: boolean;
+}): void {
+  if (b.current || b.remote) return;
+  mergeSource.value = b.name;
+  mergeDialogOpen.value = true;
+}
+
+async function onMergeSubmit(params: {
+  source: string;
+  noFf: boolean;
+  ffOnly: boolean;
+  squash: boolean;
+  message: string;
+}): Promise<void> {
+  const result = await gitMerge.merge({
+    source: params.source,
+    noFf: params.noFf,
+    ffOnly: params.ffOnly,
+    squash: params.squash,
+    message: params.message || undefined,
+    worktree: selectedWorktree.value,
+  });
+  if (result.ok) {
+    mergeDialogOpen.value = false;
+    await refreshAfterBranchChange();
+    if (result.squash) {
+      showSnackbar(
+        tm("spcodeProjectLoad.diffSidebar.merge.squashSuccess", {
+          source: params.source,
+          count: result.filesTouched.length,
+        }),
+        "success",
+      );
+    } else {
+      showSnackbar(
+        tm(
+          result.fastForward
+            ? "spcodeProjectLoad.diffSidebar.merge.successFf"
+            : "spcodeProjectLoad.diffSidebar.merge.success",
+          { source: params.source, sha: result.mergeSha.slice(0, 7) },
+        ),
+        "success",
+      );
+    }
+    return;
+  }
+  const meta = classifyMergeReason(result.reason);
+  if (result.conflict) {
+    // Conflict: close the dialog and light up the conflict banner
+    // immediately instead of waiting for the next 30 s poll.
+    mergeDialogOpen.value = false;
+    branchMenuOpen.value = false;
+    void gitConflict.refresh();
+    showSnackbar(
+      tm(meta.i18nKey, {
+        source: params.source,
+        count: result.conflictedFiles.length,
+      }),
+      "warning",
+    );
+    return;
+  }
+  showSnackbar(
+    tm(meta.i18nKey, { reason: result.reason, stderr: result.stderr ?? "" }),
+    meta.color,
+    meta.withStderr ? result.stderr : undefined,
+  );
+}
+
 async function onBranchDeleteConfirm(name: string): Promise<void> {
   isBranchDeleting.value = true;
   try {
@@ -3272,6 +3357,8 @@ onBeforeUnmount(() => {
   fileDiscardHunk.dispose();
   worktreesComposable.dispose();
   branchesComposable.dispose();
+  gitMerge.dispose();
+  gitConflict.dispose();
   // Spec 2026-07-16: abort in-flight probe + init + clear polling
   // interval. Mirrors the worktree composable's dispose pattern.
   gitRepoProbe.dispose();
@@ -3718,6 +3805,19 @@ watch(
                     {{ b.name }}
                   </v-list-item-title>
                   <template #append>
+                    <!-- 2026-08-01 git-merge: per-row merge-into-current
+                         action. Hidden for the current branch (no-op)
+                         and remote branches. -->
+                    <v-icon
+                      v-if="!b.current && !b.remote"
+                      size="14"
+                      class="git-diff-sidebar-branch-merge"
+                      :title="
+                        tm('spcodeProjectLoad.diffSidebar.merge.rowAction')
+                      "
+                      @click.stop="onBranchMergeClick(b)"
+                      >mdi-source-merge</v-icon
+                    >
                     <v-icon
                       v-if="!b.current"
                       size="14"
@@ -4450,6 +4550,15 @@ watch(
              The endpoint creates a NEW revert commit (no history
              rewrite) — the hint line spells that out plus the
              clean-worktree prerequisite. -->
+        <!-- 2026-08-01 git-merge: strategy dialog for the branch-menu
+             merge action. -->
+        <GitMergeDialog
+          v-model="mergeDialogOpen"
+          :source="mergeSource"
+          :loading="gitMerge.isMerging.value"
+          @submit="onMergeSubmit"
+        />
+
         <v-dialog v-model="revertDialogOpen" persistent max-width="440">
           <v-card>
             <v-card-title class="text-h6">
@@ -5565,6 +5674,14 @@ watch(
 }
 .git-diff-sidebar-branch-menu :deep(.v-list-item__content) {
   padding-inline: 8px;
+}
+.git-diff-sidebar-branch-menu .git-diff-sidebar-branch-merge {
+  opacity: 0.6;
+  margin-right: 4px;
+}
+.git-diff-sidebar-branch-menu .git-diff-sidebar-branch-merge:hover {
+  opacity: 1;
+  color: rgb(var(--v-theme-primary));
 }
 .git-diff-sidebar-branch-menu .git-diff-sidebar-branch-delete {
   opacity: 0.6;

@@ -686,6 +686,36 @@
           "tooltip": "Relative to upstream: {ahead} ahead, {behind} behind"
         }
       },
+      "merge": {
+        "rowAction": "Merge into current branch",
+        "dialogTitle": "Merge branch",
+        "sourceLabel": "Source branch",
+        "strategy": {
+          "label": "Merge strategy",
+          "default": "Default (fast-forward or merge commit)",
+          "noFf": "--no-ff (always create a merge commit)",
+          "ffOnly": "--ff-only (fast-forward only)",
+          "squash": "--squash (stage squashed changes, no commit)"
+        },
+        "messageLabel": "Merge commit message (optional)",
+        "messageDisabledHint": "ff-only never creates a merge commit — no message needed",
+        "submit": "Merge",
+        "cancel": "Cancel",
+        "success": "Merged {source} ({sha})",
+        "successFf": "Fast-forwarded to {source} ({sha})",
+        "squashSuccess": "Squash-merged {source}: {count} file(s) staged (not committed)",
+        "alreadyUpToDate": "Already up to date",
+        "conflictWarning": "Merging {source} produced {count} conflicted file(s) — resolve them in the conflict panel",
+        "error": {
+          "worktree_dirty": "Working tree has uncommitted changes — commit or stash first",
+          "operation_in_progress": "A merge / cherry-pick / revert is already in progress — finish or abort it first",
+          "invalid_branch": "Invalid branch name",
+          "unrelated_histories": "The two branches share no history (unrelated histories)",
+          "git_error": "Merge failed: {stderr}",
+          "network": "Network error",
+          "unknown": "Merge failed ({reason})"
+        }
+      },
       "scopeBar": {
         "ariaLabel": "Select diff scope"
       },

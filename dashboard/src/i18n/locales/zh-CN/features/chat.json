@@ -686,6 +686,36 @@
           "tooltip": "相对 upstream:领先 {ahead},落后 {behind}"
         }
       },
+      "merge": {
+        "rowAction": "合并到当前分支",
+        "dialogTitle": "合并分支",
+        "sourceLabel": "源分支",
+        "strategy": {
+          "label": "合并策略",
+          "default": "默认（fast-forward 或 merge commit）",
+          "noFf": "--no-ff（总是创建 merge commit）",
+          "ffOnly": "--ff-only（仅 fast-forward）",
+          "squash": "--squash（压缩为未提交改动）"
+        },
+        "messageLabel": "合并提交信息（可选）",
+        "messageDisabledHint": "ff-only 模式不产生 merge commit，无需提交信息",
+        "submit": "合并",
+        "cancel": "取消",
+        "success": "已合并 {source}（{sha}）",
+        "successFf": "已 fast-forward 合并 {source}（{sha}）",
+        "squashSuccess": "已 squash 合并 {source}，{count} 个文件已暂存（未提交）",
+        "alreadyUpToDate": "已是最新，无需合并",
+        "conflictWarning": "合并 {source} 产生 {count} 个冲突文件，请在冲突面板中解决",
+        "error": {
+          "worktree_dirty": "工作区有未提交改动，请先 commit 或 stash",
+          "operation_in_progress": "已有合并 / cherry-pick / revert 冲突正在进行，请先处理",
+          "invalid_branch": "分支名格式错误",
+          "unrelated_histories": "两个分支没有共同历史（unrelated histories）",
+          "git_error": "合并失败：{stderr}",
+          "network": "网络连接失败",
+          "unknown": "合并失败（{reason}）"
+        }
+      },
       "scopeBar": {
         "ariaLabel": "选择 diff 范围"
       },
