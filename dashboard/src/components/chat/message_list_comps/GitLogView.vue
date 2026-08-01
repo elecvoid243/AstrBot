@@ -75,6 +75,20 @@ const props = defineProps<{
    *  new ETag bucket. Forwarded to GitStatsPanel for the live
    *  counter and used by the refresh() calls below. */
   topFilesLimit: number;
+  /** 2026-08-01 branch-picker (spec 2026-08-01-git-history-branch-picker
+   *  §2a): items offered by the ref filter combobox — current branch
+   *  first, then locals, then remotes. Empty array degrades the
+   *  combobox to free input (branches not loaded / non-git dir). */
+  branchItems: string[];
+  /** Spec §2b: name of the checked-out branch, or null (detached HEAD /
+   *  branches not loaded). Drives the revert ⇄ cherry-pick visibility
+   *  split below. */
+  currentBranch: string | null;
+  /** Spec §2b: the APPLIED filter ref (parent passes
+   *  gitLog.filter.value.ref), NOT the in-progress draft in
+   *  localFilter. ""/HEAD/<currentBranch> all mean "viewing the
+   *  current branch". */
+  activeRef: string | null;
 }>();
 
 const emit = defineEmits<{
@@ -111,6 +125,16 @@ const emit = defineEmits<{
 // see the v3.9 note above). The panel receives it as a prop so it
 // stays store-free and unit-testable.
 const { isDark } = storeToRefs(useCustomizerStore());
+
+/** Spec 2026-08-01 §2b: complementary visibility — revert only makes
+ *  sense on the current branch's own history; cherry-pick only when
+ *  viewing a DIFFERENT ref (another branch, a sha, or a tag). The
+ *  comparison uses the APPLIED ref (prop), so typing-but-not-applying
+ *  a branch name never flips the buttons prematurely. */
+const viewingCurrent = computed(() => {
+  const r = props.activeRef;
+  return !r || r === "HEAD" || r === props.currentBranch;
+});
 
 // Local filter form state. Emitted on Apply; reset on Reset.
 const localFilter = ref<LogFilter>({ ref: "HEAD", n: 20 });
@@ -480,8 +504,14 @@ function fileErrorMessage(state: GitShowFetchState): string | null {
 
     <!-- Filter bar (spec §6.5.1; search boxes → 12px, buttons → small) -->
     <div class="git-log-filter">
-      <v-text-field
+      <!-- 2026-08-01 branch-picker: v-text-field → v-combobox so the
+           ref filter offers known branches (current first, then local,
+           then remote) while keeping free input for sha/tag. Apply /
+           Reset flow unchanged. -->
+      <v-combobox
         v-model="localFilter.ref"
+        :items="branchItems"
+        :hide-no-data="branchItems.length === 0"
         :label="
           tm('spcodeProjectLoad.diffSidebar.gitWorkflow.history.filter.ref')
         "
@@ -688,6 +718,7 @@ function fileErrorMessage(state: GitShowFetchState): string | null {
                keyboard). Lives in the meta line — NOT inside the
                header <button> (nested buttons are invalid HTML). -->
           <button
+            v-if="viewingCurrent"
             type="button"
             class="git-log-item-revert"
             :title="
@@ -710,6 +741,7 @@ function fileErrorMessage(state: GitShowFetchState): string | null {
           <!-- 2026-08-01 git-cherry-pick: per-row action, hover-revealed
                like the revert button beside it. -->
           <button
+            v-if="!viewingCurrent"
             type="button"
             class="git-log-item-cherry-pick"
             :title="
