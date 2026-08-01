@@ -583,6 +583,33 @@
           "unknown": "Слияние не удалось ({reason})"
         }
       },
+      "cherryPick": {
+        "toolbar": "cherry-pick",
+        "toolbarAria": "Перенести коммит (cherry-pick)",
+        "rowAction": "cherry-pick",
+        "rowActionTitle": "Перенести этот коммит в текущую ветку",
+        "rowActionAria": "Перенести коммит {sha}",
+        "dialogTitle": "Перенос коммита",
+        "refLabel": "Ссылка на коммит",
+        "refHint": "sha / ветка / тег",
+        "refRequired": "Введите ссылку на коммит",
+        "mainlineLabel": "mainline (обязателен для merge-коммитов)",
+        "mainlineHint": "Положительное целое, обычно 1",
+        "mainlineInvalid": "mainline должен быть положительным целым",
+        "submit": "Перенести",
+        "cancel": "Отмена",
+        "success": "Коммит {ref} перенесён ({sha})",
+        "emptyInfo": "В этом коммите нечего применять (empty)",
+        "conflictWarning": "Перенос {ref} вызвал конфликты в {count} файл(ах) — разрешите их в панели конфликтов",
+        "error": {
+          "worktree_dirty": "Есть незакоммиченные изменения — сначала commit или stash",
+          "operation_in_progress": "Уже выполняется merge / cherry-pick / revert — завершите или прервите его",
+          "commit_not_found": "Ссылка не указывает на коммит: {ref}",
+          "git_error": "Перенос не удался: {stderr}",
+          "network": "Ошибка сети",
+          "unknown": "Перенос не удался ({reason})"
+        }
+      },
       "scopeBar": {
         "ariaLabel": "Выберите область diff"
       },

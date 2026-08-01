@@ -716,6 +716,33 @@
           "unknown": "Merge failed ({reason})"
         }
       },
+      "cherryPick": {
+        "toolbar": "cherry-pick",
+        "toolbarAria": "Cherry-pick a commit",
+        "rowAction": "cherry-pick",
+        "rowActionTitle": "Cherry-pick this commit onto the current branch",
+        "rowActionAria": "Cherry-pick commit {sha}",
+        "dialogTitle": "Cherry-pick commit",
+        "refLabel": "Commit ref",
+        "refHint": "sha / branch / tag",
+        "refRequired": "Enter a commit ref",
+        "mainlineLabel": "mainline (required for merge commits)",
+        "mainlineHint": "Positive integer, usually 1",
+        "mainlineInvalid": "mainline must be a positive integer",
+        "submit": "Cherry-pick",
+        "cancel": "Cancel",
+        "success": "Cherry-picked {ref} ({sha})",
+        "emptyInfo": "Nothing to apply from this commit (empty)",
+        "conflictWarning": "Cherry-picking {ref} produced {count} conflicted file(s) — resolve them in the conflict panel",
+        "error": {
+          "worktree_dirty": "Working tree has uncommitted changes — commit or stash first",
+          "operation_in_progress": "A merge / cherry-pick / revert is already in progress — finish or abort it first",
+          "commit_not_found": "Ref does not resolve to a commit: {ref}",
+          "git_error": "Cherry-pick failed: {stderr}",
+          "network": "Network error",
+          "unknown": "Cherry-pick failed ({reason})"
+        }
+      },
       "scopeBar": {
         "ariaLabel": "Select diff scope"
       },

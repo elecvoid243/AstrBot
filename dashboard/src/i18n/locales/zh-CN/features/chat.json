@@ -716,6 +716,33 @@
           "unknown": "合并失败（{reason}）"
         }
       },
+      "cherryPick": {
+        "toolbar": "cherry-pick",
+        "toolbarAria": "cherry-pick 一个提交",
+        "rowAction": "cherry-pick",
+        "rowActionTitle": "cherry-pick 此提交到当前分支",
+        "rowActionAria": "cherry-pick 提交 {sha}",
+        "dialogTitle": "cherry-pick 提交",
+        "refLabel": "提交引用",
+        "refHint": "sha / 分支 / tag",
+        "refRequired": "请输入提交引用",
+        "mainlineLabel": "mainline（合并提交必填）",
+        "mainlineHint": "正整数，通常为 1",
+        "mainlineInvalid": "mainline 必须是正整数",
+        "submit": "cherry-pick",
+        "cancel": "取消",
+        "success": "已 cherry-pick {ref}（{sha}）",
+        "emptyInfo": "该提交没有可应用的改动（empty）",
+        "conflictWarning": "cherry-pick {ref} 产生 {count} 个冲突文件，请在冲突面板中解决",
+        "error": {
+          "worktree_dirty": "工作区有未提交改动，请先 commit 或 stash",
+          "operation_in_progress": "已有合并 / cherry-pick / revert 冲突正在进行，请先处理",
+          "commit_not_found": "无法解析为提交：{ref}",
+          "git_error": "cherry-pick 失败：{stderr}",
+          "network": "网络连接失败",
+          "unknown": "cherry-pick 失败（{reason}）"
+        }
+      },
       "scopeBar": {
         "ariaLabel": "选择 diff 范围"
       },

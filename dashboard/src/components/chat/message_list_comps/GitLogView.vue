@@ -91,6 +91,11 @@ const emit = defineEmits<{
   // writes live at the sidebar level); we only surface which
   // commit the user picked.
   (e: "revert", commit: { sha: string; subject: string }): void;
+  // 2026-08-01 git-cherry-pick: per-row affordance mirroring "revert";
+  // the sidebar owns the dialog + the /spcode/git-cherry-pick call.
+  (e: "cherry-pick", commit: { sha: string; subject: string }): void;
+  // Toolbar-level entry: open the cherry-pick dialog with an empty ref.
+  (e: "cherry-pick-blank"): void;
   /** Stats-panel collapse toggle (v-model:stats-open). */
   (e: "update:statsOpen", v: boolean): void;
   /** Range popover picked a new value — sidebar owns state + persistence. */
@@ -575,6 +580,16 @@ function fileErrorMessage(state: GitShowFetchState): string | null {
             tm("spcodeProjectLoad.diffSidebar.gitWorkflow.history.filter.reset")
           }}
         </v-btn>
+        <!-- 2026-08-01 git-cherry-pick: standalone entry (blank ref). -->
+        <v-btn
+          size="small"
+          variant="text"
+          :title="tm('spcodeProjectLoad.diffSidebar.cherryPick.toolbarAria')"
+          @click="emit('cherry-pick-blank')"
+        >
+          <v-icon size="14" start>mdi-source-branch-plus</v-icon>
+          {{ tm("spcodeProjectLoad.diffSidebar.cherryPick.toolbar") }}
+        </v-btn>
       </div>
     </div>
 
@@ -691,6 +706,24 @@ function fileErrorMessage(state: GitShowFetchState): string | null {
             {{
               tm("spcodeProjectLoad.diffSidebar.gitWorkflow.history.revert")
             }}
+          </button>
+          <!-- 2026-08-01 git-cherry-pick: per-row action, hover-revealed
+               like the revert button beside it. -->
+          <button
+            type="button"
+            class="git-log-item-cherry-pick"
+            :title="
+              tm('spcodeProjectLoad.diffSidebar.cherryPick.rowActionTitle')
+            "
+            :aria-label="
+              tm('spcodeProjectLoad.diffSidebar.cherryPick.rowActionAria', {
+                sha: c.sha.slice(0, 7),
+              })
+            "
+            @click="emit('cherry-pick', { sha: c.sha, subject: c.subject })"
+          >
+            <v-icon size="13">mdi-source-branch-plus</v-icon>
+            {{ tm("spcodeProjectLoad.diffSidebar.cherryPick.rowAction") }}
           </button>
         </div>
         <div v-if="expanded.has(c.sha) && c.body" class="git-log-item-body">
@@ -1079,6 +1112,34 @@ function fileErrorMessage(state: GitShowFetchState): string | null {
   opacity: 1;
 }
 .git-log-item-revert:hover {
+  color: rgb(var(--v-theme-primary));
+  border-color: rgba(var(--v-theme-primary), 0.4);
+}
+/* 2026-08-01 git-cherry-pick: per-row action mirroring
+   .git-log-item-revert (hover-reveal). No margin-left:auto — the
+   revert button already pushes the pair to the right edge. */
+.git-log-item-cherry-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  padding: 1px 8px;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.15);
+  border-radius: 4px;
+  background: transparent;
+  color: rgba(var(--v-theme-on-surface), 0.65);
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity 0.12s,
+    color 0.12s,
+    border-color 0.12s;
+}
+.git-log-item:hover .git-log-item-cherry-pick,
+.git-log-item-cherry-pick:focus-visible {
+  opacity: 1;
+}
+.git-log-item-cherry-pick:hover {
   color: rgb(var(--v-theme-primary));
   border-color: rgba(var(--v-theme-primary), 0.4);
 }

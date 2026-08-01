@@ -68,9 +68,13 @@ import {
   type BranchSwitchParams,
 } from "@/composables/useSpcodeGitBranches";
 import { useSpcodeGitMerge } from "@/composables/useSpcodeGitMerge";
-import { classifyMergeReason } from "@/composables/parseSpcodeGitMerge";
+import {
+  classifyMergeReason,
+  classifyCherryPickReason,
+} from "@/composables/parseSpcodeGitMerge";
 import { useSpcodeGitConflict } from "@/composables/useSpcodeGitConflict";
 import GitMergeDialog from "@/components/chat/GitMergeDialog.vue";
+import GitCherryPickDialog from "@/components/chat/GitCherryPickDialog.vue";
 import { pluginExtensionApi } from "@/api/v1";
 import { useModuleI18n } from "@/i18n/composables";
 import GitDiffBodyContent from "@/components/chat/message_list_comps/GitDiffBodyContent.vue";
@@ -2153,6 +2157,69 @@ async function onMergeSubmit(params: {
   }
   showSnackbar(
     tm(meta.i18nKey, { reason: result.reason, stderr: result.stderr ?? "" }),
+    meta.color,
+    meta.withStderr ? result.stderr : undefined,
+  );
+}
+
+// 2026-08-01 git-cherry-pick: dialog state. preset != null → log-row
+// mode (readonly ref); preset == null → toolbar mode (editable ref).
+const cherryPickDialogOpen = ref(false);
+const cherryPickPreset = ref<{ sha: string; subject: string } | null>(null);
+
+function onLogCherryPickRequest(commit: {
+  sha: string;
+  subject: string;
+}): void {
+  cherryPickPreset.value = commit;
+  cherryPickDialogOpen.value = true;
+}
+
+function onToolbarCherryPickRequest(): void {
+  cherryPickPreset.value = null;
+  cherryPickDialogOpen.value = true;
+}
+
+async function onCherryPickSubmit(params: {
+  ref: string;
+  mainline: number | null;
+}): Promise<void> {
+  const result = await gitMerge.cherryPick({
+    ref: params.ref,
+    mainline: params.mainline,
+    worktree: selectedWorktree.value,
+  });
+  if (result.ok) {
+    cherryPickDialogOpen.value = false;
+    await refreshAfterBranchChange();
+    showSnackbar(
+      tm("spcodeProjectLoad.diffSidebar.cherryPick.success", {
+        ref: params.ref.slice(0, 12),
+        sha: result.newSha.slice(0, 7),
+      }),
+      "success",
+    );
+    return;
+  }
+  const meta = classifyCherryPickReason(result.reason);
+  if (result.conflict) {
+    cherryPickDialogOpen.value = false;
+    void gitConflict.refresh();
+    showSnackbar(
+      tm(meta.i18nKey, {
+        ref: params.ref.slice(0, 12),
+        count: result.conflictedFiles.length,
+      }),
+      "warning",
+    );
+    return;
+  }
+  showSnackbar(
+    tm(meta.i18nKey, {
+      reason: result.reason,
+      ref: params.ref.slice(0, 12),
+      stderr: result.stderr ?? "",
+    }),
     meta.color,
     meta.withStderr ? result.stderr : undefined,
   );
@@ -4405,6 +4472,8 @@ watch(
             @load-more="onLogLoadMore"
             @refresh="onLogRefresh"
             @revert="onLogRevertRequest"
+            @cherry-pick="onLogCherryPickRequest"
+            @cherry-pick-blank="onToolbarCherryPickRequest"
           />
           <!-- 2026-07-11 document-manager:Documents 文档管理 sub-tab body。 -->
           <!--
@@ -4557,6 +4626,15 @@ watch(
           :source="mergeSource"
           :loading="gitMerge.isMerging.value"
           @submit="onMergeSubmit"
+        />
+
+        <!-- 2026-08-01 git-cherry-pick: dialog for log-row + toolbar
+             entries. -->
+        <GitCherryPickDialog
+          v-model="cherryPickDialogOpen"
+          :preset="cherryPickPreset"
+          :loading="gitMerge.isCherryPicking.value"
+          @submit="onCherryPickSubmit"
         />
 
         <v-dialog v-model="revertDialogOpen" persistent max-width="440">
