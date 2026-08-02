@@ -1,4 +1,6 @@
-> This Branch is for *spzx*, use it with the plugins following 
+> This Branch is customized for *spzx*. Enhance coding, project management, and agent capabilities for Astrbot.
+>
+> The following plugins are required in conjunction with this branch: 
 >
 > **SPCODE TOOLKIT** (https://github.com/elecvoid243/astrbot_plugin_spcode_toolkit)
 >
@@ -8,7 +10,9 @@
 >
 > **LIGHTRAG ADAPDATOR** (https://github.com/elecvoid243/astrbot_plugin_lightrag)
 >
-> 
+> **GOAL** (https://github.com/elecvoid243/astrbot_plugin_goal)
+>
+> **GRAPH ORCHESTOR(in progress)** (https://github.com/elecvoid243/astrbot_plugin_graph_orchestrator)
 
 ![AstrBot-Logo-Simplified](https://github.com/user-attachments/assets/36fb04e4-cc75-4454-bd8b-049d11aa86f9)
 
