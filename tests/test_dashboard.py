@@ -20,6 +20,7 @@ from werkzeug.datastructures import FileStorage
 from astrbot.core import LogBroker
 from astrbot.core.core_lifecycle import AstrBotCoreLifecycle
 from astrbot.core.db.sqlite import SQLiteDatabase
+from astrbot.core.desktop_runtime import DESKTOP_MANAGED_RESTART_MESSAGE
 from astrbot.core.star.star import StarMetadata, star_registry
 from astrbot.core.star.star_handler import star_handlers_registry
 from astrbot.core.utils.auth_password import (
@@ -71,6 +72,33 @@ def _assert_cookie_samesite_strict(cookie_header: str) -> None:
         cookie_header: The raw Set-Cookie header value to inspect.
     """
     assert "samesite=strict" in cookie_header.lower()
+
+
+async def _wait_for_update_progress(
+    test_client,
+    authenticated_header: dict,
+    progress_id: str,
+) -> dict:
+    """Wait until a dashboard update task reaches a terminal status.
+
+    Args:
+        test_client: Quart/FastAPI adapter test client.
+        authenticated_header: Headers for authenticated dashboard requests.
+        progress_id: Update progress id to poll.
+
+    Returns:
+        The progress response payload.
+    """
+    for _ in range(100):
+        response = await test_client.get(
+            f"/api/update/progress?id={progress_id}",
+            headers=authenticated_header,
+        )
+        data = await response.get_json()
+        if data["data"].get("status") in {"success", "error"}:
+            return data
+        await asyncio.sleep(0.01)
+    pytest.fail(f"Update task did not finish: {progress_id}")
 
 
 @pytest.fixture
@@ -241,29 +269,86 @@ def test_dashboard_uses_bundled_dist_when_data_dist_is_stale(
     monkeypatch,
     tmp_path,
 ):
+    from astrbot.core.config.default import VERSION
+
     data_dir = tmp_path / "data"
     user_dist = data_dir / "dist"
     bundled_dist = tmp_path / "bundled-dist"
     user_dist.mkdir(parents=True)
     bundled_dist.mkdir()
+    (bundled_dist / "index.html").write_text("bundled", encoding="utf-8")
+    (bundled_dist / "assets").mkdir()
+    (bundled_dist / "assets" / "version").write_text(
+        f"v{VERSION}",
+        encoding="utf-8",
+    )
 
     monkeypatch.setattr(
-        "astrbot.dashboard.server.get_astrbot_data_path",
+        "astrbot.core.dashboard_assets.get_astrbot_data_path",
         lambda: str(data_dir),
     )
     monkeypatch.setattr(
-        "astrbot.dashboard.server.get_bundled_dashboard_dist_path",
+        "astrbot.core.dashboard_assets._get_bundled_dist_path",
         lambda: bundled_dist,
-    )
-    monkeypatch.setattr(
-        "astrbot.dashboard.server.should_use_bundled_dashboard_dist",
-        lambda *_args, **_kwargs: True,
     )
 
     shutdown_event = asyncio.Event()
     server = AstrBotDashboard(core_lifecycle_td, core_lifecycle_td.db, shutdown_event)
 
     assert server.data_path == str(bundled_dist)
+
+
+def test_dashboard_falls_back_to_mismatched_data_dist_without_bundled(
+    core_lifecycle_td: AstrBotCoreLifecycle,
+    monkeypatch,
+    tmp_path,
+):
+    data_dir = tmp_path / "data"
+    user_dist = data_dir / "dist"
+    bundled_dist = tmp_path / "bundled-dist"
+    (user_dist / "assets").mkdir(parents=True)
+    (user_dist / "assets" / "version").write_text("v0.0.1", encoding="utf-8")
+    (user_dist / "index.html").write_text("stale", encoding="utf-8")
+
+    monkeypatch.setattr(
+        "astrbot.core.dashboard_assets.get_astrbot_data_path",
+        lambda: str(data_dir),
+    )
+    monkeypatch.setattr(
+        "astrbot.core.dashboard_assets._get_bundled_dist_path",
+        lambda: bundled_dist,
+    )
+
+    shutdown_event = asyncio.Event()
+    server = AstrBotDashboard(core_lifecycle_td, core_lifecycle_td.db, shutdown_event)
+
+    assert server.data_path == str(user_dist)
+
+
+def test_dashboard_ignores_incomplete_mismatched_data_dist_without_bundled(
+    core_lifecycle_td: AstrBotCoreLifecycle,
+    monkeypatch,
+    tmp_path,
+):
+    data_dir = tmp_path / "data"
+    user_dist = data_dir / "dist"
+    bundled_dist = tmp_path / "bundled-dist"
+    (user_dist / "assets").mkdir(parents=True)
+    (user_dist / "assets" / "version").write_text("v0.0.1", encoding="utf-8")
+
+    monkeypatch.setattr(
+        "astrbot.core.dashboard_assets.get_astrbot_data_path",
+        lambda: str(data_dir),
+    )
+    monkeypatch.setattr(
+        "astrbot.core.dashboard_assets._get_bundled_dist_path",
+        lambda: bundled_dist,
+    )
+
+    shutdown_event = asyncio.Event()
+    server = AstrBotDashboard(core_lifecycle_td, core_lifecycle_td.db, shutdown_event)
+
+    assert server.data_path is None
 
 
 async def _set_dashboard_password_change_required(
@@ -1167,6 +1252,23 @@ async def test_version_endpoints_use_md5_password_hint(
     assert _removed_md5_hint_alias_key() not in data["data"]
 
 
+@pytest.mark.asyncio
+async def test_public_versions_endpoint_does_not_require_auth(app: FastAPIAppAdapter):
+    test_client = app.test_client()
+
+    response = await test_client.get("/api/stat/versions")
+    data = await response.get_json()
+
+    assert response.status_code == 200
+    assert data["status"] == "ok"
+    assert data["data"]["astrbot_version"]
+    assert "webui_version" in data["data"]
+    assert "astrbot_code_version" in data["data"]
+    assert "change_pwd_hint" not in data["data"]
+    assert "md5_pwd_hint" not in data["data"]
+    assert "password_upgrade_required" not in data["data"]
+
+
 def test_password_hash_lookup_falls_back_to_md5_when_pbkdf2_missing(
     core_lifecycle_td: AstrBotCoreLifecycle,
 ):
@@ -1253,6 +1355,105 @@ async def test_generated_password_requires_password_change_until_changed(
                 core_lifecycle_td.astrbot_config,
             )
             is False
+        )
+    finally:
+        await _restore_dashboard_password_state(
+            core_lifecycle_td,
+            original_dashboard_config,
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("endpoint", "method"),
+    [
+        ("/api/auth/account/edit", "post"),
+        ("/api/v1/auth/account", "patch"),
+    ],
+)
+@pytest.mark.parametrize("new_username", ["ab", "   "])
+async def test_account_edit_rejects_invalid_username(
+    app: FastAPIAppAdapter,
+    core_lifecycle_td: AstrBotCoreLifecycle,
+    endpoint: str,
+    method: str,
+    new_username: str,
+):
+    original_dashboard_config = copy.deepcopy(
+        core_lifecycle_td.astrbot_config["dashboard"]
+    )
+    test_client = app.test_client()
+    current_username = core_lifecycle_td.astrbot_config["dashboard"]["username"]
+    current_password = _resolve_dashboard_password(core_lifecycle_td)
+
+    try:
+        login_response = await test_client.post(
+            "/api/auth/login",
+            json={"username": current_username, "password": current_password},
+        )
+        login_data = await login_response.get_json()
+        assert login_data["status"] == "ok"
+        headers = {"Authorization": f"Bearer {login_data['data']['token']}"}
+
+        payload = {
+            "password": current_password,
+            "new_password": "",
+            "confirm_password": "",
+            "new_username": new_username,
+        }
+        request = getattr(test_client, method)
+        response = await request(endpoint, headers=headers, json=payload)
+        data = await response.get_json()
+
+        assert data["status"] == "error"
+        assert data["message"] == "用户名长度至少3位"
+        assert (
+            core_lifecycle_td.astrbot_config["dashboard"]["username"]
+            == (original_dashboard_config["username"])
+        )
+    finally:
+        await _restore_dashboard_password_state(
+            core_lifecycle_td,
+            original_dashboard_config,
+        )
+
+
+@pytest.mark.asyncio
+async def test_account_edit_trims_valid_username(
+    app: FastAPIAppAdapter,
+    core_lifecycle_td: AstrBotCoreLifecycle,
+):
+    original_dashboard_config = copy.deepcopy(
+        core_lifecycle_td.astrbot_config["dashboard"]
+    )
+    test_client = app.test_client()
+    current_username = core_lifecycle_td.astrbot_config["dashboard"]["username"]
+    current_password = _resolve_dashboard_password(core_lifecycle_td)
+
+    try:
+        login_response = await test_client.post(
+            "/api/auth/login",
+            json={"username": current_username, "password": current_password},
+        )
+        login_data = await login_response.get_json()
+        assert login_data["status"] == "ok"
+        headers = {"Authorization": f"Bearer {login_data['data']['token']}"}
+
+        response = await test_client.post(
+            "/api/auth/account/edit",
+            headers=headers,
+            json={
+                "password": current_password,
+                "new_password": "",
+                "confirm_password": "",
+                "new_username": "  astrbot-admin  ",
+            },
+        )
+        data = await response.get_json()
+
+        assert data["status"] == "ok"
+        assert core_lifecycle_td.astrbot_config["dashboard"]["username"] == (
+            "astrbot-admin"
         )
     finally:
         await _restore_dashboard_password_state(
@@ -1674,6 +1875,12 @@ async def test_plugin_page_content_issues_scoped_asset_token(
     assert '"pageTitle": "Bridge 演示页"' in bridge_js
     css_response = await anonymous_client.get(css_url.group(1))
     assert css_response.status_code == 200
+
+    stale_cookie_response = await anonymous_client.get(
+        app_js_url.group(1),
+        headers={"Cookie": f"{DASHBOARD_JWT_COOKIE_NAME}=stale.dashboard.token"},
+    )
+    assert stale_cookie_response.status_code == 200
 
     out_of_scope_response = await anonymous_client.get(
         f"/api/plugin/get?asset_token={asset_token}"
@@ -2113,6 +2320,51 @@ async def test_batch_delete_sessions_uses_batch_lookup(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "path_template",
+    [
+        "/api/chat/get_session?session_id={session_id}",
+        "/api/v1/chat/sessions/{session_id}",
+    ],
+)
+async def test_get_chat_session_rejects_session_owned_by_another_user(
+    app: FastAPIAppAdapter,
+    authenticated_header: dict,
+    core_lifecycle_td: AstrBotCoreLifecycle,
+    path_template: str,
+):
+    test_client = app.test_client()
+    session_id = f"foreign_get_session_{uuid.uuid4().hex[:8]}"
+    await core_lifecycle_td.db.create_platform_session(
+        creator="not_dashboard_user",
+        platform_id="webchat",
+        session_id=session_id,
+        display_name="Foreign Session",
+        is_group=0,
+    )
+    await core_lifecycle_td.platform_message_history_manager.insert(
+        platform_id="webchat",
+        user_id=session_id,
+        content={
+            "type": "user",
+            "message": [{"type": "text", "text": "foreign session secret"}],
+        },
+        sender_id="not_dashboard_user",
+        sender_name="not_dashboard_user",
+    )
+
+    response = await test_client.get(
+        path_template.format(session_id=session_id),
+        headers=authenticated_header,
+    )
+
+    assert response.status_code == 200
+    data = await response.get_json()
+    assert data["status"] == "error"
+    assert data["message"] == "Permission denied"
+
+
+@pytest.mark.asyncio
 async def test_plugins(
     app: FastAPIAppAdapter,
     authenticated_header: dict,
@@ -2162,9 +2414,11 @@ async def test_plugins(
 
     # 设置 Mock
     monkeypatch.setattr(
-        core_lifecycle_td.plugin_manager.updator, "install", mock_install
+        core_lifecycle_td.plugin_manager._updater, "install", mock_install
     )
-    monkeypatch.setattr(core_lifecycle_td.plugin_manager.updator, "update", mock_update)
+    monkeypatch.setattr(
+        core_lifecycle_td.plugin_manager._updater, "update", mock_update
+    )
 
     try:
         # 插件安装
@@ -2196,6 +2450,10 @@ async def test_plugins(
         installed_at = target["installed_at"]
         assert installed_at is not None
         datetime.fromisoformat(installed_at)
+        assert target["install_source"]["install_method"] == "repository"
+        assert target["install_source"]["repo"] == test_repo_url
+        assert target["updates_enabled"] is True
+        assert target["update_disabled_reason"] == ""
 
         response = await test_client.get(
             f"/api/plugin/detail?name={test_plugin_name}",
@@ -2212,7 +2470,7 @@ async def test_plugins(
         exists = any(md.name == test_plugin_name for md in star_registry)
         assert exists is True, f"插件 {test_plugin_name} 未成功载入"
 
-        # 插件更新
+        # Git URL installs can be explicitly reinstalled from their repository.
         response = await test_client.post(
             "/api/plugin/update",
             json={"name": test_plugin_name},
@@ -2222,9 +2480,8 @@ async def test_plugins(
         data = await response.get_json()
         assert data["status"] == "ok"
 
-        # 验证更新标记文件
         plugin_dir = builder.get_plugin_path(test_plugin_name)
-        assert (plugin_dir / ".updated").exists()
+        assert (plugin_dir / ".updated").read_text(encoding="utf-8") == "ok"
 
         # 插件卸载
         response = await test_client.post(
@@ -2539,7 +2796,7 @@ async def test_check_update(
         return f"v{VERSION}"  # 返回当前版本
 
     monkeypatch.setattr(
-        core_lifecycle_td.astrbot_updator,
+        core_lifecycle_td.astrbot_updater,
         "check_update",
         mock_check_update,
     )
@@ -2556,44 +2813,110 @@ async def test_check_update(
 
 
 @pytest.mark.asyncio
+async def test_get_releases_serializes_release_info_at_api_boundary(
+    app: FastAPIAppAdapter,
+    authenticated_header: dict,
+    core_lifecycle_td: AstrBotCoreLifecycle,
+    monkeypatch,
+):
+    from astrbot.core.zip_updater import ReleaseInfo
+
+    async def mock_get_releases():
+        return [
+            ReleaseInfo(
+                version="v99.0.0",
+                published_at="2026-08-01T00:00:00Z",
+                body="release notes",
+            )
+        ]
+
+    monkeypatch.setattr(
+        core_lifecycle_td.astrbot_updater,
+        "get_releases",
+        mock_get_releases,
+    )
+
+    response = await app.test_client().get(
+        "/api/update/releases",
+        headers=authenticated_header,
+    )
+
+    assert response.status_code == 200
+    data = await response.get_json()
+    assert data["data"] == [
+        {
+            "tag_name": "v99.0.0",
+            "published_at": "2026-08-01T00:00:00Z",
+            "body": "release notes",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_restart_core_rejects_desktop_managed_backend(
+    app: FastAPIAppAdapter,
+    authenticated_header: dict,
+    core_lifecycle_td: AstrBotCoreLifecycle,
+    monkeypatch,
+):
+    test_client = app.test_client()
+    restart_called = False
+
+    async def mock_restart():
+        nonlocal restart_called
+        restart_called = True
+
+    monkeypatch.setenv("ASTRBOT_DESKTOP_MANAGED", "1")
+    monkeypatch.setattr(core_lifecycle_td, "restart", mock_restart)
+
+    response = await test_client.post(
+        "/api/stat/restart-core",
+        headers=authenticated_header,
+    )
+
+    assert response.status_code == 400
+    data = await response.get_json()
+    assert data["status"] == "error"
+    assert data["message"] == DESKTOP_MANAGED_RESTART_MESSAGE
+    assert restart_called is False
+
+
+@pytest.mark.asyncio
 async def test_do_update(
     app: FastAPIAppAdapter,
     authenticated_header: dict,
     core_lifecycle_td: AstrBotCoreLifecycle,
     monkeypatch,
-    tmp_path_factory,
 ):
     test_client = app.test_client()
-
-    # Use a temporary path for the mock update to avoid side effects
-    temp_release_dir = tmp_path_factory.mktemp("release")
-    release_path = temp_release_dir / "astrbot"
     calls = []
 
     async def mock_update(*args, **kwargs):
-        """Mocks the update process by creating a directory in the temp path."""
-        calls.append("core")
-        callback = kwargs.get("progress_callback")
-        if callback:
-            callback({"downloaded": 10, "total": 10, "percent": 1, "speed": 1})
-        os.makedirs(release_path, exist_ok=True)
+        from astrbot.core.updater import UpdateProgress
 
-    async def mock_download_dashboard(*args, **kwargs):
-        """Mocks the dashboard download to prevent network access."""
-        calls.append("dashboard")
+        calls.append((args, kwargs))
         callback = kwargs.get("progress_callback")
         if callback:
-            callback({"downloaded": 10, "total": 10, "percent": 1, "speed": 1})
-        return
+            await callback(
+                UpdateProgress(
+                    stage="core",
+                    status="done",
+                    message="prepared",
+                    overall_percent=92,
+                    downloaded_bytes=10,
+                    total_bytes=10,
+                    speed_kib_per_second=1,
+                )
+            )
 
     async def mock_pip_install(*args, **kwargs):
         """Mocks pip install to prevent actual installation."""
         return
 
-    monkeypatch.setattr(core_lifecycle_td.astrbot_updator, "update", mock_update)
     monkeypatch.setattr(
-        "astrbot.dashboard.services.update_service.download_dashboard",
-        mock_download_dashboard,
+        core_lifecycle_td.astrbot_updater,
+        "update",
+        mock_update,
     )
     monkeypatch.setattr(
         "astrbot.dashboard.services.update_service.pip_installer.install",
@@ -2608,34 +2931,131 @@ async def test_do_update(
     assert response.status_code == 200
     data = await response.get_json()
     assert data["status"] == "ok"
-    assert os.path.exists(release_path)
-    assert calls[:2] == ["dashboard", "core"]
+    assert data["data"]["id"] == "test-progress"
 
-    progress_response = await test_client.get(
-        "/api/update/progress?id=test-progress",
-        headers=authenticated_header,
+    progress_data = await _wait_for_update_progress(
+        test_client,
+        authenticated_header,
+        "test-progress",
     )
-    progress_data = await progress_response.get_json()
+    assert len(calls) == 1
+    assert calls[0][0] == ()
+    assert calls[0][1]["version"] == "v3.4.0"
+    assert callable(calls[0][1]["progress_callback"])
+
     assert progress_data["status"] == "ok"
     assert progress_data["data"]["status"] == "success"
     assert progress_data["data"]["overall_percent"] == 100
 
 
 @pytest.mark.asyncio
+async def test_do_update_reports_updater_failure(
+    app: FastAPIAppAdapter,
+    authenticated_header: dict,
+    core_lifecycle_td: AstrBotCoreLifecycle,
+    monkeypatch,
+):
+    test_client = app.test_client()
+    calls = []
+
+    async def mock_update(*args, **kwargs):
+        del args, kwargs
+        calls.append("update")
+        raise RuntimeError("update failed")
+
+    monkeypatch.setattr(
+        core_lifecycle_td.astrbot_updater,
+        "update",
+        mock_update,
+    )
+
+    response = await test_client.post(
+        "/api/update/do",
+        headers=authenticated_header,
+        json={"version": "v3.4.0", "reboot": False, "progress_id": "atomic-fail"},
+    )
+    data = await response.get_json()
+
+    assert response.status_code == 200
+    assert data["status"] == "ok"
+    progress_data = await _wait_for_update_progress(
+        test_client,
+        authenticated_header,
+        "atomic-fail",
+    )
+    assert progress_data["data"]["status"] == "error"
+    assert calls == ["update"]
+
+
+@pytest.mark.asyncio
+async def test_do_update_rejects_desktop_managed_backend(
+    app: FastAPIAppAdapter,
+    authenticated_header: dict,
+    core_lifecycle_td: AstrBotCoreLifecycle,
+    monkeypatch,
+):
+    test_client = app.test_client()
+    calls = []
+
+    async def mock_update(*args, **kwargs):
+        del args, kwargs
+        calls.append("update")
+
+    async def mock_restart():
+        calls.append("restart")
+
+    monkeypatch.setenv("ASTRBOT_DESKTOP_MANAGED", "1")
+    monkeypatch.setattr(
+        core_lifecycle_td.astrbot_updater,
+        "update",
+        mock_update,
+    )
+    monkeypatch.setattr(core_lifecycle_td, "restart", mock_restart)
+
+    response = await test_client.post(
+        "/api/update/do",
+        headers=authenticated_header,
+        json={"version": "v3.4.0", "progress_id": "desktop-progress"},
+    )
+
+    assert response.status_code == 200
+    data = await response.get_json()
+    assert data["status"] == "error"
+    assert data["message"] == DESKTOP_MANAGED_RESTART_MESSAGE
+    assert calls == []
+
+
+def test_extract_dashboard_rejects_zip_path_traversal(tmp_path: Path):
+    from astrbot.core.dashboard_assets import _extract_package
+
+    archive_path = tmp_path / "dashboard.zip"
+    extract_path = tmp_path / "data"
+    with zipfile.ZipFile(archive_path, "w") as zf:
+        zf.writestr("../evil.txt", "unsafe")
+
+    with pytest.raises(ValueError, match="Unsafe dashboard archive path"):
+        _extract_package(archive_path, extract_path)
+
+    assert not (tmp_path / "evil.txt").exists()
+
+
+@pytest.mark.asyncio
 async def test_do_update_hides_internal_error_message_in_response_and_progress(
     app: FastAPIAppAdapter,
     authenticated_header: dict,
+    core_lifecycle_td: AstrBotCoreLifecycle,
     monkeypatch,
 ):
     test_client = app.test_client()
 
-    async def mock_download_dashboard(*args, **kwargs):
+    async def mock_update(*args, **kwargs):
         del args, kwargs
         raise RuntimeError("secret stack trace")
 
     monkeypatch.setattr(
-        "astrbot.dashboard.services.update_service.download_dashboard",
-        mock_download_dashboard,
+        core_lifecycle_td.astrbot_updater,
+        "update",
+        mock_update,
     )
 
     response = await test_client.post(
@@ -2646,15 +3066,14 @@ async def test_do_update_hides_internal_error_message_in_response_and_progress(
     data = await response.get_json()
 
     assert response.status_code == 200
-    assert data["status"] == "error"
-    assert data["message"] == "An internal error has occurred."
+    assert data["status"] == "ok"
     assert "secret stack trace" not in str(data)
 
-    progress_response = await test_client.get(
-        "/api/update/progress?id=failed-progress",
-        headers=authenticated_header,
+    progress_data = await _wait_for_update_progress(
+        test_client,
+        authenticated_header,
+        "failed-progress",
     )
-    progress_data = await progress_response.get_json()
 
     assert progress_data["status"] == "ok"
     assert progress_data["data"]["status"] == "error"

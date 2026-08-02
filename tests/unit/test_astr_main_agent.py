@@ -8,6 +8,7 @@ import pytest
 
 from astrbot.core import astr_main_agent as ama
 from astrbot.core.agent.mcp_client import MCPTool
+from astrbot.core.agent.message import Message, dump_messages_with_checkpoints
 from astrbot.core.agent.tool import FunctionTool, ToolSet
 from astrbot.core.conversation_mgr import Conversation
 from astrbot.core.message.components import File, Image, Plain, Reply, Video
@@ -166,6 +167,24 @@ def test_append_system_reminders_includes_weekday(mock_event):
         "<system_reminder>Current datetime: "
         "2026-06-08 12:34 (UTC), Weekday: Monday</system_reminder>"
     ]
+
+
+def test_local_mode_prompt_uses_windows_powershell_51():
+    with patch("astrbot.core.astr_main_agent.platform.system", return_value="Windows"):
+        prompt = ama._build_local_mode_prompt()
+
+    assert "Windows PowerShell 5.1 (powershell.exe)" in prompt
+    assert "PowerShell 7-only syntax" in prompt
+    assert "cmd.exe" not in prompt
+
+
+def test_local_mode_prompt_keeps_posix_shell_guidance():
+    with patch("astrbot.core.astr_main_agent.platform.system", return_value="Linux"):
+        prompt = ama._build_local_mode_prompt()
+
+    assert "Unix-like" in prompt
+    assert "POSIX-compatible" in prompt
+    assert "PowerShell" not in prompt
 
 
 class TestMainAgentBuildConfig:
@@ -377,8 +396,18 @@ class TestApplyKb:
         ):
             await module._apply_kb(mock_event, req, mock_context, config)
 
-        assert "[Related Knowledge Base Results]:" in req.system_prompt
-        assert "KB result" in req.system_prompt
+        assert req.system_prompt == "System prompt"
+        assert len(req.extra_user_content_parts) == 1
+        kb_part = req.extra_user_content_parts[0]
+        assert kb_part.text == "[Related Knowledge Base Results]:\nKB result"
+
+        message = Message.model_validate(await req.assemble_context())
+        assert isinstance(message.content, list)
+        assert message.content[0].text == "test question"
+        assert message.content[1].text == "[Related Knowledge Base Results]:\nKB result"
+        assert dump_messages_with_checkpoints([message]) == [
+            {"role": "user", "content": [{"type": "text", "text": "test question"}]}
+        ]
 
     @pytest.mark.asyncio
     async def test_apply_kb_with_agentic_mode(self, mock_event, mock_context):
@@ -781,6 +810,59 @@ class TestEnsurePersonaAndSkills:
         assert "Custom persona." in req.system_prompt
 
     @pytest.mark.asyncio
+    async def test_inline_genui_prompt_is_added_with_custom_persona(
+        self, mock_event, mock_context
+    ):
+        """Test inline GenUI instructions are independent of persona selection."""
+        module = ama
+        persona = {"name": "conv-persona", "prompt": "Custom persona."}
+        mock_context.persona_manager.resolve_selected_persona = AsyncMock(
+            return_value=("conv-persona", persona, None, False)
+        )
+        mock_event.get_extra.side_effect = lambda key: key == "enable_inline_genui"
+        req = ProviderRequest()
+        req.conversation = MagicMock(persona_id="conv-persona")
+
+        await module._ensure_persona_and_skills(req, {}, mock_context, mock_event)
+
+        assert "Custom persona." in req.system_prompt
+        assert module.CHATUI_INLINE_GENUI_SYSTEM_PROMPT in req.system_prompt
+
+    @pytest.mark.asyncio
+    async def test_inline_genui_prompt_does_not_require_conversation(
+        self, mock_event, mock_context
+    ):
+        """Test inline GenUI instructions are added before conversation setup."""
+        module = ama
+        mock_event.get_extra.side_effect = lambda key: key == "enable_inline_genui"
+        req = ProviderRequest()
+
+        await module._ensure_persona_and_skills(req, {}, mock_context, mock_event)
+
+        assert module.CHATUI_INLINE_GENUI_SYSTEM_PROMPT in req.system_prompt
+        mock_context.persona_manager.resolve_selected_persona.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_default_system_prompt_can_be_disabled(
+        self, mock_event, mock_context
+    ):
+        """Test the default ChatUI persona prompt honors its request flag."""
+        module = ama
+        mock_context.persona_manager.resolve_selected_persona = AsyncMock(
+            return_value=("_chatui_default_", None, None, True)
+        )
+        mock_event.get_extra.side_effect = lambda key: {
+            "enable_inline_genui": False,
+            "enable_default_system_prompt": False,
+        }.get(key)
+        req = ProviderRequest()
+        req.conversation = MagicMock(persona_id=None)
+
+        await module._ensure_persona_and_skills(req, {}, mock_context, mock_event)
+
+        assert module.CHATUI_SPECIAL_DEFAULT_PERSONA_PROMPT not in req.system_prompt
+
+    @pytest.mark.asyncio
     async def test_ensure_persona_none_explicit(self, mock_event, mock_context):
         """Test that [%None] persona is explicitly set to no persona."""
         module = ama
@@ -794,6 +876,186 @@ class TestEnsurePersonaAndSkills:
         await module._ensure_persona_and_skills(req, {}, mock_context, mock_event)
 
         assert "Persona Instructions" not in req.system_prompt
+
+    @pytest.mark.asyncio
+    async def test_ensure_skills_includes_workspace_skills(
+        self,
+        monkeypatch,
+        tmp_path,
+        mock_event,
+        mock_context,
+    ):
+        module = ama
+        data_dir = tmp_path / "data"
+        global_skills_dir = tmp_path / "global_skills"
+        plugins_dir = tmp_path / "plugins"
+        workspaces_dir = tmp_path / "workspaces"
+        for path in (data_dir, global_skills_dir, plugins_dir):
+            path.mkdir(parents=True, exist_ok=True)
+
+        global_skill_dir = global_skills_dir / "workspace-skill"
+        global_skill_dir.mkdir(parents=True)
+        global_skill_dir.joinpath("SKILL.md").write_text(
+            "---\ndescription: Global scoped skill.\n---\n",
+            encoding="utf-8",
+        )
+
+        workspace_root = workspaces_dir / module.normalize_umo_for_workspace(
+            mock_event.unified_msg_origin
+        )
+        workspace_skill_dir = workspace_root / "skills" / "workspace-skill"
+        workspace_skill_dir.mkdir(parents=True)
+        workspace_skill_dir.joinpath("SKILL.md").write_text(
+            "---\ndescription: Workspace scoped skill.\n---\n",
+            encoding="utf-8",
+        )
+
+        monkeypatch.setattr(
+            module,
+            "get_astrbot_workspaces_path",
+            lambda: str(workspaces_dir),
+        )
+        monkeypatch.setattr(
+            "astrbot.core.skills.skill_manager.get_astrbot_data_path",
+            lambda: str(data_dir),
+        )
+        monkeypatch.setattr(
+            "astrbot.core.skills.skill_manager.get_astrbot_skills_path",
+            lambda: str(global_skills_dir),
+        )
+        monkeypatch.setattr(
+            "astrbot.core.skills.skill_manager.get_astrbot_plugin_path",
+            lambda: str(plugins_dir),
+        )
+
+        req = ProviderRequest()
+        req.conversation = MagicMock(persona_id=None)
+        runtime_config = {"computer_use_runtime": "local"}
+
+        await module._ensure_persona_and_skills(
+            req, runtime_config, mock_context, mock_event
+        )
+
+        assert "**workspace-skill**" in req.system_prompt
+        assert "Workspace scoped skill." in req.system_prompt
+        assert "Global scoped skill." not in req.system_prompt
+        assert (
+            str(workspace_skill_dir / "SKILL.md").replace("\\", "/")
+            in req.system_prompt
+        )
+
+    @pytest.mark.asyncio
+    async def test_ensure_skills_respects_empty_persona_skills_for_workspace(
+        self,
+        monkeypatch,
+        tmp_path,
+        mock_event,
+        mock_context,
+    ):
+        module = ama
+        data_dir = tmp_path / "data"
+        global_skills_dir = tmp_path / "global_skills"
+        plugins_dir = tmp_path / "plugins"
+        workspaces_dir = tmp_path / "workspaces"
+        for path in (data_dir, global_skills_dir, plugins_dir):
+            path.mkdir(parents=True, exist_ok=True)
+
+        workspace_root = workspaces_dir / module.normalize_umo_for_workspace(
+            mock_event.unified_msg_origin
+        )
+        workspace_skill_dir = workspace_root / "skills" / "workspace-skill"
+        workspace_skill_dir.mkdir(parents=True)
+        workspace_skill_dir.joinpath("SKILL.md").write_text(
+            "---\ndescription: Workspace scoped skill.\n---\n",
+            encoding="utf-8",
+        )
+
+        monkeypatch.setattr(
+            module,
+            "get_astrbot_workspaces_path",
+            lambda: str(workspaces_dir),
+        )
+        monkeypatch.setattr(
+            "astrbot.core.skills.skill_manager.get_astrbot_data_path",
+            lambda: str(data_dir),
+        )
+        monkeypatch.setattr(
+            "astrbot.core.skills.skill_manager.get_astrbot_skills_path",
+            lambda: str(global_skills_dir),
+        )
+        monkeypatch.setattr(
+            "astrbot.core.skills.skill_manager.get_astrbot_plugin_path",
+            lambda: str(plugins_dir),
+        )
+
+        persona = {"name": "no-skills", "prompt": "", "skills": []}
+        mock_context.persona_manager.resolve_selected_persona = AsyncMock(
+            return_value=("no-skills", persona, None, False)
+        )
+        req = ProviderRequest()
+        req.conversation = MagicMock(persona_id="no-skills")
+
+        await module._ensure_persona_and_skills(req, {}, mock_context, mock_event)
+
+        assert "Workspace scoped skill." not in req.system_prompt
+        assert "## Skills" not in req.system_prompt
+
+    @pytest.mark.asyncio
+    async def test_ensure_skills_skips_workspace_skills_in_sandbox_runtime(
+        self,
+        monkeypatch,
+        tmp_path,
+        mock_event,
+        mock_context,
+    ):
+        module = ama
+        data_dir = tmp_path / "data"
+        global_skills_dir = tmp_path / "global_skills"
+        plugins_dir = tmp_path / "plugins"
+        workspaces_dir = tmp_path / "workspaces"
+        for path in (data_dir, global_skills_dir, plugins_dir):
+            path.mkdir(parents=True, exist_ok=True)
+
+        workspace_root = workspaces_dir / module.normalize_umo_for_workspace(
+            mock_event.unified_msg_origin
+        )
+        workspace_skill_dir = workspace_root / "skills" / "workspace-skill"
+        workspace_skill_dir.mkdir(parents=True)
+        workspace_skill_dir.joinpath("SKILL.md").write_text(
+            "---\ndescription: Workspace scoped skill.\n---\n",
+            encoding="utf-8",
+        )
+
+        monkeypatch.setattr(
+            module,
+            "get_astrbot_workspaces_path",
+            lambda: str(workspaces_dir),
+        )
+        monkeypatch.setattr(
+            "astrbot.core.skills.skill_manager.get_astrbot_data_path",
+            lambda: str(data_dir),
+        )
+        monkeypatch.setattr(
+            "astrbot.core.skills.skill_manager.get_astrbot_skills_path",
+            lambda: str(global_skills_dir),
+        )
+        monkeypatch.setattr(
+            "astrbot.core.skills.skill_manager.get_astrbot_plugin_path",
+            lambda: str(plugins_dir),
+        )
+
+        req = ProviderRequest()
+        req.conversation = MagicMock(persona_id=None)
+
+        await module._ensure_persona_and_skills(
+            req,
+            {"computer_use_runtime": "sandbox"},
+            mock_context,
+            mock_event,
+        )
+
+        assert "Workspace scoped skill." not in req.system_prompt
+        assert "## Skills" not in req.system_prompt
 
     @pytest.mark.asyncio
     async def test_ensure_tools_from_persona(self, mock_event, mock_context):
@@ -816,6 +1078,109 @@ class TestEnsurePersonaAndSkills:
         await module._ensure_persona_and_skills(req, {}, mock_context, mock_event)
 
         assert req.func_tool is not None
+
+    @pytest.mark.asyncio
+    async def test_persona_empty_tools_keeps_late_builtin_tools(
+        self, mock_event, mock_context, mock_provider
+    ):
+        module = ama
+        persona = {"name": "locked", "prompt": "No tools.", "tools": []}
+        mock_context.persona_manager.resolve_selected_persona = AsyncMock(
+            return_value=("locked", persona, None, False)
+        )
+        mock_event.platform_meta.support_proactive_message = False
+        mock_context.get_config.return_value = {
+            "provider_settings": {
+                "web_search": True,
+                "websearch_provider": "baidu_ai_search",
+            }
+        }
+        config = module.MainAgentBuildConfig(
+            tool_call_timeout=60,
+            provider_settings={
+                "web_search": True,
+                "websearch_provider": "baidu_ai_search",
+            },
+            computer_use_runtime="none",
+            add_cron_tools=False,
+        )
+        req = ProviderRequest(prompt="hello")
+        req.conversation = MagicMock(persona_id="locked", history="[]")
+
+        with (
+            patch("astrbot.core.astr_main_agent.AgentRunner") as mock_runner_cls,
+            patch("astrbot.core.astr_main_agent.AstrAgentContext"),
+        ):
+            mock_runner = MagicMock()
+            mock_runner.reset = AsyncMock()
+            mock_runner_cls.return_value = mock_runner
+
+            result = await module.build_main_agent(
+                event=mock_event,
+                plugin_context=mock_context,
+                config=config,
+                provider=mock_provider,
+                req=req,
+                apply_reset=False,
+            )
+        assert result is not None
+        try:
+            assert result.provider_request.func_tool is not None
+            assert result.provider_request.func_tool.names() == ["web_search_baidu"]
+        finally:
+            if result.reset_coro:
+                result.reset_coro.close()
+
+    @pytest.mark.asyncio
+    async def test_persona_empty_tools_keeps_local_runtime_builtin_tools(
+        self, mock_event, mock_context, mock_provider
+    ):
+        module = ama
+        persona = {"name": "locked", "prompt": "No tools.", "tools": []}
+        mock_context.persona_manager.resolve_selected_persona = AsyncMock(
+            return_value=("locked", persona, None, False)
+        )
+        mock_event.platform_meta.support_proactive_message = False
+        config = module.MainAgentBuildConfig(
+            tool_call_timeout=60,
+            computer_use_runtime="local",
+            add_cron_tools=False,
+        )
+        req = ProviderRequest(prompt="hello")
+        req.conversation = MagicMock(persona_id="locked", history="[]")
+
+        with (
+            patch("astrbot.core.astr_main_agent.AgentRunner") as mock_runner_cls,
+            patch("astrbot.core.astr_main_agent.AstrAgentContext"),
+        ):
+            mock_runner = MagicMock()
+            mock_runner.reset = AsyncMock()
+            mock_runner_cls.return_value = mock_runner
+
+            result = await module.build_main_agent(
+                event=mock_event,
+                plugin_context=mock_context,
+                config=config,
+                provider=mock_provider,
+                req=req,
+                apply_reset=False,
+            )
+        assert result is not None
+        try:
+            assert result.provider_request.func_tool is not None
+            tool_names = result.provider_request.func_tool.names()
+            assert "astrbot_execute_shell" in tool_names
+            assert "astrbot_shell_session" in tool_names
+            assert "astrbot_execute_python" in tool_names
+            shell_tool = result.provider_request.func_tool.get_tool(
+                "astrbot_execute_shell"
+            )
+            assert shell_tool is not None
+            assert "background" not in shell_tool.parameters["properties"]
+            assert "yield_time_ms" in shell_tool.parameters["properties"]
+        finally:
+            if result.reset_coro:
+                result.reset_coro.close()
 
     @pytest.mark.asyncio
     async def test_subagent_dedupe_uses_default_persona_tools(

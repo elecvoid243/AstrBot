@@ -88,15 +88,15 @@
   <v-dialog v-model="codeEditorDialog" fullscreen transition="dialog-bottom-transition" scrollable>
     <v-card>
       <v-toolbar color="primary" dark>
-        <v-btn icon @click="codeEditorDialog = false">
+        <v-btn icon variant="text" @click="codeEditorDialog = false">
           <v-icon>mdi-close</v-icon>
         </v-btn>
         <v-toolbar-title>{{ tm('codeEditor.title') }}</v-toolbar-title>
         <v-spacer></v-spacer>
         <v-toolbar-items style="display: flex; align-items: center;">
-          <v-btn style="margin-left: 16px;" size="small" @click="configToString()">{{
+          <v-btn style="margin-left: 16px;" size="small" variant="text" @click="configToString()">{{
             tm('editor.revertCode') }}</v-btn>
-          <v-btn v-if="config_data_has_changed" style="margin-left: 16px;" size="small" @click="applyStrConfig()">{{
+          <v-btn v-if="config_data_has_changed" style="margin-left: 16px;" size="small" variant="tonal" @click="applyStrConfig()">{{
             tm('editor.applyConfig') }}</v-btn>
           <small style="margin-left: 16px;">💡 {{ tm('editor.applyTip') }}</small>
         </v-toolbar-items>
@@ -112,8 +112,8 @@
   <!-- Config Management Dialog -->
   <v-dialog v-model="configManageDialog" max-width="800px">
     <v-card>
-      <v-card-title class="d-flex align-center justify-space-between">
-        <span class="text-h4">{{ tm('configManagement.title') }}</span>
+      <v-card-title class="text-h3 pa-4 pb-0 pl-6 d-flex align-center justify-space-between">
+        <span>{{ tm('configManagement.title') }}</span>
         <v-btn icon="mdi-close" variant="text" @click="configManageDialog = false"></v-btn>
       </v-card-title>
 
@@ -156,7 +156,7 @@
 
           <div class="d-flex justify-end mt-4" style="gap: 8px;">
             <v-btn variant="text" @click="cancelConfigForm">{{ tm('buttons.cancel') }}</v-btn>
-            <v-btn color="primary" @click="saveConfigForm"
+            <v-btn color="primary" variant="tonal" @click="saveConfigForm"
               :disabled="isConfigFormSaveDisabled">
               {{ isEditingConfig ? tm('buttons.update') : tm('buttons.create') }}
             </v-btn>
@@ -166,7 +166,7 @@
     </v-card>
   </v-dialog>
 
-  <v-snackbar :timeout="3000" elevation="24" :color="save_message_success" v-model="save_message_snack">
+  <v-snackbar :timeout="3000" elevation="6" :color="save_message_success" v-model="save_message_snack">
     {{ save_message }}
   </v-snackbar>
 
@@ -178,8 +178,6 @@
     @confirm="handleConfigSave2faConfirm"
     @cancel="handleConfigSave2faCancel"
   />
-
-  <WaitingForRestart ref="wfr"></WaitingForRestart>
 
   <!-- 测试聊天抽屉 -->
   <v-overlay
@@ -218,11 +216,9 @@
 <script>
 import { configProfileApi, systemConfigApi } from '@/api/v1';
 import AstrBotCoreConfigWrapper from '@/components/config/AstrBotCoreConfigWrapper.vue';
-import WaitingForRestart from '@/components/shared/WaitingForRestart.vue';
 import StandaloneChat from '@/components/chat/StandaloneChat.vue';
 import { VueMonacoEditor } from '@guolao/vue-monaco-editor'
 import { useI18n, useModuleI18n } from '@/i18n/composables';
-import { restartAstrBot as restartAstrBotRuntime } from '@/utils/restartAstrBot';
 import {
   askForConfirmation as askForConfirmationDialog,
   useConfirmDialog
@@ -236,7 +232,6 @@ export default {
   components: {
     AstrBotCoreConfigWrapper,
     VueMonacoEditor,
-    WaitingForRestart,
     StandaloneChat,
     UnsavedChangesConfirmDialog,
     DashboardTwoFactorDialog
@@ -358,6 +353,10 @@ export default {
       }
     },
     async '$route.fullPath'(newVal) {
+      if (this.extractConfigTypeFromHash(newVal) === 'system') {
+        this.$router.replace('/settings#system-config');
+        return;
+      }
       await this.syncConfigTypeFromHash(newVal);
     },
     initialConfigId(newVal) {
@@ -425,6 +424,10 @@ export default {
     const hashConfigType = this.extractConfigTypeFromHash(
       this.$route?.fullPath || ''
     );
+    if (hashConfigType === 'system') {
+      this.$router.replace('/settings#system-config');
+      return;
+    }
     this.configType = hashConfigType || 'normal';
     this.isSystemConfig = this.configType === 'system';
 
@@ -585,9 +588,6 @@ export default {
           this.save_message_success = "success";
           this.onConfigSaved();
 
-          if (this.isSystemConfig) {
-            restartAstrBotRuntime(this.$refs.wfr).catch(() => {})
-          }
           return { success: true };
         }
 
@@ -912,7 +912,7 @@ export default {
           await this.updateConfig();
           // 系统配置保存后不跳转
           if (this.isSystemConfig) {
-            this.$router.replace('/config#system');
+            this.$router.replace('/settings#system-config');
             return;
           }
         }

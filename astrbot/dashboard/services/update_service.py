@@ -1,46 +1,21 @@
 from __future__ import annotations
 
+import asyncio
 import traceback
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
-from astrbot.core import (
-    DEMO_MODE as _DEMO_MODE,
-)
-from astrbot.core import (
-    logger,
-)
-from astrbot.core import (
-    pip_installer as _pip_installer,
-)
+from astrbot.core import logger, pip_installer
 from astrbot.core.config.default import VERSION
 from astrbot.core.core_lifecycle import AstrBotCoreLifecycle
-from astrbot.core.db.migration.helper import (
-    check_migration_needed_v4 as _check_migration_needed_v4,
+from astrbot.core.dashboard_assets import get_dashboard_version
+from astrbot.core.desktop_runtime import (
+    DESKTOP_MANAGED_RESTART_MESSAGE,
+    is_desktop_managed_backend,
 )
-from astrbot.core.db.migration.helper import (
-    do_migration_v4 as _do_migration_v4,
-)
-from astrbot.core.updator import AstrBotUpdator
-from astrbot.core.utils.io import (
-    download_dashboard as _download_dashboard,
-)
-from astrbot.core.utils.io import (
-    get_dashboard_version as _get_dashboard_version,
-)
-
-DEMO_MODE = _DEMO_MODE
-pip_installer = _pip_installer
-download_dashboard = _download_dashboard
-get_dashboard_version = _get_dashboard_version
-default_check_migration_needed_v4 = _check_migration_needed_v4
-default_do_migration_v4 = _do_migration_v4
-
-
-async def call_download_dashboard(*args, **kwargs):
-    return await download_dashboard(*args, **kwargs)
+from astrbot.core.updater import AstrBotUpdater, UpdateProgress
 
 
 async def call_get_dashboard_version(*args, **kwargs):
@@ -49,14 +24,6 @@ async def call_get_dashboard_version(*args, **kwargs):
 
 async def call_pip_install(*args, **kwargs):
     return await pip_installer.install(*args, **kwargs)
-
-
-async def call_check_migration_needed_v4(*args, **kwargs):
-    return await default_check_migration_needed_v4(*args, **kwargs)
-
-
-async def call_do_migration_v4(*args, **kwargs):
-    return await default_do_migration_v4(*args, **kwargs)
 
 
 @dataclass
@@ -68,33 +35,30 @@ class UpdateServiceResult:
 
 
 class UpdateServiceError(Exception):
-    pass
+    def __init__(self, message: str, *, code: str | None = None) -> None:
+        super().__init__(message)
+        self.code = code
 
 
 class UpdateService:
     def __init__(
         self,
-        astrbot_updator: AstrBotUpdator,
+        astrbot_updater: AstrBotUpdater,
         core_lifecycle: AstrBotCoreLifecycle,
         *,
-        download_dashboard_func: Callable[..., Awaitable[Any]],
         get_dashboard_version_func: Callable[..., Awaitable[str | None]],
         pip_install_func: Callable[..., Awaitable[Any]],
-        check_migration_needed_func: Callable[..., Awaitable[bool]],
-        do_migration_func: Callable[..., Awaitable[Any]],
         demo_mode: bool,
         clear_site_data_headers: dict,
     ) -> None:
-        self.astrbot_updator = astrbot_updator
+        self._updater = astrbot_updater
         self.core_lifecycle = core_lifecycle
-        self.download_dashboard = download_dashboard_func
         self.get_dashboard_version = get_dashboard_version_func
         self.pip_install = pip_install_func
-        self.check_migration_needed = check_migration_needed_func
-        self.do_migration = do_migration_func
         self.demo_mode = demo_mode
         self.clear_site_data_headers = clear_site_data_headers
         self.update_progress: dict[str, dict] = {}
+        self._update_tasks: dict[str, asyncio.Task] = {}
 
     def get_update_progress(self, progress_id: str) -> UpdateServiceResult:
         if not progress_id:
@@ -107,23 +71,6 @@ class UpdateService:
             )
         return UpdateServiceResult(data=progress)
 
-    async def do_migration_v4(self, data: object) -> UpdateServiceResult:
-        need_migration = await self.check_migration_needed(self.core_lifecycle.db)
-        if not need_migration:
-            return UpdateServiceResult(message="不需要进行迁移。")
-        try:
-            payload = data if isinstance(data, dict) else {}
-            platform_id_map = payload.get("platform_id_map", {})
-            await self.do_migration(
-                self.core_lifecycle.db,
-                platform_id_map,
-                self.core_lifecycle.astrbot_config,
-            )
-            return UpdateServiceResult(message="迁移成功。")
-        except Exception as exc:
-            logger.error(f"迁移失败: {traceback.format_exc()}")
-            raise UpdateServiceError(f"迁移失败: {exc!s}") from exc
-
     async def check_update(self, update_type: str | None) -> UpdateServiceResult:
         try:
             dashboard_version = await self.get_dashboard_version()
@@ -134,7 +81,7 @@ class UpdateService:
                         "current_version": dashboard_version,
                     }
                 )
-            update_result = await self.astrbot_updator.check_update(None, None, False)
+            update_result = await self._updater.check_update(False)
             return UpdateServiceResult(
                 status="success",
                 message=str(update_result)
@@ -155,79 +102,106 @@ class UpdateService:
 
     async def get_releases(self) -> UpdateServiceResult:
         try:
-            releases = await self.astrbot_updator.get_releases()
-            return UpdateServiceResult(data=releases)
+            releases = await self._updater.get_releases()
+            return UpdateServiceResult(
+                data=[
+                    {
+                        "tag_name": release.version,
+                        "published_at": release.published_at,
+                        "body": release.body,
+                    }
+                    for release in releases
+                ]
+            )
         except Exception as exc:
             logger.error(f"/api/update/releases: {traceback.format_exc()}")
             raise UpdateServiceError(exc.__str__()) from exc
 
     async def update_project(self, data: object) -> UpdateServiceResult:
+        if is_desktop_managed_backend():
+            raise UpdateServiceError(
+                DESKTOP_MANAGED_RESTART_MESSAGE,
+                code="desktop_managed",
+            )
+
         payload = data if isinstance(data, dict) else {}
         version = payload.get("version", "")
         reboot = payload.get("reboot", True)
         progress_id = payload.get("progress_id") or uuid.uuid4().hex
         if version == "" or version == "latest":
-            latest = True
-            version = ""
-        else:
-            latest = False
+            version = None
 
         proxy: str | None = payload.get("proxy", None)
         if proxy:
             proxy = proxy.removesuffix("/")
 
-        self._init_update_progress(progress_id, version)
-        try:
-            self._set_update_stage(
-                progress_id,
-                "dashboard",
-                "running",
-                "正在下载 WebUI...",
-                0,
-            )
-            await self.download_dashboard(
-                latest=latest,
-                version=version,
-                proxy=proxy or "",
-                progress_callback=self._make_progress_callback(
-                    progress_id,
-                    "dashboard",
-                    0,
-                    45,
-                ),
-            )
-            self._set_update_stage(
-                progress_id,
-                "dashboard",
-                "done",
-                "WebUI 下载完成。",
-                45,
+        existing_task = self._update_tasks.get(progress_id)
+        if existing_task and not existing_task.done():
+            return UpdateServiceResult(
+                data={"id": progress_id, "status": "running"},
+                message="更新任务正在进行中。",
+                headers=self.clear_site_data_headers,
             )
 
-            self._set_update_stage(
-                progress_id,
-                "core",
-                "running",
-                "正在下载 AstrBot 项目代码...",
-                45,
-            )
-            await self.astrbot_updator.update(
-                latest=latest,
+        self._init_update_progress(progress_id, version)
+        task = asyncio.create_task(
+            self._run_update_project(progress_id, version, reboot, proxy)
+        )
+        self._update_tasks[progress_id] = task
+        task.add_done_callback(lambda _task: self._update_tasks.pop(progress_id, None))
+        return UpdateServiceResult(
+            data={"id": progress_id, "status": "running"},
+            message="更新任务已开始。",
+            headers=self.clear_site_data_headers,
+        )
+
+    async def _run_update_project(
+        self,
+        progress_id: str,
+        version: str | None,
+        reboot: bool,
+        proxy: str | None,
+    ) -> None:
+        """Run the long core update outside the request lifecycle.
+
+        Args:
+            progress_id: Progress record id reported to the frontend.
+            version: Target version without the latest sentinel.
+            reboot: Whether to restart AstrBot after applying files.
+            proxy: Optional GitHub proxy URL.
+        """
+        try:
+
+            async def observe_update(event: UpdateProgress) -> None:
+                self._set_update_stage(
+                    progress_id,
+                    event.stage,
+                    event.status,
+                    event.message,
+                    event.overall_percent,
+                )
+                if event.downloaded_bytes is not None:
+                    stage_data = self.update_progress[progress_id]["stages"][
+                        event.stage
+                    ]
+                    download_percent = (
+                        int(event.downloaded_bytes / event.total_bytes * 100)
+                        if event.total_bytes
+                        else 0
+                    )
+                    stage_data.update(
+                        {
+                            "downloaded": event.downloaded_bytes,
+                            "total": event.total_bytes or 0,
+                            "percent": max(0, min(100, download_percent)),
+                            "speed": event.speed_kib_per_second or 0,
+                        }
+                    )
+
+            await self._updater.update(
                 version=version,
                 proxy=proxy or "",
-                progress_callback=self._make_progress_callback(
-                    progress_id,
-                    "core",
-                    45,
-                    45,
-                ),
-            )
-            self._set_update_stage(
-                progress_id,
-                "core",
-                "done",
-                "项目代码下载完成。",
-                90,
+                progress_callback=observe_update,
             )
 
             self._set_update_stage(
@@ -237,11 +211,11 @@ class UpdateService:
                 "正在更新依赖...",
                 92,
             )
-            logger.info("更新依赖中...")
+            logger.info("Updating dependencies...")
             try:
                 await self.pip_install(requirements_path="requirements.txt")
             except Exception as exc:
-                logger.error(f"更新依赖失败: {exc}")
+                logger.error(f"Failed to update dependencies: {exc}")
             self._set_update_stage(
                 progress_id,
                 "dependencies",
@@ -271,10 +245,16 @@ class UpdateService:
                     "overall_percent": 100,
                 },
             )
-            return UpdateServiceResult(
-                message=message,
-                headers=self.clear_site_data_headers,
+            logger.info(message)
+        except asyncio.CancelledError:
+            self.update_progress[progress_id].update(
+                {
+                    "status": "error",
+                    "message": "更新任务已取消。",
+                },
             )
+            logger.warning(f"Update task was cancelled: {progress_id}")
+            raise
         except Exception as exc:
             self.update_progress[progress_id].update(
                 {
@@ -283,17 +263,17 @@ class UpdateService:
                 },
             )
             logger.error(f"/api/update_project: {traceback.format_exc()}")
-            raise UpdateServiceError(exc.__str__()) from exc
+            logger.debug(f"Update task failed: {exc!s}")
 
     async def update_dashboard(self) -> UpdateServiceResult:
         try:
             try:
-                await self.download_dashboard(version=f"v{VERSION}", latest=False)
+                await self._updater.ensure_dashboard()
             except Exception as exc:
-                logger.error(f"下载管理面板文件失败: {exc}。")
-                raise UpdateServiceError(f"下载管理面板文件失败: {exc}") from exc
+                logger.error(f"Failed to ensure Dashboard assets: {exc}")
+                raise UpdateServiceError(f"管理面板修复失败: {exc}") from exc
             return UpdateServiceResult(
-                message="更新成功。刷新页面即可应用新版本面板。",
+                message="管理面板已与当前 AstrBot 版本同步。",
                 headers=self.clear_site_data_headers,
             )
         except UpdateServiceError:
@@ -320,7 +300,7 @@ class UpdateService:
             logger.error(f"/api/update_pip: {traceback.format_exc()}")
             raise UpdateServiceError(exc.__str__()) from exc
 
-    def _init_update_progress(self, progress_id: str, version: str) -> None:
+    def _init_update_progress(self, progress_id: str, version: str | None) -> None:
         self.update_progress[progress_id] = {
             "id": progress_id,
             "status": "running",
@@ -361,40 +341,3 @@ class UpdateService:
         progress["stages"][stage]["status"] = status
         if overall_percent is not None:
             progress["overall_percent"] = overall_percent
-
-    @staticmethod
-    def _normalize_percent(value) -> int:
-        try:
-            percent = float(value or 0)
-        except (TypeError, ValueError):
-            return 0
-        if percent <= 1:
-            percent *= 100
-        return max(0, min(100, int(percent)))
-
-    def _make_progress_callback(
-        self,
-        progress_id: str,
-        stage: str,
-        stage_start: int,
-        stage_weight: int,
-    ):
-        def _callback(payload: dict) -> None:
-            progress = self.update_progress.get(progress_id)
-            if not progress:
-                return
-            stage_percent = self._normalize_percent(payload.get("percent"))
-            progress["stage"] = stage
-            progress["stages"][stage] = {
-                "status": "running" if stage_percent < 100 else "done",
-                "downloaded": payload.get("downloaded", 0),
-                "total": payload.get("total", 0),
-                "percent": stage_percent,
-                "speed": payload.get("speed", 0),
-            }
-            progress["overall_percent"] = min(
-                99,
-                stage_start + int(stage_percent * stage_weight / 100),
-            )
-
-        return _callback

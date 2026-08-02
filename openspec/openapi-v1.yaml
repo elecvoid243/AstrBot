@@ -8,7 +8,7 @@ info:
     JSON objects because their schemas are provided at runtime by template
     endpoints.
     Developer API keys currently support these scopes only: bot, provider,
-    persona, im, config, chat, plugin, mcp, skill. The config scope also
+    persona, im, config, chat, data, file, plugin, mcp, skill. The config scope also
     grants bot and provider access.
 servers:
   - url: http://localhost:6185
@@ -18,6 +18,7 @@ security:
   - ApiKeyAuth: []
 
 tags:
+  - name: Open API
   - name: Auth
   - name: API Keys
   - name: System Config
@@ -1266,6 +1267,22 @@ paths:
         "200":
           $ref: "#/components/responses/Ok"
 
+  /api/v1/chat/runs/{run_id}/stream:
+    get:
+      tags: [Chat]
+      summary: Resume an active webchat run as an SSE stream
+      operationId: resumeChatRun
+      x-astrbot-scope: chat
+      parameters:
+        - name: run_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Resumed server-sent chat stream or an error envelope
+
   /api/v1/chat/sessions/{session_id}/messages/{message_id}:
     patch:
       tags: [Chat]
@@ -1480,6 +1497,75 @@ paths:
         "200":
           $ref: "#/components/responses/Ok"
 
+  /api/v1/chat/projects/{project_id}/workspace/files:
+    get:
+      tags: [Chat]
+      summary: List files in a ChatUI project workspace directory
+      operationId: listChatProjectWorkspaceFiles
+      x-astrbot-scope: chat
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: path
+          in: query
+          required: false
+          schema:
+            type: string
+            default: ""
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+
+  /api/v1/chat/projects/{project_id}/workspace/file:
+    get:
+      tags: [Chat]
+      summary: Read a file in a ChatUI project workspace
+      operationId: getChatProjectWorkspaceFile
+      x-astrbot-scope: chat
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+
+  /api/v1/chat/projects/{project_id}/workspace/file/download:
+    get:
+      tags: [Chat]
+      summary: Download a file from a ChatUI project workspace
+      operationId: downloadChatProjectWorkspaceFile
+      x-astrbot-scope: chat
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Workspace file content
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+
   /api/v1/chat/projects/{project_id}/sessions/{session_id}:
     post:
       tags: [Chat]
@@ -1550,6 +1636,37 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/Ok"
+
+  /api/v1/file:
+    post:
+      tags: [Open API]
+      summary: Upload a file
+      operationId: uploadOpenApiFile
+      x-astrbot-scope: file
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/FileUploadRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+    get:
+      tags: [Open API]
+      summary: Download an uploaded file by attachment ID
+      operationId: downloadOpenApiFile
+      x-astrbot-scope: file
+      parameters:
+        - $ref: "#/components/parameters/AttachmentIdQuery"
+      responses:
+        "200":
+          description: File content or an error envelope
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
 
   /api/v1/files/content:
     get:
@@ -2027,6 +2144,32 @@ paths:
         "200":
           $ref: "#/components/responses/Ok"
 
+  /api/v1/plugins/{plugin_id}/log-level:
+    put:
+      tags: [Plugins]
+      summary: Set plugin log level
+      description: Set the log level of a plugin. Pass null to follow the global log level.
+      operationId: updatePluginLogLevel
+      x-astrbot-scope: plugin
+      parameters:
+        - $ref: "#/components/parameters/PluginId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                level:
+                  type: string
+                  nullable: true
+                  enum: [DEBUG, INFO, WARNING, ERROR, CRITICAL, null]
+                  description: Log level name, or null to follow the global level.
+              additionalProperties: true
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+
   /api/v1/plugins/{plugin_id}/config/schema:
     get:
       tags: [Plugins]
@@ -2134,6 +2277,24 @@ paths:
         "200":
           $ref: "#/components/responses/Ok"
 
+  /api/v1/plugins/{plugin_id}/source:
+    post:
+      tags: [Plugins]
+      summary: Bind an installed plugin to a marketplace source
+      operationId: bindPluginSource
+      x-astrbot-scope: plugin
+      parameters:
+        - $ref: "#/components/parameters/PluginId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PluginSourceBindRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+
   /api/v1/plugins/{plugin_id}/enabled:
     patch:
       tags: [Plugins]
@@ -2202,6 +2363,22 @@ paths:
         "200":
           $ref: "#/components/responses/Ok"
 
+  /api/v1/plugins/validate/repo:
+    post:
+      tags: [Plugins]
+      summary: Validate a plugin repository before installation
+      operationId: validatePluginRepo
+      x-astrbot-scope: plugin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PluginValidateRepoRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+
   /api/v1/plugins/failed:
     get:
       tags: [Plugins]
@@ -2259,7 +2436,22 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/PluginGithubInstallRequest"
+              $ref: "#/components/schemas/PluginRepositoryInstallRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+  /api/v1/plugins/install/git:
+    post:
+      tags: [Plugins]
+      summary: Install a plugin with a shallow Git clone
+      operationId: installPluginFromGit
+      x-astrbot-scope: plugin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PluginRepositoryInstallRequest"
       responses:
         "200":
           $ref: "#/components/responses/Ok"
@@ -3315,7 +3507,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/KnowledgeBaseRequest"
+              $ref: "#/components/schemas/KnowledgeBaseCreateRequest"
       responses:
         "200":
           $ref: "#/components/responses/Ok"
@@ -3380,6 +3572,12 @@ paths:
         - $ref: "#/components/parameters/KbId"
         - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PageSize"
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter documents by name (case-insensitive partial match).
       responses:
         "200":
           $ref: "#/components/responses/Ok"
@@ -3949,6 +4147,12 @@ paths:
           schema:
             type: string
           description: Comma-separated platforms to exclude.
+        - name: include_history
+          in: query
+          schema:
+            type: boolean
+            default: true
+          description: Include full message history in each conversation.
       responses:
         "200":
           $ref: "#/components/responses/Ok"
@@ -4099,6 +4303,16 @@ paths:
       summary: Get AstrBot version
       operationId: getVersion
       x-astrbot-scope: system
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+
+  /api/v1/stats/versions:
+    get:
+      tags: [Stats]
+      summary: Get public WebUI and AstrBot versions
+      operationId: getPublicVersions
+      security: []
       responses:
         "200":
           $ref: "#/components/responses/Ok"
@@ -4485,22 +4699,6 @@ paths:
         "200":
           $ref: "#/components/responses/Ok"
 
-  /api/v1/migrations:
-    post:
-      tags: [Updates]
-      summary: Run pending migrations
-      operationId: runMigrations
-      x-astrbot-scope: system
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/MigrationRequest"
-      responses:
-        "200":
-          $ref: "#/components/responses/Ok"
-
   /api/v1/cron/jobs:
     get:
       tags: [Cron]
@@ -4839,6 +5037,12 @@ components:
       required: true
       schema:
         type: string
+    AttachmentIdQuery:
+      name: attachment_id
+      in: query
+      required: true
+      schema:
+        type: string
     BotId:
       name: bot_id
       in: path
@@ -5105,8 +5309,8 @@ components:
           type: array
           items:
             type: string
-            enum: [bot, provider, persona, im, config, chat, plugin, mcp, skill]
-          example: [bot, provider, persona, im, config, chat, plugin, mcp, skill]
+            enum: [bot, provider, persona, im, config, chat, data, file, plugin, mcp, skill]
+          example: [bot, provider, persona, im, config, chat, data, file, plugin, mcp, skill]
         expires_at:
           type: string
           format: date-time
@@ -5238,12 +5442,31 @@ components:
           $ref: "#/components/schemas/DynamicConfig"
       additionalProperties: false
 
+    ChatFlags:
+      type: object
+      description: Per-request ChatUI feature flags. A value here takes priority over its legacy top-level field, followed by the documented default.
+      properties:
+        enable_inline_genui:
+          type: boolean
+          default: true
+          description: Inject the inline HTML GenUI system prompt for this request.
+        enable_default_system_prompt:
+          type: boolean
+          default: true
+          description: Allow the ChatUI default system prompt when no persona overrides it.
+        enable_streaming:
+          type: boolean
+          default: true
+          description: Enable streaming model output for this request. This value takes priority over the legacy top-level enable_streaming field.
+      additionalProperties: false
+
     ChatRequest:
       type: object
       required: [message]
       properties:
         username:
           type: string
+          description: Caller-declared WebChat sender/session owner. This value is used as the message sender identity and may participate in sender-ID-based command permission checks. Treat chat-scoped API keys as trusted backend credentials and map or validate usernames before accepting end-user input.
         session_id:
           type: string
         conversation_id:
@@ -5266,6 +5489,10 @@ components:
         enable_streaming:
           type: boolean
           default: true
+          deprecated: true
+          description: Deprecated compatibility field. It is used only when flags.enable_streaming is absent; otherwise flags.enable_streaming takes priority.
+        flags:
+          $ref: "#/components/schemas/ChatFlags"
         _skip_user_history:
           type: boolean
           description: Internal WebUI flag for edit/regenerate flows.
@@ -5316,6 +5543,10 @@ components:
         enable_streaming:
           type: boolean
           default: true
+          deprecated: true
+          description: Deprecated compatibility field. It is used only when flags.enable_streaming is absent; otherwise flags.enable_streaming takes priority.
+        flags:
+          $ref: "#/components/schemas/ChatFlags"
       additionalProperties: false
 
     ChatThreadCreateRequest:
@@ -5349,6 +5580,10 @@ components:
         enable_streaming:
           type: boolean
           default: true
+          deprecated: true
+          description: Deprecated compatibility field. It is used only when flags.enable_streaming is absent; otherwise flags.enable_streaming takes priority.
+        flags:
+          $ref: "#/components/schemas/ChatFlags"
       additionalProperties: false
 
     ChatProjectRequest:
@@ -5359,6 +5594,11 @@ components:
         emoji:
           type: string
         description:
+          type: string
+        workspace_type:
+          type: string
+          enum: [session, project, custom]
+        workspace_path:
           type: string
       additionalProperties: false
 
@@ -5376,6 +5616,8 @@ components:
         url:
           type: string
         filename:
+          type: string
+        stored_filename:
           type: string
         mime_type:
           type: string
@@ -5411,6 +5653,18 @@ components:
           default: false
       additionalProperties: false
 
+    PluginSourceBindRequest:
+      type: object
+      properties:
+        install_method:
+          type: string
+        registry_url:
+          type: string
+          nullable: true
+        market_plugin_id:
+          type: string
+      additionalProperties: false
+
     PluginBatchUpdateRequest:
       type: object
       properties:
@@ -5436,22 +5690,29 @@ components:
           type: string
       additionalProperties: false
 
-    PluginGithubInstallRequest:
+    PluginRepositoryInstallRequest:
       type: object
       required: [repository]
       properties:
         repository:
           type: string
-          description: GitHub URL or owner/repository slug.
+          description: GitHub shorthand, HTTP(S), SSH, or SCP-style Git repository locator.
         ref:
           type: string
         download_url:
           type: string
-          description: Optional downloadable ZIP URL to use instead of GitHub archive resolution.
+          description: Optional downloadable ZIP URL to use instead of repository archive resolution.
         proxy:
           type: string
         ignore_version_check:
           type: boolean
+        install_method:
+          type: string
+        registry_url:
+          type: string
+          nullable: true
+        market_plugin_id:
+          type: string
       additionalProperties: false
 
     PluginUrlInstallRequest:
@@ -5469,6 +5730,24 @@ components:
           type: string
         ignore_version_check:
           type: boolean
+        install_method:
+          type: string
+        registry_url:
+          type: string
+          nullable: true
+        market_plugin_id:
+          type: string
+      additionalProperties: false
+
+    PluginValidateRepoRequest:
+      type: object
+      properties:
+        repository:
+          type: string
+        url:
+          type: string
+        proxy:
+          type: string
       additionalProperties: false
 
     PluginUploadInstallRequest:
@@ -5590,21 +5869,39 @@ components:
 
     KnowledgeBaseRequest:
       type: object
-      required: [name]
       properties:
-        name:
+        kb_name:
           type: string
         description:
           type: string
+        emoji:
+          type: string
         embedding_provider_id:
-          type: string
+          type: [string, "null"]
         rerank_provider_id:
-          type: string
-        chunking:
-          $ref: "#/components/schemas/DynamicConfig"
-        metadata:
-          $ref: "#/components/schemas/DynamicConfig"
+          type: [string, "null"]
+        chunk_size:
+          type: integer
+        chunk_overlap:
+          type: integer
+        top_k_dense:
+          type: integer
+        top_k_sparse:
+          type: integer
+        top_m_final:
+          type: integer
       additionalProperties: false
+
+    KnowledgeBaseCreateRequest:
+      allOf:
+        - $ref: "#/components/schemas/KnowledgeBaseRequest"
+        - type: object
+          required: [kb_name, embedding_provider_id]
+          properties:
+            kb_name:
+              type: string
+            embedding_provider_id:
+              type: string
 
     KnowledgeDocumentUploadRequest:
       type: object
@@ -5613,8 +5910,6 @@ components:
         file:
           type: string
           format: binary
-        parser:
-          type: string
 
     KnowledgeDocumentImportRequest:
       type: object
@@ -5982,14 +6277,6 @@ components:
         mirror:
           type: string
       additionalProperties: false
-
-    MigrationRequest:
-      type: object
-      properties:
-        platform_id_map:
-          type: object
-          additionalProperties: true
-      additionalProperties: true
 
     GhproxyTestRequest:
       type: object

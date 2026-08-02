@@ -37,53 +37,14 @@ const sidebarItem: menu[] = [
     to: '/providers',
   },
   {
-    title: 'core.navigation.config',
-    icon: 'mdi-cog',
-    to: '/config#normal',
-    children: [
-      {
-        title: 'core.navigation.configTabs.normal',
-        icon: 'mdi-cog',
-        to: '/config#normal'
-      },
-      {
-        title: 'core.navigation.configTabs.system',
-        icon: 'mdi-cog-outline',
-        to: '/config#system'
-      }
-    ]
-  },
-  {
     title: 'core.navigation.extension',
     icon: 'mdi-puzzle',
-    to: '/extension#installed',
-    children: [
-      {
-        title: 'core.navigation.extensionTabs.installed',
-        icon: 'mdi-puzzle',
-        to: '/extension#installed'
-      },
-      {
-        title: 'core.navigation.extensionTabs.market',
-        icon: 'mdi-store',
-        to: '/extension#market'
-      },
-      {
-        title: 'core.navigation.extensionTabs.mcp',
-        icon: 'mdi-server-network',
-        to: '/extension#mcp'
-      },
-      {
-        title: 'core.navigation.extensionTabs.skills',
-        icon: 'mdi-lightning-bolt',
-        to: '/extension#skills'
-      },
-      {
-        title: 'core.navigation.extensionTabs.components',
-        icon: 'mdi-wrench',
-        to: '/extension#components'
-      }
-    ]
+    to: '/extension',
+  },
+  {
+    title: 'core.navigation.config',
+    icon: 'mdi-cog',
+    to: '/config',
   },
   {
     title: 'core.navigation.knowledgeBase',

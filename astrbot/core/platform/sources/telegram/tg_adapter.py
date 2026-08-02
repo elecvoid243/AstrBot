@@ -506,15 +506,22 @@ class TelegramPlatformAdapter(Platform):
             reply_abm = await self.convert_message(reply_update, context, False)
 
             if reply_abm:
+                quote_text = update.message.quote.text if update.message.quote else None
+                reply_chain = reply_abm.message
+                reply_message_str = reply_abm.message_str
+                if quote_text:
+                    reply_chain = [Comp.Plain(quote_text)]
+                    reply_message_str = quote_text
+
                 message.message.append(
                     Comp.Reply(
                         id=reply_abm.message_id,
-                        chain=reply_abm.message,
+                        chain=reply_chain,
                         sender_id=reply_abm.sender.user_id,
                         sender_nickname=reply_abm.sender.nickname,
                         time=reply_abm.timestamp,
-                        message_str=reply_abm.message_str,
-                        text=reply_abm.message_str,
+                        message_str=reply_message_str,
+                        text=reply_message_str,
                         qq=reply_abm.sender.user_id,
                     ),
                 )
@@ -736,15 +743,25 @@ class TelegramPlatformAdapter(Platform):
                 f"Failed to process media group {media_group_id}", exc_info=True
             )
 
-    async def handle_msg(self, message: AstrBotMessage) -> None:
-        message_event = TelegramPlatformEvent(
+    def create_event(self, message: AstrBotMessage) -> TelegramPlatformEvent:
+        """Creates a Telegram message event.
+
+        Args:
+            message: AstrBot message object to wrap.
+
+        Returns:
+            Created Telegram message event.
+        """
+        return TelegramPlatformEvent(
             message_str=message.message_str,
             message_obj=message,
             platform_meta=self.meta(),
             session_id=message.session_id,
             client=self.client,
         )
-        self.commit_event(message_event)
+
+    async def handle_msg(self, message: AstrBotMessage) -> None:
+        self.commit_event(self.create_event(message))
 
     def get_client(self) -> ExtBot:
         return self.client

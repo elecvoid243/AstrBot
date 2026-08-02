@@ -18,13 +18,9 @@ from hypercorn.logging import Logger as HypercornLogger
 from astrbot.core import logger
 from astrbot.core.config.default import VERSION
 from astrbot.core.core_lifecycle import AstrBotCoreLifecycle
+from astrbot.core.dashboard_assets import resolve_dashboard_dist
 from astrbot.core.db import BaseDatabase
-from astrbot.core.utils.astrbot_path import get_astrbot_data_path
-from astrbot.core.utils.io import (
-    get_bundled_dashboard_dist_path,
-    get_local_ip_addresses,
-    should_use_bundled_dashboard_dist,
-)
+from astrbot.core.utils.io import get_local_ip_addresses
 from astrbot.dashboard.asgi_runtime import (
     DashboardRequestState,
     FastAPIAppAdapter,
@@ -180,26 +176,8 @@ class AstrBotDashboard:
         self.config = core_lifecycle.astrbot_config
         self.db = db
 
-        # Path priority:
-        # 1. Explicit webui_dir argument
-        # 2. data/dist/ (user-installed / manually updated dashboard)
-        # 3. astrbot/dashboard/dist/ (bundled with the wheel)
-        if webui_dir and os.path.exists(webui_dir):
-            self.data_path = os.path.abspath(webui_dir)
-        else:
-            user_dist = os.path.join(get_astrbot_data_path(), "dist")
-            bundled_dist = get_bundled_dashboard_dist_path()
-            if os.path.exists(user_dist) and not should_use_bundled_dashboard_dist(
-                user_dist,
-                VERSION,
-            ):
-                self.data_path = os.path.abspath(user_dist)
-            elif bundled_dist.exists():
-                self.data_path = str(bundled_dist)
-                logger.info("Using bundled dashboard dist: %s", self.data_path)
-            else:
-                # Fall back to expected user path (will fail gracefully later)
-                self.data_path = os.path.abspath(user_dist)
+        dashboard_dist = resolve_dashboard_dist(webui_dir)
+        self.data_path = str(dashboard_dist) if dashboard_dist else None
 
         self._rate_limiter_registry = _RateLimiterRegistry()
         self._init_jwt_secret()
@@ -243,6 +221,7 @@ class AstrBotDashboard:
             "/api/auth/logout",
             "/api/auth/setup-status",
             "/api/auth/setup",
+            "/api/stat/versions",
         }
         allowed_endpoint_prefixes = [
             "/api/file",
@@ -256,37 +235,74 @@ class AstrBotDashboard:
         ):
             return None
         is_plugin_page_path = PluginPageAuth.is_protected_path(path)
-        token = self._extract_dashboard_jwt(current_request)
-        if not token and is_plugin_page_path:
-            token = PluginPageAuth.extract_asset_token(current_request.query_params)
-        if not token:
+        dashboard_token = self._extract_dashboard_jwt(current_request)
+        asset_token = (
+            PluginPageAuth.extract_asset_token(current_request.query_params)
+            if is_plugin_page_path
+            else None
+        )
+        token_candidates = []
+        if dashboard_token:
+            token_candidates.append(dashboard_token)
+        if asset_token and asset_token != dashboard_token:
+            token_candidates.append(asset_token)
+        if not token_candidates:
             r = JSONResponse(error("未授权"))
             r.status_code = 401
             return r
+
+        token_errors: list[str] = []
+        for token in token_candidates:
+            payload, token_error = self._validate_dashboard_token(token, path)
+            if payload is not None:
+                current_request.state.dashboard_g.username = cast(
+                    str, payload["username"]
+                )
+                return None
+            token_errors.append(token_error)
+
+        error_message = (
+            "Token 过期"
+            if token_errors and all(item == "Token 过期" for item in token_errors)
+            else "Token 无效"
+        )
+        r = JSONResponse(error(error_message))
+        r.status_code = 401
+        return r
+
+    def _validate_dashboard_token(
+        self,
+        token: str,
+        path: str,
+    ) -> tuple[dict[str, Any] | None, str]:
+        """Validate a dashboard JWT or scoped plugin page asset token.
+
+        Args:
+            token: JWT value from the Authorization header, cookie, or query string.
+            path: Current request path used for plugin page asset token scope checks.
+
+        Returns:
+            A tuple of the decoded payload and an error message. The payload is
+            present only when the token is valid for the current request path.
+        """
         try:
             payload = jwt.decode(token, self._jwt_secret, algorithms=["HS256"])
-            if PluginPageAuth.is_asset_token(
-                payload
-            ) and not PluginPageAuth.is_scope_valid(
-                payload,
-                path,
-            ):
-                r = JSONResponse(error("Token 无效"))
-                r.status_code = 401
-                return r
-
-            username = payload.get("username")
-            if not isinstance(username, str) or not username.strip():
-                raise jwt.InvalidTokenError("missing username in token payload")
-            current_request.state.dashboard_g.username = username
         except jwt.ExpiredSignatureError:
-            r = JSONResponse(error("Token 过期"))
-            r.status_code = 401
-            return r
+            return None, "Token 过期"
         except jwt.InvalidTokenError:
-            r = JSONResponse(error("Token 无效"))
-            r.status_code = 401
-            return r
+            return None, "Token 无效"
+
+        if PluginPageAuth.is_asset_token(payload) and not PluginPageAuth.is_scope_valid(
+            payload,
+            path,
+        ):
+            return None, "Token 无效"
+
+        username = payload.get("username")
+        if not isinstance(username, str) or not username.strip():
+            return None, "Token 无效"
+
+        return payload, ""
 
     async def _apply_auth_rate_limit(
         self,
@@ -545,7 +561,13 @@ class AstrBotDashboard:
 
             raise Exception(f"端口 {port} 已被占用")
 
-        parts = [f"\n ✨✨✨\n  AstrBot v{VERSION} WebUI is ready\n\n"]
+        if self.data_path and (Path(self.data_path) / "index.html").is_file():
+            webui_status = "WebUI is ready"
+        else:
+            webui_status = (
+                f"WebUI is NOT ready: static files are missing at {self.data_path}"
+            )
+        parts = [f"\n ✨✨✨\n  AstrBot v{VERSION} {webui_status}\n\n"]
         parts.append(f"   ➜  Local: {scheme}://localhost:{port}\n")
         for ip in ip_addr:
             parts.append(f"   ➜  Network: {scheme}://{ip}:{port}\n")

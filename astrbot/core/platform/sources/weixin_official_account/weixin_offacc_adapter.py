@@ -395,6 +395,7 @@ class WeixinOfficialAccountPlatformAdapter(Platform):
         message_chain: MessageChain,
     ) -> None:
         await super().send_by_session(session, message_chain)
+        raise Exception("微信公众号不支持发送主动消息")
 
     @override
     def meta(self) -> PlatformMetadata:
@@ -403,7 +404,7 @@ class WeixinOfficialAccountPlatformAdapter(Platform):
             "微信公众平台 适配器",
             id=self.config.get("id", "weixin_official_account"),
             support_streaming_message=False,
-            support_proactive_message=False,
+            support_proactive_message=True,
         )
 
     @override
@@ -507,14 +508,28 @@ class WeixinOfficialAccountPlatformAdapter(Platform):
         logger.info(f"abm: {abm}")
         await self.handle_msg(abm)
 
-    async def handle_msg(self, message: AstrBotMessage) -> None:
-        buffer = self.user_buffer.get(message.sender.user_id, None)
+    def create_event(
+        self, message: AstrBotMessage
+    ) -> WeixinOfficialAccountPlatformEvent:
+        """Creates a Weixin Official Account message event.
+
+        Args:
+            message: AstrBot message object to wrap.
+
+        Returns:
+            Created Weixin Official Account message event.
+
+        Raises:
+            ValueError: If the message output buffer cannot be resolved.
+        """
+        sender_id = getattr(getattr(message, "sender", None), "user_id", "")
+        buffer = self.user_buffer.get(sender_id, None)
         if buffer is None:
-            logger.critical(
-                f"用户消息未找到缓冲状态，无法处理消息: user={message.sender.user_id} message_id={message.message_id}"
+            raise ValueError(
+                "User message buffer not found: "
+                f"user={sender_id} message_id={message.message_id}"
             )
-            return
-        message_event = WeixinOfficialAccountPlatformEvent(
+        return WeixinOfficialAccountPlatformEvent(
             message_str=message.message_str,
             message_obj=message,
             platform_meta=self.meta(),
@@ -522,7 +537,12 @@ class WeixinOfficialAccountPlatformAdapter(Platform):
             client=self.client,
             message_out=buffer,
         )
-        self.commit_event(message_event)
+
+    async def handle_msg(self, message: AstrBotMessage) -> None:
+        try:
+            self.commit_event(self.create_event(message))
+        except ValueError as e:
+            logger.critical("%s", e)
 
     def get_client(self) -> WeChatClient:
         return self.client
