@@ -389,21 +389,6 @@ watch(
 // Diff patch (revision vs current)
 const diffPatch = ref<string | null>(null);
 
-watch(
-  () => [gitLogPath.value, selectedRevision.value, viewMode.value] as const,
-  async ([path, rev, mode]) => {
-    if (mode !== "diff" || !path || !rev) {
-      diffPatch.value = null;
-      return;
-    }
-    diffPatch.value = null;
-    await props.gitShow.fetchFile(rev, path);
-    const snap = props.gitShow.getFileData(rev, path);
-    if (snap) diffPatch.value = snap.patch ?? null;
-  },
-  { immediate: true },
-);
-
 // Body ref feeds the resizable-split composable so the percent math
 // uses our actual layout width (not document.body).
 const containerRef = ref<HTMLElement | null>(null);
@@ -449,6 +434,35 @@ const gitLogPath = computed<string>(() =>
   selectedDoc.value
     ? projectRelativeFromDoc(docsRoot.value, selectedDoc.value)
     : "",
+);
+
+// Lazy fetch for the (revision, path) patch — runs whenever the
+// history panel lands on a (path, revision) pair in diff mode, and
+// clears the patch whenever any of those three change. Pattern
+// mirrors FileBrowserView's diff watcher: clear → fetch → read.
+// The `immediate: true` guards the initial state (all three
+// inputs unset → diffPatch = null).
+//
+// 2026-08-03 diff-watcher-tdz fix: this watcher MUST stay below
+// the `gitLogPath` declaration. With `immediate: true` the source
+// getter runs synchronously during setup; when it sat above the
+// `const gitLogPath`, the first access hit the TDZ and threw a
+// ReferenceError that Vue swallowed — leaving the effect with no
+// tracked deps, so the watcher never fired again and clicking
+// "compare with current" sent no git-show request.
+watch(
+  () => [gitLogPath.value, selectedRevision.value, viewMode.value] as const,
+  async ([path, rev, mode]) => {
+    if (mode !== "diff" || !path || !rev) {
+      diffPatch.value = null;
+      return;
+    }
+    diffPatch.value = null;
+    await props.gitShow.fetchFile(rev, path);
+    const snap = props.gitShow.getFileData(rev, path);
+    if (snap) diffPatch.value = snap.patch ?? null;
+  },
+  { immediate: true },
 );
 
 /** Fullscreen review mode. NOT persisted — each visit starts at false.
