@@ -743,6 +743,38 @@
           "unknown": "Cherry-pick failed ({reason})"
         }
       },
+      "squash": {
+        "toolbar": "Squash",
+        "toolbarAria": "Squash the selected contiguous commits into one",
+        "selectionHint": "Select a contiguous range starting from the latest commit (at least 2)",
+        "rowSelectTitle": "Select for squash",
+        "rowSelectAria": "Select commit {sha} for squash",
+        "cancelSelection": "Cancel",
+        "dialogTitle": "Squash commits",
+        "messageLabel": "Commit message",
+        "messageRequired": "Please enter a commit message",
+        "historyRewriteWarning": "Squashing rewrites history: commits already pushed will need a force push to sync the remote.",
+        "submit": "Squash",
+        "cancel": "Cancel",
+        "success": "Squashed into {sha}",
+        "error": {
+          "invalid_body": "Malformed request",
+          "invalid_param": "Select at least 2 distinct commits",
+          "invalid_message": "Commit message is empty or exceeds 8192 characters",
+          "head_not_selected": "The selection must include the latest commit (HEAD)",
+          "not_contiguous": "Only a contiguous range starting from the latest commit can be squashed",
+          "root_commit": "Squashing the repository's root commit is not supported",
+          "worktree_dirty": "Uncommitted changes present — commit or stash first",
+          "operation_in_progress": "A merge / cherry-pick / revert conflict is already in progress — resolve it first",
+          "commit_not_found": "Could not resolve the selected commits",
+          "hook_rejected": "Commit rejected by a hook (changes remain staged — you can commit manually)",
+          "identity_not_set": "git user.name / user.email is not configured",
+          "nothing_to_commit": "Nothing to commit",
+          "git_error": "Squash failed",
+          "network": "Network error — please retry",
+          "unknown": "Unknown error"
+        }
+      },
       "conflict": {
         "banner": {
           "merge": "Merge conflict",

@@ -89,7 +89,21 @@ const props = defineProps<{
    *  localFilter. ""/HEAD/<currentBranch> all mean "viewing the
    *  current branch". */
   activeRef: string | null;
+  /** 2026-08-03 git-squash (spec 2026-08-03-git-squash-design §4.2):
+   *  bumped by the sidebar after a successful squash so we clear the
+   *  selection. Optional so the sidebar mount compiles before its
+   *  wiring task lands. */
+  squashResetToken?: number;
 }>();
+
+/** Commit shape carried by the `squash` emit (spec
+ *  2026-08-03-git-squash-design §4.2). Exported so the sidebar and
+ *  the dialog can share the exact type. */
+export interface SquashPayloadCommit {
+  sha: string;
+  subject: string;
+  body: string | null;
+}
 
 const emit = defineEmits<{
   (e: "apply", filter: LogFilter): void;
@@ -110,6 +124,12 @@ const emit = defineEmits<{
   (e: "cherry-pick", commit: { sha: string; subject: string }): void;
   // Toolbar-level entry: open the cherry-pick dialog with an empty ref.
   (e: "cherry-pick-blank"): void;
+  // 2026-08-03 git-squash: toolbar entry. The sidebar owns the dialog
+  // + the /spcode/git-squash call; we surface the picked commits
+  // ordered oldest → newest (dialog lists + pre-fills in this order).
+  // `body` rides along so the dialog's AI-generate feature can feed
+  // the full historical messages (subject + body) to the LLM.
+  (e: "squash", payload: { commits: SquashPayloadCommit[] }): void;
   /** Stats-panel collapse toggle (v-model:stats-open). */
   (e: "update:statsOpen", v: boolean): void;
   /** Range popover picked a new value — sidebar owns state + persistence. */
@@ -228,6 +248,77 @@ function toggleCommit(sha: string): void {
   else next.add(sha);
   expanded.value = next;
 }
+
+// ── Squash selection (2026-08-03, spec 2026-08-03-git-squash-design §4.2) ──
+// Local-only by design: never lifted to Pinia, never persisted, never
+// conflated with `expanded` (which tracks the accordion state).
+//
+// Interaction model (2026-08-03 revision): the toolbar button is
+// ALWAYS clickable while viewingCurrent. The first click only arms
+// "selection mode" — checkboxes appear at the left of every row. A
+// second click submits, but the button stays disabled (grey) until
+// the selection is valid (>= 2 HEAD-anchored contiguous rows). A
+// separate cancel button exits the mode.
+const squashSelecting = ref(false);
+const selectedCommits = ref<Set<string>>(new Set<string>());
+
+function toggleSquashSelection(sha: string): void {
+  const next = new Set(selectedCommits.value);
+  if (next.has(sha)) next.delete(sha);
+  else next.add(sha);
+  selectedCommits.value = next;
+}
+
+/** Valid iff the selection is exactly the top N rows (N >= 2) of the
+ *  displayed list. Checkboxes only render while viewingCurrent, so
+ *  the displayed list is the unfiltered HEAD-first history and
+ *  "top N rows" ⇔ "HEAD-anchored contiguous". The backend
+ *  re-validates authoritatively via rev-list — this is UX-only. */
+const squashSelection = computed<"none" | "valid" | "invalid">(() => {
+  const n = selectedCommits.value.size;
+  if (n === 0) return "none";
+  if (n < 2) return "invalid";
+  const top = commits.value.slice(0, n);
+  if (top.length < n) return "invalid";
+  return top.every((c) => selectedCommits.value.has(c.sha))
+    ? "valid"
+    : "invalid";
+});
+
+function onSquashClick(): void {
+  if (!squashSelecting.value) {
+    // First click: arm selection mode, do NOT submit anything.
+    squashSelecting.value = true;
+    return;
+  }
+  // `commits` is newest → oldest; take the top N, keep the picked
+  // ones (all of them, by validity), then reverse to oldest → newest.
+  const n = selectedCommits.value.size;
+  const picked = commits.value
+    .slice(0, n)
+    .filter((c) => selectedCommits.value.has(c.sha))
+    .reverse()
+    .map((c) => ({ sha: c.sha, subject: c.subject, body: c.body }));
+  emit("squash", { commits: picked });
+}
+
+function onSquashCancel(): void {
+  squashSelecting.value = false;
+  selectedCommits.value = new Set();
+}
+
+// Reset channels: the sidebar bumps squashResetToken after a
+// successful squash; leaving the current-branch view unmounts the
+// checkboxes, so any stale selection must not survive invisibly.
+watch(
+  () => props.squashResetToken,
+  () => {
+    onSquashCancel();
+  },
+);
+watch(viewingCurrent, (v) => {
+  if (!v) onSquashCancel();
+});
 
 // v3.9 (2026-06-25): per-file expand/collapse state, keyed by
 // `${sha}\u0001${path}`. Mirrors the `expanded` set's contract (idempotent
@@ -621,6 +712,43 @@ function fileErrorMessage(state: GitShowFetchState): string | null {
           <v-icon size="14" start>mdi-source-branch-plus</v-icon>
           {{ tm("spcodeProjectLoad.diffSidebar.cherryPick.toolbar") }}
         </v-btn>
+        <!-- 2026-08-03 git-squash (revised interaction): ALWAYS
+             clickable — the first click arms selection mode (row
+             checkboxes appear); a second click submits. While in
+             selection mode the button stays grey until the
+             selection is valid (>= 2 HEAD-anchored contiguous
+             rows). Title doubles as the invalid-selection hint. -->
+        <v-btn
+          v-if="viewingCurrent"
+          class="git-log-squash-btn"
+          size="small"
+          variant="text"
+          :disabled="squashSelecting && squashSelection !== 'valid'"
+          :title="
+            squashSelecting && squashSelection !== 'valid'
+              ? tm('spcodeProjectLoad.diffSidebar.squash.selectionHint')
+              : tm('spcodeProjectLoad.diffSidebar.squash.toolbarAria')
+          "
+          @click="onSquashClick"
+        >
+          <v-icon size="14" start>mdi-arrow-collapse-vertical</v-icon>
+          {{ tm("spcodeProjectLoad.diffSidebar.squash.toolbar") }}
+          <template v-if="squashSelecting && selectedCommits.size > 0">
+            ({{ selectedCommits.size }})</template
+          >
+        </v-btn>
+        <!-- Selection-mode exit affordance (the main button is
+             disabled while the selection is invalid, so it cannot
+             double as the exit). -->
+        <v-btn
+          v-if="viewingCurrent && squashSelecting"
+          class="git-log-squash-cancel-btn"
+          size="small"
+          variant="text"
+          @click="onSquashCancel"
+        >
+          {{ tm("spcodeProjectLoad.diffSidebar.squash.cancelSelection") }}
+        </v-btn>
       </div>
     </div>
 
@@ -650,7 +778,11 @@ function fileErrorMessage(state: GitShowFetchState): string | null {
       </span>
     </div>
 
-    <div v-else class="git-log-list">
+    <div
+      v-else
+      class="git-log-list"
+      :class="{ 'squash-selecting': squashSelecting }"
+    >
       <div
         v-for="c in commits"
         :key="c.sha"
@@ -665,6 +797,32 @@ function fileErrorMessage(state: GitShowFetchState): string | null {
         }"
         :data-commit-sha="c.sha"
       >
+        <!-- 2026-08-03 git-squash: per-row selection checkbox, only
+             rendered in selection mode (armed via the toolbar
+             button) and absolutely positioned in the left gutter
+             the rows grow while the mode is active. -->
+        <button
+          v-if="viewingCurrent && squashSelecting"
+          type="button"
+          class="git-log-item-select"
+          :class="{ 'is-selected': selectedCommits.has(c.sha) }"
+          :title="tm('spcodeProjectLoad.diffSidebar.squash.rowSelectTitle')"
+          :aria-label="
+            tm('spcodeProjectLoad.diffSidebar.squash.rowSelectAria', {
+              sha: c.shaShort || c.sha.slice(0, 7),
+            })
+          "
+          :aria-pressed="selectedCommits.has(c.sha)"
+          @click.stop="toggleSquashSelection(c.sha)"
+        >
+          <v-icon size="14">
+            {{
+              selectedCommits.has(c.sha)
+                ? "mdi-checkbox-marked"
+                : "mdi-checkbox-blank-outline"
+            }}
+          </v-icon>
+        </button>
         <button
           type="button"
           class="git-log-item-header"
@@ -1037,6 +1195,9 @@ function fileErrorMessage(state: GitShowFetchState): string | null {
   flex-direction: column;
 }
 .git-log-item {
+  /* 2026-08-03 git-squash: anchor for the absolutely positioned
+     selection checkbox. */
+  position: relative;
   padding: 8px 12px;
   border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.08);
 }
@@ -1399,6 +1560,41 @@ function fileErrorMessage(state: GitShowFetchState): string | null {
 /* 2026-07-18: removed the prior (max-width: 760px) override — it
    duplicated the base 1fr 1fr and didn't account for the resizable
    sidebar. The auto-fit grid above handles width adaptation. */
+
+/* 2026-08-03 git-squash: in selection mode every row grows a left
+   gutter that the absolutely positioned checkbox sits in, so the
+   checkbox never overlaps the commit icon / sha text. */
+.git-log-list.squash-selecting .git-log-item {
+  padding-left: 32px;
+}
+/* 2026-08-03 git-squash: per-row selection checkbox. Rendered only
+   in selection mode (no hover reveal) and always visible. Vertical
+   math: row padding-top is 8px and the header line is ~18-20px
+   tall, so top: 9px centers the 16px box on the header line. */
+.git-log-item-select {
+  position: absolute;
+  left: 8px;
+  top: 9px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: rgba(var(--v-theme-on-surface), 0.45);
+  cursor: pointer;
+  transition: color 0.12s;
+}
+.git-log-item-select:hover,
+.git-log-item-select:focus-visible {
+  color: rgb(var(--v-theme-primary));
+}
+.git-log-item-select.is-selected {
+  color: rgb(var(--v-theme-primary));
+}
 </style>
 
 <!-- 2026-08-02 branch-picker density fix: the ref combobox dropdown

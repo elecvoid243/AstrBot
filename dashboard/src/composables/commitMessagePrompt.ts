@@ -28,6 +28,96 @@
 
 export type CommitMessageLanguage = "zh" | "en";
 
+export interface SquashMessagePromptCommit {
+  subject: string;
+  body?: string | null;
+}
+
+export interface SquashMessagePromptInput {
+  language: CommitMessageLanguage;
+  /** Selected commits, oldest → newest (the same order the squash
+   *  dialog lists them). */
+  commits: SquashMessagePromptCommit[];
+}
+
+/**
+ * Character budget for the embedded historical-commit-messages
+ * section of the squash prompt. Unlike the commit-message prompt
+ * (which embeds a diff), the squash prompt carries ONLY commit
+ * subjects + bodies — no file content (spec 2026-08-03 §4.3, user
+ * requirement 2026-08-03).
+ */
+export const SQUASH_COMMITS_CHAR_BUDGET = 4000;
+
+/**
+ * Build the single-turn user prompt for SQUASH commit message
+ * generation. The context is exclusively the historical commit
+ * messages of the commits being squashed (subjects + bodies,
+ * oldest → newest); no diff / file stats are included.
+ *
+ * Args:
+ *   input: target language and the selected commits in
+ *     oldest → newest order.
+ *
+ * Returns:
+ *   The complete prompt string: squash-specific instruction + the
+ *   same JSON reply contract / few-shot examples as
+ *   buildCommitMessagePrompt + the (optionally truncated) commit
+ *   messages section.
+ */
+export function buildSquashMessagePrompt(
+  input: SquashMessagePromptInput,
+): string {
+  const lines: string[] = [];
+  for (const c of input.commits) {
+    lines.push(`- ${c.subject}`);
+    const body = c.body?.trim();
+    if (body) lines.push(`  ${body.replace(/\n/g, "\n  ")}`);
+  }
+  let commitsText = lines.join("\n");
+  const truncated = commitsText.length > SQUASH_COMMITS_CHAR_BUDGET;
+  if (truncated) {
+    commitsText = commitsText.slice(0, SQUASH_COMMITS_CHAR_BUDGET);
+  }
+
+  if (input.language === "zh") {
+    return [
+      `以下 ${input.commits.length} 条 git 提交将被压缩(squash)合并为一个 commit。请仅根据这些历史提交信息,生成一条合并后的 Conventional Commits 风格的 commit message。`,
+      "要求:",
+      "1. 格式为 <type>(<可选 scope>): <subject>,type 从 feat/fix/docs/style/refactor/perf/test/build/ci/chore/revert 中选择;",
+      "2. 首行(subject)不超过 72 个字符;",
+      "3. message 用中文书写;",
+      "4. 如改动较复杂,可在 body 中用简短的要点列表补充说明;",
+      "5. 严格只输出一个 JSON 对象,不要输出任何解释、前后缀或 Markdown 代码块。JSON 格式:",
+      '   {"subject": "<首行>", "body": "<正文,无则空字符串>"}',
+      "输出示例(仅演示格式):",
+      '{"subject": "feat(auth): 新增登录失败重试限制", "body": "- 连续失败 5 次后锁定 10 分钟\\n- 新增 RetryLimiter 类"}',
+      '{"subject": "fix: 修复空配置导致的启动崩溃", "body": ""}',
+      "",
+      `历史提交信息(旧 → 新,共 ${input.commits.length} 条):`,
+      commitsText + (truncated ? "\n……(提交信息已截断)" : ""),
+    ].join("\n");
+  }
+
+  return [
+    `The following ${input.commits.length} git commits will be squashed into a single commit. Based ONLY on these historical commit messages, generate a Conventional Commits style message for the combined commit.`,
+    "Requirements:",
+    "1. Format: <type>(<optional scope>): <subject>, where type is one of feat/fix/docs/style/refactor/perf/test/build/ci/chore/revert;",
+    "2. The subject line must be at most 72 characters;",
+    "3. Write the message in English;",
+    "4. For complex changes, use the body for a short bullet list;",
+    "5. Output exactly one JSON object and nothing else — no explanations, no prefixes, no Markdown code fences. JSON shape:",
+    '   {"subject": "<subject line>", "body": "<body text, or empty string>"}',
+    "Output examples (format only):",
+    '{"subject": "feat(auth): add login retry limit", "body": "- lock account for 10 minutes after 5 consecutive failures\\n- add RetryLimiter class"}',
+    '{"subject": "fix: prevent startup crash on null config", "body": ""}',
+    "",
+    `Historical commit messages (oldest → newest, ${input.commits.length} commits):`,
+    commitsText + (truncated ? "\n...(commit messages truncated)" : ""),
+  ].join("\n");
+}
+
+
 export interface CommitMessagePromptFile {
   path: string;
   status: string;

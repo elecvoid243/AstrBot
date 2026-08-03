@@ -12,8 +12,10 @@ import test from "node:test";
 
 import {
   buildCommitMessagePrompt,
+  buildSquashMessagePrompt,
   parseCommitMessageReply,
   DIFF_CHAR_BUDGET,
+  SQUASH_COMMITS_CHAR_BUDGET,
 } from "../src/composables/commitMessagePrompt.ts";
 
 const files = [
@@ -174,4 +176,59 @@ test("parser: json-labeled fence wins over an earlier plain fence", () => {
     "```",
   ].join("\n");
   assert.equal(parseCommitMessageReply(reply), "feat: the real answer");
+});
+
+// ── squash prompt builder (2026-08-03) ────────────────────────────
+// Context is ONLY historical commit messages — never any diff /
+// file content (user requirement 2026-08-03).
+
+test("zh squash prompt: squash instruction, commits oldest → newest, JSON contract, no diff section", () => {
+  const p = buildSquashMessagePrompt({
+    language: "zh",
+    commits: [
+      { subject: "feat: 初版实现", body: "补充细节" },
+      { subject: "fix: 边界修正", body: null },
+      { subject: "docs: 更新说明" },
+    ],
+  });
+  assert.ok(p.includes("压缩"));
+  assert.ok(p.includes("3 条"));
+  assert.match(p, /Conventional Commits/);
+  assert.ok(p.includes('{"subject"'));
+  assert.ok(p.includes("输出示例"));
+  // Commits appear in oldest → newest order, bodies included.
+  assert.ok(p.includes("- feat: 初版实现"));
+  assert.ok(p.includes("  补充细节"));
+  assert.ok(p.includes("- fix: 边界修正"));
+  assert.ok(p.includes("- docs: 更新说明"));
+  assert.ok(p.indexOf("feat: 初版实现") < p.indexOf("fix: 边界修正"));
+  assert.ok(p.indexOf("fix: 边界修正") < p.indexOf("docs: 更新说明"));
+  // No diff / file-stat sections whatsoever.
+  assert.ok(!p.includes("diff 内容"));
+  assert.ok(!p.includes("变更文件统计"));
+  assert.ok(!p.includes("(提交信息已截断)"));
+});
+
+test("en squash prompt: squash instruction + contract, no diff section", () => {
+  const p = buildSquashMessagePrompt({
+    language: "en",
+    commits: [{ subject: "feat: initial" }, { subject: "fix: edge" }],
+  });
+  assert.ok(p.includes("squashed"));
+  assert.ok(p.includes("2 commits"));
+  assert.ok(p.includes("Write the message in English"));
+  assert.ok(p.includes('{"subject"'));
+  assert.ok(p.includes("Output examples"));
+  assert.ok(p.includes("- feat: initial"));
+  assert.ok(p.includes("- fix: edge"));
+  assert.ok(!p.includes("Diff:"));
+  assert.ok(!p.includes("Changed files:"));
+});
+
+test("squash prompt truncates over-long commit text with marker", () => {
+  const p = buildSquashMessagePrompt({
+    language: "zh",
+    commits: [{ subject: "x".repeat(SQUASH_COMMITS_CHAR_BUDGET + 100) }],
+  });
+  assert.ok(p.includes("(提交信息已截断)"));
 });

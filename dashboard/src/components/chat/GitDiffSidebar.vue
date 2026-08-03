@@ -75,6 +75,9 @@ import {
 import { useSpcodeGitConflict } from "@/composables/useSpcodeGitConflict";
 import GitMergeDialog from "@/components/chat/GitMergeDialog.vue";
 import GitCherryPickDialog from "@/components/chat/GitCherryPickDialog.vue";
+import GitSquashDialog from "@/components/chat/GitSquashDialog.vue";
+import { useSpcodeGitSquash } from "@/composables/useSpcodeGitSquash";
+import type { SquashPayloadCommit } from "@/components/chat/message_list_comps/GitLogView.vue";
 import GitConflictPanel from "@/components/chat/GitConflictPanel.vue";
 import { classifyConflictReason } from "@/composables/parseSpcodeGitConflict";
 import { pluginExtensionApi } from "@/api/v1";
@@ -705,6 +708,9 @@ const gitLog = useSpcodeGitLog(selectedWorktree);
 // 2026-07-17 git-revert: History-view per-commit revert. The sidebar
 // owns the confirm dialog + the write call (mirroring stage/commit).
 const gitRevert = useSpcodeGitRevert();
+// 2026-08-03 git-squash: History-view multi-commit squash. The
+// sidebar owns the dialog + the write call (mirroring revert).
+const gitSquash = useSpcodeGitSquash();
 // 2026-08-01 git-merge / git-conflict: instantiated with the other
 // composables so the polling watchers (immediate:true) below can
 // safely reference them. Handler logic lives in the branch block.
@@ -917,6 +923,13 @@ const pendingStageAllCount = ref(0);
 // per-commit revert action.
 const revertDialogOpen = ref(false);
 const pendingRevert = ref<{ sha: string; subject: string } | null>(null);
+// 2026-08-03 git-squash: dialog state + the token that clears
+// GitLogView's selection after a successful squash. pendingSquash
+// carries the full SquashPayloadCommit (body included) so the
+// dialog's AI-generate prompt can use the complete messages.
+const squashDialogOpen = ref(false);
+const pendingSquash = ref<SquashPayloadCommit[] | null>(null);
+const squashResetToken = ref(0);
 // Symmetric dialog for "Unstage all" — visible only from the staged
 // scope where the bulk button's label flips to "取消全部暂存".
 const confirmUnstageAllOpen = ref(false);
@@ -1304,6 +1317,78 @@ const REVERT_REASON_I18N_KEYS: Record<
   },
 };
 
+// 2026-08-03 git-squash: reason → snackbar mapping (mirrors
+// REVERT_REASON_I18N_KEYS). withStderr entries surface git output
+// in the snackbar's <pre> block.
+const SQUASH_REASON_I18N_KEYS: Record<
+  string,
+  { key: string; color: "warning" | "error"; withStderr?: boolean }
+> = {
+  invalid_body: {
+    key: "spcodeProjectLoad.diffSidebar.squash.error.invalid_body",
+    color: "error",
+  },
+  invalid_param: {
+    key: "spcodeProjectLoad.diffSidebar.squash.error.invalid_param",
+    color: "error",
+  },
+  invalid_message: {
+    key: "spcodeProjectLoad.diffSidebar.squash.error.invalid_message",
+    color: "error",
+  },
+  head_not_selected: {
+    key: "spcodeProjectLoad.diffSidebar.squash.error.head_not_selected",
+    color: "warning",
+  },
+  not_contiguous: {
+    key: "spcodeProjectLoad.diffSidebar.squash.error.not_contiguous",
+    color: "warning",
+  },
+  root_commit: {
+    key: "spcodeProjectLoad.diffSidebar.squash.error.root_commit",
+    color: "warning",
+  },
+  worktree_dirty: {
+    key: "spcodeProjectLoad.diffSidebar.squash.error.worktree_dirty",
+    color: "warning",
+  },
+  operation_in_progress: {
+    key: "spcodeProjectLoad.diffSidebar.squash.error.operation_in_progress",
+    color: "warning",
+  },
+  commit_not_found: {
+    key: "spcodeProjectLoad.diffSidebar.squash.error.commit_not_found",
+    color: "error",
+  },
+  hook_rejected: {
+    key: "spcodeProjectLoad.diffSidebar.squash.error.hook_rejected",
+    color: "warning",
+    withStderr: true,
+  },
+  identity_not_set: {
+    key: "spcodeProjectLoad.diffSidebar.squash.error.identity_not_set",
+    color: "error",
+  },
+  nothing_to_commit: {
+    key: "spcodeProjectLoad.diffSidebar.squash.error.nothing_to_commit",
+    color: "error",
+    withStderr: true,
+  },
+  git_error: {
+    key: "spcodeProjectLoad.diffSidebar.squash.error.git_error",
+    color: "error",
+    withStderr: true,
+  },
+  network: {
+    key: "spcodeProjectLoad.diffSidebar.squash.error.network",
+    color: "error",
+  },
+  unknown: {
+    key: "spcodeProjectLoad.diffSidebar.squash.error.unknown",
+    color: "error",
+  },
+};
+
 // ── Revert commit (History view, 2026-07-17) ─────────────────────
 function onLogRevertRequest(commit: { sha: string; subject: string }): void {
   pendingRevert.value = commit;
@@ -1354,6 +1439,57 @@ async function onConfirmRevert(): Promise<void> {
     REVERT_REASON_I18N_KEYS[reason] ?? REVERT_REASON_I18N_KEYS.unknown;
   revertDialogOpen.value = false;
   pendingRevert.value = null;
+  showSnackbar(
+    tm(meta.key),
+    meta.color,
+    meta.withStderr ? result.stderr : undefined,
+  );
+}
+
+// ── Squash commits (History view, 2026-08-03) ────────────────────
+function onLogSquashRequest(payload: {
+  commits: SquashPayloadCommit[];
+}): void {
+  pendingSquash.value = payload.commits;
+  squashDialogOpen.value = true;
+}
+
+async function onSquashSubmit(p: {
+  shas: string[];
+  message: string;
+}): Promise<void> {
+  const result = await gitSquash.squash({
+    shas: p.shas,
+    message: p.message,
+    worktree: selectedWorktree.value,
+    umo: spcodeStatus.status.value.umo,
+  });
+  if (result.ok) {
+    squashDialogOpen.value = false;
+    pendingSquash.value = null;
+    squashResetToken.value++;
+    showSnackbar(
+      tm("spcodeProjectLoad.diffSidebar.squash.success", {
+        sha: result.snapshot.newSha.slice(0, 7),
+      }),
+      "success",
+    );
+    // Plain refreshes (revert precedent): the git-log ETag embeds
+    // head_sha + .git/index mtime — both changed by reset+commit —
+    // so the conditional request revalidates server-side and never
+    // replays a stale 304. No invalidateEtag call needed.
+    void Promise.all([
+      gitLog.refresh(),
+      gitStatus.refresh(),
+      composable.refresh(),
+    ]);
+    return;
+  }
+  if (result.reason === "aborted") return;
+  const meta =
+    SQUASH_REASON_I18N_KEYS[result.reason] ?? SQUASH_REASON_I18N_KEYS.unknown;
+  squashDialogOpen.value = false;
+  pendingSquash.value = null;
   showSnackbar(
     tm(meta.key),
     meta.color,
@@ -3485,6 +3621,7 @@ onBeforeUnmount(() => {
   gitUnstage.dispose();
   gitCommit.dispose();
   gitRevert.dispose();
+  gitSquash.dispose();
   gitIgnoreFileWrite.dispose();
   gitLog.dispose();
   // git-show composable holds per-SHA caches + inflight AbortControllers.
@@ -4530,6 +4667,7 @@ watch(
             :branch-items="branchPickerItems"
             :current-branch="currentBranchName"
             :active-ref="gitLog.filter.value.ref ?? null"
+            :squash-reset-token="squashResetToken"
             @update:range="(v) => (gitStatsRange = v)"
             @update:top-files-limit="(v) => (gitStatsTopFilesLimit = v)"
             @apply="onLogApply"
@@ -4539,6 +4677,7 @@ watch(
             @revert="onLogRevertRequest"
             @cherry-pick="onLogCherryPickRequest"
             @cherry-pick-blank="onToolbarCherryPickRequest"
+            @squash="onLogSquashRequest"
           />
           <!-- 2026-07-11 document-manager:Documents 文档管理 sub-tab body。 -->
           <!--
@@ -4700,6 +4839,15 @@ watch(
           :preset="cherryPickPreset"
           :loading="gitMerge.isCherryPicking.value"
           @submit="onCherryPickSubmit"
+        />
+
+        <!-- 2026-08-03 git-squash: dialog for the history-view
+             multi-commit squash (commits listed oldest → newest). -->
+        <GitSquashDialog
+          v-model="squashDialogOpen"
+          :commits="pendingSquash ?? []"
+          :loading="gitSquash.isSquashing.value"
+          @submit="onSquashSubmit"
         />
 
         <v-dialog v-model="revertDialogOpen" persistent max-width="440">
