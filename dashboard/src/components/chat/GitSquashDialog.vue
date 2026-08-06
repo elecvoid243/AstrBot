@@ -103,6 +103,11 @@
         </div>
         <v-textarea
           v-model="messageInput"
+          :placeholder="
+            tm(
+              'spcodeProjectLoad.diffSidebar.gitWorkflow.commit.dialog.messagePlaceholder',
+            )
+          "
           :error-messages="messageError ? [messageError] : []"
           density="compact"
           variant="outlined"
@@ -177,9 +182,11 @@ watch(
   () => props.modelValue,
   (open) => {
     if (open) {
-      // Spec §2 decision #2: pre-fill with subjects concatenated
-      // oldest → newest, one per line.
-      messageInput.value = props.commits.map((c) => c.subject).join("\n");
+      // 2026-08-03 revision: start EMPTY. The concatenated-subjects
+      // pre-fill was dropped per user feedback — the user either
+      // types the message or clicks "AI 生成" (which still receives
+      // the historical messages as its prompt context).
+      messageInput.value = "";
       messageError.value = "";
       generateErrorKey.value = null;
     } else {
