@@ -26,10 +26,8 @@ def _make_service() -> UpdateService:
     arguments as simple sentinels.
     """
     return UpdateService(
-        astrbot_updator=MagicMock(),
+        astrbot_updater=MagicMock(),
         core_lifecycle=MagicMock(),
-        download_dashboard_func=AsyncMock(),
-        extract_dashboard_func=MagicMock(),
         get_dashboard_version_func=AsyncMock(return_value=None),
         pip_install_func=AsyncMock(),
         demo_mode=False,

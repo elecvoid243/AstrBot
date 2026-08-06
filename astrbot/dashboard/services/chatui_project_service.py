@@ -6,6 +6,8 @@ from pathlib import Path
 from astrbot.core.db import BaseDatabase
 from astrbot.core.utils.datetime_utils import to_utc_isoformat
 from astrbot.core.workspace import (
+    API_KEY_USERNAME_PREFIX,
+    WORKSPACE_TYPE_CUSTOM,
     WORKSPACE_TYPE_PROJECT,
     WORKSPACE_TYPE_SESSION,
     normalize_project_workspace_type,
@@ -27,6 +29,18 @@ class ChatUIProjectService:
 
     async def create_project(self, username: str, data: object) -> dict:
         payload = self._as_payload(data)
+        if username.startswith(API_KEY_USERNAME_PREFIX):
+            requested_workspace_type = normalize_project_workspace_type(
+                payload.get("workspace_type", WORKSPACE_TYPE_PROJECT)
+            )
+            if (
+                requested_workspace_type == WORKSPACE_TYPE_CUSTOM
+                or "workspace_path" in payload
+            ):
+                raise ChatUIProjectServiceError(
+                    "API key projects cannot use custom workspaces"
+                )
+            payload = {**payload, "workspace_type": requested_workspace_type}
         title = payload.get("title")
         emoji = payload.get("emoji", "📁")
         description = payload.get("description")
@@ -78,6 +92,21 @@ class ChatUIProjectService:
         project = await self._get_owned_project(username, project_id)
         workspace_type = None
         workspace_path = None
+        if username.startswith(API_KEY_USERNAME_PREFIX):
+            requested_workspace_type = normalize_project_workspace_type(
+                payload.get("workspace_type", project.workspace_type)
+            )
+            if (
+                "workspace_type" in payload
+                and requested_workspace_type == WORKSPACE_TYPE_CUSTOM
+            ) or "workspace_path" in payload:
+                raise ChatUIProjectServiceError(
+                    "API key projects cannot use custom workspaces"
+                )
+            if normalize_project_workspace_type(project.workspace_type) == (
+                WORKSPACE_TYPE_CUSTOM
+            ):
+                payload = {**payload, "workspace_type": WORKSPACE_TYPE_PROJECT}
         if "workspace_type" in payload or "workspace_path" in payload:
             workspace_type, workspace_path = self._normalize_workspace_config(
                 payload,
@@ -174,13 +203,15 @@ class ChatUIProjectService:
         """
         project = await self._get_owned_project(username, project_id)
         fallback_umo = f"webchat:FriendMessage:webchat!{project.creator}!default"
-        workspace_root_path = os.path.normcase(
-            os.path.realpath(
-                resolve_project_workspace_root(
-                    project,
-                    fallback_umo=fallback_umo,
-                )
+        try:
+            resolved_workspace_root = resolve_project_workspace_root(
+                project,
+                fallback_umo=fallback_umo,
             )
+        except ValueError as exc:
+            raise ChatUIProjectServiceError(str(exc)) from exc
+        workspace_root_path = os.path.normcase(
+            os.path.realpath(resolved_workspace_root)
         )
         workspace_root = Path(workspace_root_path)
         raw_path = str(relative_path or "").strip()
@@ -308,13 +339,15 @@ class ChatUIProjectService:
         """
         project = await self._get_owned_project(username, project_id)
         fallback_umo = f"webchat:FriendMessage:webchat!{project.creator}!default"
-        workspace_root_path = os.path.normcase(
-            os.path.realpath(
-                resolve_project_workspace_root(
-                    project,
-                    fallback_umo=fallback_umo,
-                )
+        try:
+            resolved_workspace_root = resolve_project_workspace_root(
+                project,
+                fallback_umo=fallback_umo,
             )
+        except ValueError as exc:
+            raise ChatUIProjectServiceError(str(exc)) from exc
+        workspace_root_path = os.path.normcase(
+            os.path.realpath(resolved_workspace_root)
         )
         raw_path = str(relative_path or "").strip()
         normalized_path = Path(raw_path.replace("\\", "/"))
@@ -454,9 +487,15 @@ class ChatUIProjectService:
             return workspace_type, workspace_path
 
         if workspace_type == WORKSPACE_TYPE_PROJECT:
-            # project 类型用于 spcode 集成:路径必须存在且为目录
-            if not workspace_path:
-                raise ChatUIProjectServiceError("Project workspace requires a path")
+            # spcode 集成:显式提供的路径必须存在且为目录;完全未提供路径时
+            # 使用托管 project 工作区(API key 调用方禁止自定义路径,只能走这里)。
+            if workspace_path is None:
+                if raw_path is not None:
+                    # Provided explicitly but blank / unusable.
+                    raise ChatUIProjectServiceError(
+                        "Project workspace requires a path"
+                    )
+                return workspace_type, None
             try:
                 workspace_root = workspace_path_to_root(workspace_path)
             except ValueError as exc:
