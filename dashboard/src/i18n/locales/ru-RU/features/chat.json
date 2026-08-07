@@ -366,7 +366,10 @@
       "loadedLabel": "Проект загружен",
       "unloadAction": "Выгрузить",
       "loadedAtPrefix": "Загружен",
-      "noProject": "Проект не загружен"
+      "noProject": "Проект не загружен",
+      "loading": "Загрузка…",
+      "failed": "Ошибка загрузки",
+      "failedDetailTitle": "Подробности ошибки"
     },
     "diffPreview": {
       "summary": {
@@ -682,7 +685,11 @@
           "abortConfirmAction": "Прервать",
           "cancel": "Отмена"
         },
-        "op": { "merge": "слияние", "cherry_pick": "cherry-pick", "revert": "revert" },
+        "op": {
+          "merge": "слияние",
+          "cherry_pick": "cherry-pick",
+          "revert": "revert"
+        },
         "error": {
           "no_conflict_in_progress": "Нет активной конфликтной операции",
           "file_not_conflicted": "Этого файла нет в списке конфликтов",
@@ -1223,6 +1230,10 @@
       "newFile": "Выберите файл .md или создайте новый",
       "noFileSelected": "Выберите документ",
       "noProject": "Загрузите проект, чтобы начать"
+    },
+    "codegraphChip": {
+      "setting": "Настройка…",
+      "failed": "Ошибка настройки"
     }
   },
   "copy": {

@@ -1,52 +1,84 @@
-// Author: elecvoid243, 2026-07-09
-import { describe, it, expect, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
+// SpcodeProjectIndicator.spec.ts
+// Author: elecvoid243 @ 2026-08-06
+import { mount } from "@vue/test-utils";
+import { defineComponent, nextTick } from "vue";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-// Mock the composable so the test doesn't need the full chat runtime
-vi.mock('@/composables/useSpcodeProjectStatus', () => ({
-  useSpcodeProjectStatus: () => ({
-    status: ref({ loaded: false, directory: null, loadedAt: null }),
-    refresh: vi.fn(),
-  }),
-}))
+vi.mock("@/api/v1", () => ({
+  pluginExtensionApi: { get: vi.fn(), post: vi.fn() },
+}));
 
-import { ref } from 'vue'
-import SpcodeProjectIndicator from './SpcodeProjectIndicator.vue'
+import { useSpcodeOperationProgress } from "@/composables/useSpcodeOperationProgress";
+import SpcodeProjectIndicator from "./SpcodeProjectIndicator.vue";
 
-describe('SpcodeProjectIndicator (status badge)', () => {
-  it('renders with status badge class and no-project state when not loaded', () => {
-    const wrapper = mount(SpcodeProjectIndicator, {
-      global: {
-        mocks: { $t: (k: string) => k },
-      },
-    })
-    expect(wrapper.find('.sp-status-badge').exists()).toBe(true)
-    expect(wrapper.find('.sp-status-badge--empty').exists()).toBe(true)
-    expect(wrapper.text()).toContain('未加载项目')
-    // Should not show a path
-    expect(wrapper.find('.sp-status-badge__path').exists()).toBe(false)
-  })
+// Minimal stubs: v-tooltip renders its activator slot directly; v-menu
+// renders activator + (when open) content slot.
+const tooltipStub = defineComponent({
+  template: `<div><slot name="activator" :props="{}" /><slot /></div>`,
+});
+const menuStub = defineComponent({
+  props: { modelValue: { type: Boolean, default: false } },
+  template: `<div class="v-menu-stub"><slot name="activator" :props="{}" /><slot v-if="modelValue" /></div>`,
+});
+const stubs = {
+  "v-tooltip": tooltipStub,
+  "v-menu": menuStub,
+  "v-card": { template: "<div><slot /></div>" },
+  "v-card-text": { template: "<div><slot /></div>" },
+  "v-icon": { template: "<i><slot /></i>" },
+};
 
-  it('shows the truncated path when loaded', () => {
-    // Re-mount with a loaded state by mutating the ref
-    const fakeDir = 'C:/very/long/path/to/some/directory/that/exceeds/forty/eight/chars/file.txt'
-    // Use a separate mock to control state
-    vi.doMock('@/composables/useSpcodeProjectStatus', () => ({
-      useSpcodeProjectStatus: () => ({
-        status: ref({ loaded: true, directory: fakeDir, loadedAt: Date.now() }),
-        refresh: vi.fn(),
-      }),
-    }))
-    // The first mock is still in effect — re-import to get the new mock
-    // For snapshot purposes, verify the path-truncation helper via a static check
-    expect(fakeDir.length).toBeGreaterThan(48)
-  })
+function setProgress(
+  status: "idle" | "running" | "done" | "failed",
+  operation: "project_load" | "project_unload" | "codegraph_set" | null,
+  extra: Partial<{ currentStep: string; messages: string[]; reason: string }> = {},
+) {
+  const { progress } = useSpcodeOperationProgress();
+  progress.value = {
+    status,
+    operation,
+    currentStep: extra.currentStep ?? "",
+    messages: extra.messages ?? [],
+    reason: extra.reason ?? null,
+  };
+}
 
-  it('emits open-load-dialog on click', async () => {
-    const wrapper = mount(SpcodeProjectIndicator, {
-      global: { mocks: { $t: (k: string) => k } },
-    })
-    await wrapper.find('.sp-status-badge').trigger('click')
-    expect(wrapper.emitted('open-load-dialog')).toBeTruthy()
-  })
-})
+describe("SpcodeProjectIndicator progress states", () => {
+  afterEach(() => useSpcodeOperationProgress().clear());
+
+  it("shows current step while loading and suppresses click", async () => {
+    setProgress("running", "project_load", {
+      currentStep: "⏳ [2/3] codegraph init",
+    });
+    const wrapper = mount(SpcodeProjectIndicator, { global: { stubs } });
+    expect(wrapper.text()).toContain("⏳ [2/3] codegraph init");
+    await wrapper.find(".sp-status-badge").trigger("click");
+    expect(wrapper.emitted("open-load-dialog")).toBeUndefined();
+  });
+
+  it("shows failed state with detail popover button", async () => {
+    setProgress("failed", "project_load", {
+      messages: ["⏳ [1/3] init", "❌ path unsafe"],
+      reason: "path_unsafe",
+    });
+    const wrapper = mount(SpcodeProjectIndicator, { global: { stubs } });
+    expect(wrapper.text()).toContain("加载失败");
+    expect(wrapper.find(".sp-chip-details-btn").exists()).toBe(true);
+    // failed state still allows opening the dialog (retry)
+    await wrapper.find(".sp-status-badge").trigger("click");
+    expect(wrapper.emitted("open-load-dialog")).toHaveLength(1);
+  });
+
+  it("non-project operations do not hijack the chip", () => {
+    setProgress("running", "codegraph_set", { currentStep: "🔄 restart" });
+    const wrapper = mount(SpcodeProjectIndicator, { global: { stubs } });
+    expect(wrapper.text()).not.toContain("🔄 restart");
+    expect(wrapper.find(".sp-chip-details-btn").exists()).toBe(false);
+  });
+
+  it("idle progress falls back to the unloaded badge", () => {
+    const wrapper = mount(SpcodeProjectIndicator, { global: { stubs } });
+    expect(wrapper.text()).toContain("未加载项目");
+    expect(wrapper.find(".sp-chip-details-btn").exists()).toBe(false);
+  });
+});

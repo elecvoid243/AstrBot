@@ -9,19 +9,42 @@
     - Loaded → success dot + mdi-folder-check-outline + "项目已加载" + truncated path
 
   Event contract (unchanged from prior version):
-    - Emits `open-load-dialog` on click
+    - Emits `open-load-dialog` on click (suppressed while a silent
+      operation is running)
+
+  Progress states (2026-08-06, driven by useSpcodeOperationProgress):
+    - project_load / project_unload running → spinning mdi-loading + currentStep
+    - project_load / project_unload failed  → red error icon + chevron popover
+      with the full substep log; click still opens the dialog for retry
 -->
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import { useModuleI18n } from "@/i18n/composables";
 import { useSpcodeProjectStatus } from "@/composables/useSpcodeProjectStatus";
+import { useSpcodeOperationProgress } from "@/composables/useSpcodeOperationProgress";
 
 const { status } = useSpcodeProjectStatus();
 const { tm } = useModuleI18n("features/chat");
+const { progress } = useSpcodeOperationProgress();
+const popoverOpen = ref(false);
 
 const emit = defineEmits<{
   (e: "open-load-dialog"): void;
 }>();
+
+// Only project load/unload operations drive THIS chip; codegraph_set is
+// rendered by SpcodeCodegraphChip.
+const isProjectOp = computed(
+  () =>
+    progress.value.operation === "project_load" ||
+    progress.value.operation === "project_unload",
+);
+const isLoading = computed(
+  () => isProjectOp.value && progress.value.status === "running",
+);
+const isFailed = computed(
+  () => isProjectOp.value && progress.value.status === "failed",
+);
 
 /** Truncate a long path to 48 chars with leading ellipsis. */
 function truncatePath(path: string): string {
@@ -48,17 +71,29 @@ const loadedAtDisplay = computed(() => {
   }
 });
 
-const icon = computed(() =>
-  status.value.loaded ? "mdi-folder-check-outline" : "mdi-folder-outline",
-);
+const icon = computed(() => {
+  if (isLoading.value) return "mdi-loading";
+  if (isFailed.value) return "mdi-alert-circle-outline";
+  return status.value.loaded ? "mdi-folder-check-outline" : "mdi-folder-outline";
+});
 
-const label = computed(() =>
-  status.value.loaded
+const label = computed(() => {
+  if (isLoading.value) {
+    return (
+      progress.value.currentStep || tm("spcodeProjectLoad.indicator.loading")
+    );
+  }
+  if (isFailed.value) return tm("spcodeProjectLoad.indicator.failed");
+  return status.value.loaded
     ? tm("spcodeProjectLoad.indicator.loadedLabel")
-    : tm("spcodeProjectLoad.indicator.noProject"),
-);
+    : tm("spcodeProjectLoad.indicator.noProject");
+});
 
 const tooltipText = computed(() => {
+  if (isLoading.value) return label.value;
+  if (isFailed.value) {
+    return progress.value.messages.at(-1) ?? label.value;
+  }
   if (status.value.loaded && loadedAtDisplay.value) {
     return `${tm("spcodeProjectLoad.indicator.loadedAtPrefix")}: ${
       loadedAtDisplay.value
@@ -68,43 +103,76 @@ const tooltipText = computed(() => {
 });
 
 function openLoadDialog(): void {
+  if (isLoading.value) return; // one silent operation at a time
   emit("open-load-dialog");
 }
 </script>
 
 <template>
-  <v-tooltip location="bottom" :open-delay="200">
-    <template #activator="{ props: tipProps }">
-      <button
-        v-bind="tipProps"
-        type="button"
-        :class="[
-          'sp-status-badge',
-          { 'sp-status-badge--empty': !status.loaded },
-        ]"
-        :aria-label="tooltipText"
-        @click="openLoadDialog"
-      >
-        <span
-          class="sp-status-badge__dot"
-          :class="{
-            'sp-status-badge__dot--success': status.loaded,
-            'sp-status-badge__dot--neutral': !status.loaded,
-          }"
-          aria-hidden="true"
-        />
-        <v-icon size="14" class="sp-status-badge__icon">{{ icon }}</v-icon>
-        <span class="sp-status-badge__label">{{ label }}</span>
-        <span
-          v-if="displayPath"
-          class="sp-status-badge__path"
-          :title="status.directory ?? ''"
-          >{{ displayPath }}</span
+  <div class="sp-chip-wrap">
+    <v-tooltip location="bottom" :open-delay="200">
+      <template #activator="{ props: tipProps }">
+        <button
+          v-bind="tipProps"
+          type="button"
+          :class="[
+            'sp-status-badge',
+            {
+              'sp-status-badge--empty': !status.loaded && !isLoading && !isFailed,
+              'sp-status-badge--failed': isFailed,
+            },
+          ]"
+          :aria-label="tooltipText"
+          @click="openLoadDialog"
         >
-      </button>
-    </template>
-    <span>{{ tooltipText }}</span>
-  </v-tooltip>
+          <span
+            class="sp-status-badge__dot"
+            :class="{
+              'sp-status-badge__dot--success': status.loaded && !isLoading && !isFailed,
+              'sp-status-badge__dot--warning': isFailed,
+              'sp-status-badge__dot--neutral': !status.loaded && !isLoading && !isFailed,
+            }"
+            aria-hidden="true"
+          />
+          <v-icon size="14" class="sp-status-badge__icon">{{ icon }}</v-icon>
+          <span class="sp-status-badge__label">{{ label }}</span>
+          <span
+            v-if="displayPath && !isLoading && !isFailed"
+            class="sp-status-badge__path"
+            :title="status.directory ?? ''"
+            >{{ displayPath }}</span
+          >
+        </button>
+      </template>
+      <span>{{ tooltipText }}</span>
+    </v-tooltip>
+    <v-menu
+      v-if="isFailed"
+      v-model="popoverOpen"
+      location="bottom start"
+      transition="none"
+    >
+      <template #activator="{ props: menuProps }">
+        <button
+          v-bind="menuProps"
+          class="sp-chip-details-btn"
+          type="button"
+          :aria-label="tm('spcodeProjectLoad.indicator.failedDetailTitle')"
+          @click.stop
+        >
+          <v-icon size="14">mdi-chevron-down</v-icon>
+        </button>
+      </template>
+      <v-card min-width="320" max-width="480">
+        <v-card-text>
+          <div class="sp-chip-popover-title">
+            {{ tm("spcodeProjectLoad.indicator.failedDetailTitle") }}
+          </div>
+          <pre class="sp-chip-popover-messages">{{ progress.messages.join("\n") }}</pre>
+        </v-card-text>
+      </v-card>
+    </v-menu>
+  </div>
 </template>
 
 <style scoped>
@@ -173,5 +241,55 @@ function openLoadDialog(): void {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* ── Silent-operation progress states (2026-08-06) ── */
+.sp-chip-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.sp-status-badge--failed {
+  color: rgb(var(--v-theme-error));
+}
+
+.sp-status-badge--failed .sp-status-badge__icon {
+  color: rgb(var(--v-theme-error));
+}
+
+.sp-status-badge .mdi-loading {
+  animation: sp-rotate 1s linear infinite;
+}
+
+@keyframes sp-rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.sp-chip-details-btn {
+  border: 0;
+  background: transparent;
+  color: rgb(var(--v-theme-error));
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  padding: 0;
+}
+
+.sp-chip-popover-title {
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.sp-chip-popover-messages {
+  margin: 0;
+  white-space: pre-wrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  max-height: 240px;
+  overflow-y: auto;
 }
 </style>

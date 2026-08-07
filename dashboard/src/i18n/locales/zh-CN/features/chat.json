@@ -377,7 +377,10 @@
       "loadedLabel": "已加载项目",
       "unloadAction": "卸载",
       "loadedAtPrefix": "加载于",
-      "noProject": "未加载项目"
+      "noProject": "未加载项目",
+      "loading": "加载中…",
+      "failed": "加载失败",
+      "failedDetailTitle": "失败详情"
     },
     "diffPreview": {
       "summary": {
@@ -815,7 +818,11 @@
           "abortConfirmAction": "中止",
           "cancel": "取消"
         },
-        "op": { "merge": "合并", "cherry_pick": "cherry-pick", "revert": "revert" },
+        "op": {
+          "merge": "合并",
+          "cherry_pick": "cherry-pick",
+          "revert": "revert"
+        },
         "error": {
           "no_conflict_in_progress": "当前没有进行中的冲突操作",
           "file_not_conflicted": "该文件不在冲突列表中",
@@ -1337,6 +1344,10 @@
         "collapse": "隐藏历史",
         "expand": "显示历史"
       }
+    },
+    "codegraphChip": {
+      "setting": "设置中…",
+      "failed": "设置失败"
     }
   },
   "copy": {
