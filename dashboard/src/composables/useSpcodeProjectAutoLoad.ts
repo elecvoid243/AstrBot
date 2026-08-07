@@ -190,3 +190,125 @@ export function useSpcodeProjectAutoLoad() {
 
   return { silentLoad };
 }
+
+// ── Manual-dialog silent operations (2026-08-06) ──────────────────────
+// The silent endpoints below serve the ProjectLoadDialog's manual load /
+// unload / codegraph-set paths. Unlike `silentLoad` (auto-load, with
+// idempotent retry semantics), these are one-shot and surface failures by
+// throwing ProjectLoadError so the caller can toast + drive the chip.
+
+export interface SilentLoadDirectoryRequest {
+  umo: string;
+  directory: string;
+  noAgentsmd?: boolean;
+  noCodegraph?: boolean;
+  force?: boolean;
+  create?: boolean;
+  gitInit?: boolean;
+  timeoutMs?: number;
+}
+
+/** Shared POST with timeout/abort plumbing; returns the flattened data dict. */
+async function postSilent(
+  path: string,
+  body: Record<string, unknown>,
+  timeoutMs: number,
+): Promise<Record<string, unknown>> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await pluginExtensionApi.post(path, body, {
+      signal: controller.signal,
+    });
+    return ((res.data as { data?: Record<string, unknown> })?.data ??
+      {}) as Record<string, unknown>;
+  } catch (err) {
+    throw new ProjectLoadError("network_timeout", {
+      loaded: false,
+      directory: String(body.directory ?? ""),
+      umo: String(body.umo ?? ""),
+      skipped_substeps: [],
+      substep_messages: [String((err as Error)?.message ?? err)],
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Throw ProjectLoadError when the envelope reports failure. */
+function raiseOnFailure(raw: Record<string, unknown>, umo: string): void {
+  if (raw.success) return;
+  throw new ProjectLoadError(
+    (raw.reason as ProjectLoadReason | null) ?? "unknown",
+    {
+      loaded: Boolean(raw.loaded),
+      directory: String(raw.directory ?? ""),
+      umo,
+      skipped_substeps: (raw.skipped_substeps as string[]) ?? [],
+      substep_messages: (raw.substep_messages as string[]) ?? [],
+      previous_directory: raw.previous_directory
+        ? String(raw.previous_directory)
+        : undefined,
+      silent_reason: raw.silent_reason ? String(raw.silent_reason) : undefined,
+    },
+  );
+}
+
+export function useSpcodeSilentOps() {
+  /** Silent project load for the manual dialog path (all flags explicit). */
+  async function silentLoadDirectory(
+    req: SilentLoadDirectoryRequest,
+  ): Promise<ProjectLoadData> {
+    const body: Record<string, unknown> = {
+      directory: req.directory,
+      umo: req.umo,
+      force: req.force === true,
+    };
+    if (req.noAgentsmd) body.no_agentsmd = true;
+    if (req.noCodegraph) body.no_codegraph = true;
+    if (req.create) body.create = true;
+    if (req.gitInit) body.git_init = true;
+    const raw = await postSilent(
+      "spcode/project-load",
+      body,
+      req.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+    );
+    raiseOnFailure(raw, req.umo);
+    return {
+      loaded: Boolean(raw.loaded),
+      directory: String(raw.directory ?? ""),
+      umo: String(raw.umo ?? req.umo),
+      skipped_substeps: (raw.skipped_substeps as string[]) ?? [],
+      substep_messages: (raw.substep_messages as string[]) ?? [],
+      previous_directory: raw.previous_directory
+        ? String(raw.previous_directory)
+        : undefined,
+      silent_reason: raw.silent_reason ? String(raw.silent_reason) : undefined,
+    };
+  }
+
+  /** Silent project unload. Throws ProjectLoadError on failure. */
+  async function silentUnload(umo: string): Promise<void> {
+    const raw = await postSilent(
+      "spcode/project-unload",
+      { umo },
+      DEFAULT_TIMEOUT_MS,
+    );
+    raiseOnFailure(raw, umo);
+  }
+
+  /** Silent codegraph set. Throws ProjectLoadError on failure. */
+  async function silentCodegraphSet(
+    umo: string,
+    directory: string,
+  ): Promise<void> {
+    const raw = await postSilent(
+      "spcode/codegraph-set",
+      { umo, directory },
+      200_000, // MCP restart timeout is 180 s on the backend
+    );
+    raiseOnFailure(raw, umo);
+  }
+
+  return { silentLoadDirectory, silentUnload, silentCodegraphSet };
+}
