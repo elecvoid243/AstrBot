@@ -422,7 +422,7 @@
       ref="codegraphLoadDialogRef"
       :wake-prefixes="wakePrefixes"
       command-mode="codegraph"
-      @submit="handleCodegraphSubmit"
+      @submit="handleProjectLoadSubmit"
     />
 
     <CommentsPreviewDialog
@@ -456,6 +456,7 @@ import StyledMenu from "@/components/shared/StyledMenu.vue";
 import CommandSuggestion from "./CommandSuggestion.vue";
 import ProjectLoadMenuItem from "./ProjectLoadMenuItem.vue";
 import ProjectLoadDialog from "./ProjectLoadDialog.vue";
+import type { ProjectLoadSubmitPayload } from "./ProjectLoadDialog.vue";
 import SpcodeProjectIndicator from "./SpcodeProjectIndicator.vue";
 import SpcodeCodegraphChip from "./SpcodeCodegraphChip.vue";
 import SpcodeVivadoStatusChip from "./SpcodeVivadoStatusChip.vue";
@@ -465,6 +466,12 @@ import CommentsPreviewDialog from "./CommentsPreviewDialog.vue";
 import { useSpcodeProjectStatus } from "@/composables/useSpcodeProjectStatus";
 import { useSpcodeCodegraphStatus } from "@/composables/useSpcodeCodegraphStatus";
 import { useSpcodeVivadoStatus } from "@/composables/useSpcodeVivadoStatus";
+import { useSpcodeOperationProgress } from "@/composables/useSpcodeOperationProgress";
+import {
+  ProjectLoadError,
+  useSpcodeSilentOps,
+} from "@/composables/useSpcodeProjectAutoLoad";
+import { useToastStore } from "@/stores/toast";
 import { useFileComments } from "@/composables/useFileComments";
 import { useConfirmDialog } from "@/utils/confirmDialog";
 import { useSpcodeProjectLoad } from "@/composables/useSpcodeProjectLoad";
@@ -1176,35 +1183,69 @@ function applyOptimisticCodegraphStatus(text: string): void {
 }
 
 /**
- * Handle a spcode project-load submission: write the constructed command
- * text into the prompt and re-emit the existing `send` event.
+ * Handle a spcode project-load dialog submission: dispatch the silent
+ * webapi call (no chat-history pollution) and drive the chip's live
+ * progress via the operation-progress poller.
  *
- * This relies on Vue 3's synchronous reactivity: assigning to
- * `localPrompt.value` triggers the `update:prompt` emit on the same
- * tick, so the subsequent `emit("send")` sees the updated value in
- * `Chat.vue:sendCurrentMessage` -> `draft.value`.
- *
- * Before dispatching the command, the spcode chip is updated
- * optimistically (see :func:`applyOptimisticProjectStatus`) so the
- * user sees an instant flip. The authoritative HTTP refresh fires
- * from ``Chat.vue:onStreamEnd`` once the bot's response finishes,
- * which corrects any drift (e.g. when the load fails on the backend).
+ * Fallback: without a current session there is no umo to address the
+ * silent POST at, so we keep the previous behavior — write the legacy
+ * command text into the prompt and emit `send` (Chat.vue.sendSystemCommand
+ * creates the session lazily).
  */
-function handleProjectLoadSubmit(text: string): void {
-  applyOptimisticProjectStatus(text);
-  localPrompt.value = text;
-  emit("send");
-}
-
-/**
- * Handle a codegraph ``set`` submission. Follows the same pattern as
- * ``handleProjectLoadSubmit`` — write the command into the prompt,
- * optimistically update the chip state, and dispatch.
- */
-function handleCodegraphSubmit(text: string): void {
-  applyOptimisticCodegraphStatus(text);
-  localPrompt.value = text;
-  emit("send");
+async function handleProjectLoadSubmit(
+  payload: ProjectLoadSubmitPayload,
+): Promise<void> {
+  const session = props.currentSession;
+  if (!session) {
+    if (payload.mode === "codegraph") {
+      applyOptimisticCodegraphStatus(payload.legacyText);
+    } else {
+      applyOptimisticProjectStatus(payload.legacyText);
+    }
+    localPrompt.value = payload.legacyText;
+    emit("send");
+    return;
+  }
+  const umo = buildWebchatUmoDetails(
+    session.session_id,
+    Boolean(session.is_group),
+  ).umo;
+  operationProgress.startPolling(umo);
+  try {
+    if (payload.mode === "unload") {
+      await silentOps.silentUnload(umo);
+    } else if (payload.mode === "codegraph") {
+      await silentOps.silentCodegraphSet(umo, payload.path!);
+      await codegraphStatus.refresh();
+    } else {
+      await silentOps.silentLoadDirectory({
+        umo,
+        directory: payload.path!,
+        noAgentsmd: payload.noAgentsmd,
+        noCodegraph: payload.noCodegraph,
+        force: payload.force,
+        create: payload.create,
+        gitInit: payload.gitInit,
+      });
+    }
+  } catch (err) {
+    // The chip's failed state + detail popover come from the progress ref;
+    // the toast carries the one-line summary (last ❌ message) for
+    // immediate visibility.
+    const messages = (err as ProjectLoadError)?.data?.substep_messages ?? [];
+    const summary =
+      [...messages].reverse().find((m) => m.startsWith("❌")) ??
+      String((err as Error)?.message ?? err);
+    toastStore.add({
+      message: summary,
+      color: "error",
+      multiLine: true,
+      timeout: 6000,
+    });
+  } finally {
+    // Authoritative chip state, whatever the outcome.
+    await spcodeStatus.refresh(umo);
+  }
 }
 
 /**
@@ -1511,6 +1552,10 @@ function openCodegraphLoadDialog(): void {
 // /project* command present) flips to true. Same shape as before, just
 // reading from the unified composable.
 const spcodeStatus = useSpcodeProjectStatus();
+// Silent-operation driver + clients for the project-load dialog (2026-08-06).
+const operationProgress = useSpcodeOperationProgress();
+const silentOps = useSpcodeSilentOps();
+const toastStore = useToastStore();
 watch(
   showSpcodeIndicator,
   async (visible) => {
