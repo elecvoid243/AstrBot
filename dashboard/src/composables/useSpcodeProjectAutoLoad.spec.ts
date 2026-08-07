@@ -24,7 +24,7 @@ function makeProject(overrides: Partial<Project> = {}): Project {
     title: "demo",
     emoji: "📁",
     description: "",
-    workspace_type: "project",
+    workspace_type: "custom",
     workspace_path: "F:/proj/",
     spcode_auto_load: true,
     spcode_force: false,
@@ -109,13 +109,15 @@ describe("useSpcodeProjectAutoLoad silentLoad", () => {
     expect(postMock()).toHaveBeenCalledTimes(2);
   });
 
-  it("returns null for non-project workspaces without any POST", async () => {
+  it("returns null for non-custom workspaces without any POST", async () => {
     const { silentLoad } = useSpcodeProjectAutoLoad();
-    const data = await silentLoad({
-      project: makeProject({ workspace_type: "session" }),
-      umo: "u1",
-    });
-    expect(data).toBeNull();
+    for (const workspace_type of ["session", "project"] as const) {
+      const data = await silentLoad({
+        project: makeProject({ workspace_type }),
+        umo: "u1",
+      });
+      expect(data).toBeNull();
+    }
     expect(postMock()).not.toHaveBeenCalled();
   });
 });

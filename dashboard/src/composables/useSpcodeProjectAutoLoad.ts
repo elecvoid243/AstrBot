@@ -5,7 +5,7 @@
 // watcher (Task 14) every time the active session changes.
 //
 // Behavior contract (mirrors spcode endpoint spec):
-//   - workspace_type !== "project" -> return null (no-op)
+//   - workspace_type !== "custom"  -> return null (no-op)
 //   - spcode_auto_load === false    -> return null (no-op)
 //   - missing workspace_path        -> return null (no-op)
 //   - same (project, umo) concurrent calls share one in-flight promise
@@ -159,7 +159,11 @@ export function useSpcodeProjectAutoLoad() {
     req: SilentLoadRequest,
   ): Promise<ProjectLoadData | null> {
     const { project, umo } = req;
-    if (project.workspace_type !== "project") return null;
+    // spcode integration lives on the CUSTOM workspace type (2026-08-07):
+    // custom's workspace_path is the session cwd AND the spcode mount
+    // target, which is the only coherent binding. "project"-type paths
+    // never affect cwd, so spcode no longer attaches to them.
+    if (project.workspace_type !== "custom") return null;
     if (project.spcode_auto_load === false) return null;
     if (!project.workspace_path) return null;
 

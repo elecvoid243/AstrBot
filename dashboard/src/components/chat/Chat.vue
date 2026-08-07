@@ -1763,7 +1763,7 @@ async function tryAutoLoadSpcodeForSession(
 ): Promise<void> {
   const project = resolveProjectForAutoLoad(sessionId);
   if (!project) return;
-  if (project.workspace_type !== "project") return;
+  if (project.workspace_type !== "custom") return;
   if (project.spcode_auto_load === false) return;
   if (!project.workspace_path) return;
 

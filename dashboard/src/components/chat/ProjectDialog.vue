@@ -20,10 +20,10 @@
                     hide-details
                     class="mb-1"
                     persistent-hint
-                    :hint="form.workspace_type === 'project' ? tm('project.spcode.pathHint') : ''"
+                    :hint="form.workspace_type === 'custom' ? tm('project.spcode.pathHint') : ''"
                 />
-                <v-divider v-if="form.workspace_type === 'project'" class="my-4" />
-                <div v-if="form.workspace_type === 'project'" class="spcode-section">
+                <v-divider v-if="form.workspace_type === 'custom'" class="my-4" />
+                <div v-if="form.workspace_type === 'custom'" class="spcode-section">
                     <div class="spcode-section-title">{{ tm('project.spcode.sectionTitle') }}</div>
                     <v-switch v-model="form.spcode_auto_load" :label="tm('project.spcode.autoLoad')" color="primary"
                         density="comfortable" hide-details class="mb-2" />

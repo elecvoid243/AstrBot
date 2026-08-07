@@ -22,7 +22,7 @@
       </div>
       <SpcodeProjectStatusChip
         v-if="
-          project?.workspace_type === 'project' && project.workspace_path
+          project?.workspace_type === 'custom' && project.workspace_path
         "
         :umo="props.umo ?? null"
         :workspace-path="project.workspace_path"

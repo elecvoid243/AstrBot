@@ -18,7 +18,8 @@ import { pluginExtensionApi } from "@/api/v1";
 const baseProject: Project = {
   project_id: "p-1",
   title: "T",
-  workspace_type: "project",
+  // spcode auto-load binds to the custom workspace type (2026-08-07).
+  workspace_type: "custom",
   workspace_path: "/abs/repo",
   spcode_auto_load: true,
   spcode_force: false,
@@ -83,13 +84,15 @@ beforeEach(() => {
 });
 
 describe("useSpcodeProjectAutoLoad", () => {
-  it("FT-1: returns null for workspace_type=session", async () => {
+  it("FT-1: returns null for workspace_type=session and workspace_type=project", async () => {
     const { silentLoad } = useSpcodeProjectAutoLoad();
-    const r = await silentLoad({
-      project: { ...baseProject, workspace_type: "session" },
-      umo: "u1",
-    });
-    expect(r).toBeNull();
+    for (const workspace_type of ["session", "project"] as const) {
+      const r = await silentLoad({
+        project: { ...baseProject, workspace_type },
+        umo: "u1",
+      });
+      expect(r).toBeNull();
+    }
     expect(pluginExtensionApi.post).not.toHaveBeenCalled();
   });
 
@@ -143,16 +146,23 @@ describe("useSpcodeProjectAutoLoad", () => {
     expect(secondCall[1].force).toBe(true);
   });
 
-  it("FT-6: no_project_loaded + mismatch + spcode_force=false throws", async () => {
+  it("FT-6: no_project_loaded + mismatch retries with force even when spcode_force=false", async () => {
+    // 2026-08-07: binding is the source of truth — the force retry no
+    // longer requires the spcode_force flag.
     mockPost(
       failurePayload("no_project_loaded", {
         previous_directory: "/old",
       }),
     );
+    mockPost(successPayload());
     const { silentLoad } = useSpcodeProjectAutoLoad();
-    await expect(
-      silentLoad({ project: baseProject, umo: "u1" }),
-    ).rejects.toBeInstanceOf(ProjectLoadError);
+    const r = await silentLoad({ project: baseProject, umo: "u1" });
+    expect(r?.loaded).toBe(true);
+    expect(pluginExtensionApi.post).toHaveBeenCalledTimes(2);
+    const secondCall = (
+      pluginExtensionApi.post as ReturnType<typeof vi.fn>
+    ).mock.calls[1];
+    expect(secondCall[1].force).toBe(true);
   });
 
   it("FT-7: git_error throws ProjectLoadError with reason git_error", async () => {
