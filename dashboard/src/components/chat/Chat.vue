@@ -818,6 +818,7 @@ import {
   useSpcodeProjectAutoLoad,
   ProjectLoadError,
 } from "@/composables/useSpcodeProjectAutoLoad";
+import { useSpcodeOperationProgress } from "@/composables/useSpcodeOperationProgress";
 import { useSpcodeCodegraphStatus } from "@/composables/useSpcodeCodegraphStatus";
 import { useSpcodeVivadoStatus } from "@/composables/useSpcodeVivadoStatus";
 import { useSpcodePlanMode } from "@/composables/useSpcodePlanMode";
@@ -893,6 +894,9 @@ const { tm } = useModuleI18n("features/chat");
 // the plugin's HTTP API.
 const spcodeStatus = useSpcodeProjectStatus();
 const { silentLoad } = useSpcodeProjectAutoLoad();
+// Operation-progress poller: started around silentLoad so the input-area
+// chip shows live step progress during auto-load too (2026-08-06).
+const operationProgress = useSpcodeOperationProgress();
 const codegraphStatus = useSpcodeCodegraphStatus();
 const vivadoStatus = useSpcodeVivadoStatus();
 // Plan/build mode singleton. Mirrors the spcodeStatus lifecycle so
@@ -1764,6 +1768,7 @@ async function tryAutoLoadSpcodeForSession(
   if (!project.workspace_path) return;
 
   try {
+    operationProgress.startPolling(umo);
     const data = await silentLoad({ project, umo });
     if (data?.loaded) {
       await spcodeStatus.refresh(umo);
