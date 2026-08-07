@@ -1,0 +1,109 @@
+// dashboard/src/composables/useSpcodeOperationProgress.ts
+//
+// Singleton polling driver for the spcode silent-operation progress
+// endpoint (GET /spcode/operation-progress). Any silent POST (project
+// load / unload / codegraph set) calls startPolling(umo) before firing;
+// the chips read `progress` to render their loading / failed states.
+//
+// Author: elecvoid243 @ 2026-08-06
+
+import { ref } from "vue";
+import { pluginExtensionApi } from "@/api/v1";
+
+export type OperationKind =
+  | "project_load"
+  | "project_unload"
+  | "codegraph_set";
+export type OperationStatus = "idle" | "running" | "done" | "failed";
+
+export interface OperationProgress {
+  status: OperationStatus;
+  operation: OperationKind | null;
+  currentStep: string;
+  messages: string[];
+  reason: string | null;
+}
+
+const IDLE: OperationProgress = {
+  status: "idle",
+  operation: null,
+  currentStep: "",
+  messages: [],
+  reason: null,
+};
+
+const progress = ref<OperationProgress>({ ...IDLE });
+
+const POLL_INTERVAL_MS = 500;
+const POLL_TIMEOUT_MS = 200_000; // codegraph MCP restart can take 180 s
+let timer: ReturnType<typeof setTimeout> | null = null;
+let deadline = 0;
+
+function stopTimer(): void {
+  if (timer !== null) {
+    clearTimeout(timer);
+    timer = null;
+  }
+}
+
+function scheduleNext(umo: string): void {
+  timer = setTimeout(() => void pollOnce(umo), POLL_INTERVAL_MS);
+}
+
+async function pollOnce(umo: string): Promise<void> {
+  let terminal = false;
+  try {
+    const res = await pluginExtensionApi.get<{
+      status: OperationStatus;
+      operation?: OperationKind;
+      current_step?: string;
+      messages?: string[];
+      reason?: string | null;
+    }>("spcode/operation-progress", { params: { umo } });
+    const data = res.data?.data;
+    if (data && data.status !== "idle") {
+      progress.value = {
+        status: data.status,
+        operation: data.operation ?? null,
+        currentStep: data.current_step ?? "",
+        messages: data.messages ?? [],
+        reason: data.reason ?? null,
+      };
+      terminal = data.status === "done" || data.status === "failed";
+    }
+  } catch {
+    // Network hiccup: keep polling until the deadline; the POST's own
+    // error handling covers real failures.
+  }
+  if (!terminal && Date.now() > deadline) {
+    progress.value = { ...progress.value, status: "failed", reason: "network_timeout" };
+    terminal = true;
+  }
+  if (terminal) {
+    stopTimer();
+    return;
+  }
+  scheduleNext(umo);
+}
+
+export function useSpcodeOperationProgress() {
+  /** Reset to running and poll every 500 ms until a terminal state. */
+  function startPolling(umo: string): void {
+    stopTimer();
+    progress.value = { ...IDLE, status: "running" };
+    deadline = Date.now() + POLL_TIMEOUT_MS;
+    void pollOnce(umo); // immediate first poll; chain continues via scheduleNext
+  }
+
+  function stopPolling(): void {
+    stopTimer();
+  }
+
+  /** Stop polling and reset to idle (session switch / manual dismiss). */
+  function clear(): void {
+    stopPolling();
+    progress.value = { ...IDLE };
+  }
+
+  return { progress, startPolling, stopPolling, clear };
+}
