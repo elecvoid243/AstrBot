@@ -2199,6 +2199,14 @@ async function sendCurrentMessage() {
           : null;
         await loadProjectSessions(targetProjectId);
         selectedProjectId.value = null;
+        // spcode auto-load trigger for the creation path (2026-08-07):
+        // the currSessionId watcher fires inside newSession() before the
+        // sessions list / reverse map are populated, so it misses. This
+        // explicit call mirrors the selectSession backstop — at this
+        // point both resolveCurrentUmo and resolveProjectForAutoLoad
+        // have their inputs ready.
+        const umo = resolveCurrentUmo(sessionId);
+        if (umo) void tryAutoLoadSpcodeForSession(umo, sessionId);
       }
     }
 

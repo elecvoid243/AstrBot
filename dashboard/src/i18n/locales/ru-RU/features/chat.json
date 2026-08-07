@@ -369,7 +369,8 @@
       "noProject": "Проект не загружен",
       "loading": "Загрузка…",
       "failed": "Ошибка загрузки",
-      "failedDetailTitle": "Подробности ошибки"
+      "failedDetailTitle": "Подробности ошибки",
+      "sendLocked": "Проект загружается — отправка будет доступна после завершения"
     },
     "diffPreview": {
       "summary": {

@@ -92,4 +92,37 @@ describe("useSpcodeOperationProgress", () => {
     clear();
     expect(progress.value.status).toBe("idle");
   });
+
+  it("isProjectOpRunning locks only running project load/unload", async () => {
+    const { progress, isProjectOpRunning, clear } =
+      useSpcodeOperationProgress();
+
+    const set = (
+      status: "idle" | "running" | "done" | "failed",
+      operation: "project_load" | "project_unload" | "codegraph_set" | null,
+    ) => {
+      progress.value = {
+        status,
+        operation,
+        currentStep: "",
+        messages: [],
+        reason: null,
+      };
+    };
+
+    set("running", "project_load");
+    expect(isProjectOpRunning.value).toBe(true);
+    set("running", "project_unload");
+    expect(isProjectOpRunning.value).toBe(true);
+    // codegraph_set does not touch the system prompt -> no lock
+    set("running", "codegraph_set");
+    expect(isProjectOpRunning.value).toBe(false);
+    // terminal states unlock (failed = no prompt change happened)
+    set("done", "project_load");
+    expect(isProjectOpRunning.value).toBe(false);
+    set("failed", "project_load");
+    expect(isProjectOpRunning.value).toBe(false);
+    clear();
+    expect(isProjectOpRunning.value).toBe(false);
+  });
 });

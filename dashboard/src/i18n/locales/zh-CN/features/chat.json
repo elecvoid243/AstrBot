@@ -380,7 +380,8 @@
       "noProject": "未加载项目",
       "loading": "加载中…",
       "failed": "加载失败",
-      "failedDetailTitle": "失败详情"
+      "failedDetailTitle": "失败详情",
+      "sendLocked": "项目加载中，完成后可发送"
     },
     "diffPreview": {
       "summary": {

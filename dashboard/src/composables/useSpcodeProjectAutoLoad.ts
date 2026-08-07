@@ -71,6 +71,20 @@ export interface SilentLoadRequest {
 const DEFAULT_TIMEOUT_MS = 30_000;
 const inflight = new Map<string, Promise<ProjectLoadData | null>>();
 
+/**
+ * Normalize a path for equality comparison ONLY (never sent to the
+ * backend — the server resolves the original workspace_path itself).
+ * Handles trailing separators, mixed / and \, and Windows drive-letter
+ * case so "same directory" always compares equal (2026-08-07).
+ */
+function normalizePathForCompare(p: string): string {
+  return p
+    .trim()
+    .replace(/[\\/]+$/, "")
+    .replace(/\//g, "\\")
+    .toLowerCase();
+}
+
 function inflightKey(project: Project, umo: string): string {
   return `${project.project_id}::${umo}`;
 }
@@ -154,25 +168,29 @@ export function useSpcodeProjectAutoLoad() {
     if (existing) return existing;
 
     const promise = (async (): Promise<ProjectLoadData | null> => {
-      let resp = await postLoad(req, project.spcode_force === true);
+      // First attempt never forces: the server's idempotent rejection
+      // (no_project_loaded + previous_directory) is the fast path for
+      // "already in the desired state" (2026-08-07).
+      let resp = await postLoad(req, false);
 
       if (resp.success) return resp.data;
 
-      // Idempotent re-entry: server says "already loaded", but the loaded
-      // directory matches ours -- treat as success.
+      // Idempotent re-entry: server says "already loaded", and the loaded
+      // directory is ours after path normalization -- treat as success.
       if (
         resp.reason === "no_project_loaded" &&
-        resp.data.previous_directory === project.workspace_path
+        resp.data.previous_directory &&
+        normalizePathForCompare(resp.data.previous_directory) ===
+          normalizePathForCompare(project.workspace_path!)
       ) {
         return { ...resp.data, loaded: true };
       }
 
-      // Mismatch + force=true: retry once with force=true.
-      if (
-        !resp.success &&
-        resp.reason === "no_project_loaded" &&
-        project.spcode_force === true
-      ) {
+      // True mismatch: the session's bound project is the source of
+      // truth (design 2026-08-07), so always retry once with force=true —
+      // regardless of the project's spcode_force flag, which only governs
+      // the manual dialog path now.
+      if (!resp.success && resp.reason === "no_project_loaded") {
         resp = await postLoad(req, true);
         if (resp.success) return resp.data;
       }

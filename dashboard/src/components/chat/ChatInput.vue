@@ -392,14 +392,21 @@
               {{ tm("input.stopGenerating") }}
             </v-tooltip>
           </v-btn>
-          <v-btn
-            v-else
-            @click="handleSendClick"
-            icon="mdi-arrow-up"
-            variant="tonal"
-            :disabled="!canSend"
-            class="send-btn input-action-btn"
-          />
+          <v-tooltip location="top" :disabled="!sendLocked">
+            <template #activator="{ props: tipProps }">
+              <span v-bind="tipProps" class="send-btn-wrap">
+                <v-btn
+                  v-if="!(isRunning && !canSend)"
+                  @click="handleSendClick"
+                  icon="mdi-arrow-up"
+                  variant="tonal"
+                  :disabled="!canSend || sendLocked"
+                  class="send-btn input-action-btn"
+                />
+              </span>
+            </template>
+            <span>{{ tm("spcodeProjectLoad.indicator.sendLocked") }}</span>
+          </v-tooltip>
         </div>
       </div>
     </div>
@@ -1010,7 +1017,7 @@ function handleKeyDown(e: KeyboardEvent) {
       localPrompt.value = "";
       return;
     }
-    if (canSend.value) {
+    if (canSend.value && !sendLocked.value) {
       applyOptimisticCodegraphStatus(localPrompt.value);
       emit("send");
     }
@@ -1132,6 +1139,7 @@ function applyOptimisticProjectStatus(text: string): void {
  * before emitting the send event.
  */
 function handleSendClick(): void {
+  if (sendLocked.value) return; // project load/unload in flight
   applyOptimisticCodegraphStatus(localPrompt.value);
   emit("send");
 }
@@ -1554,6 +1562,9 @@ function openCodegraphLoadDialog(): void {
 const spcodeStatus = useSpcodeProjectStatus();
 // Silent-operation driver + clients for the project-load dialog (2026-08-06).
 const operationProgress = useSpcodeOperationProgress();
+// Send lock (2026-08-07): block sending while a project load/unload is
+// rewriting the system prompt, to keep prompt-cache continuity.
+const sendLocked = operationProgress.isProjectOpRunning;
 const silentOps = useSpcodeSilentOps();
 const toastStore = useToastStore();
 watch(

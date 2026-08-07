@@ -7,7 +7,7 @@
 //
 // Author: elecvoid243 @ 2026-08-06
 
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import { pluginExtensionApi } from "@/api/v1";
 
 export type OperationKind =
@@ -33,6 +33,22 @@ const IDLE: OperationProgress = {
 };
 
 const progress = ref<OperationProgress>({ ...IDLE });
+
+/**
+ * Send-lock gate (2026-08-07): true while a project load/unload is in
+ * flight. These two operations rewrite the system prompt (AGENTS.md
+ * injection), so sending mid-load would break prompt-cache continuity
+ * between turns. codegraph_set only restarts the MCP server and does
+ * NOT lock sending. Failed/timeout states deliberately do not lock:
+ * a failed load means no prompt change happened, so sending is safe.
+ */
+const isProjectOpRunning = computed(() => {
+  const p = progress.value;
+  return (
+    p.status === "running" &&
+    (p.operation === "project_load" || p.operation === "project_unload")
+  );
+});
 
 const POLL_INTERVAL_MS = 500;
 const POLL_TIMEOUT_MS = 200_000; // codegraph MCP restart can take 180 s
@@ -105,5 +121,5 @@ export function useSpcodeOperationProgress() {
     progress.value = { ...IDLE };
   }
 
-  return { progress, startPolling, stopPolling, clear };
+  return { progress, isProjectOpRunning, startPolling, stopPolling, clear };
 }

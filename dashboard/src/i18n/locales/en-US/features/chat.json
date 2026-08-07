@@ -380,7 +380,8 @@
       "noProject": "No project loaded",
       "loading": "Loading…",
       "failed": "Load failed",
-      "failedDetailTitle": "Failure details"
+      "failedDetailTitle": "Failure details",
+      "sendLocked": "Project is loading — sending will unlock when it finishes"
     },
     "diffPreview": {
       "summary": {
