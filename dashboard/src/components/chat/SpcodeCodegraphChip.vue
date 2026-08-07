@@ -20,6 +20,7 @@
 import { computed } from "vue";
 import { useSpcodeCodegraphStatus } from "@/composables/useSpcodeCodegraphStatus";
 import { useSpcodeProjectStatus } from "@/composables/useSpcodeProjectStatus";
+import { useSpcodeOperationProgress } from "@/composables/useSpcodeOperationProgress";
 
 const emit = defineEmits<{
   (e: "open-codegraph-dialog"): void;
@@ -27,6 +28,17 @@ const emit = defineEmits<{
 
 const { status } = useSpcodeCodegraphStatus();
 const projectStatus = useSpcodeProjectStatus();
+const { progress } = useSpcodeOperationProgress();
+
+// codegraph_set operations drive THIS chip's loading/failed display
+// (2026-08-06); project load/unload stays on SpcodeProjectIndicator.
+const isCgOp = computed(() => progress.value.operation === "codegraph_set");
+const isSetting = computed(
+  () => isCgOp.value && progress.value.status === "running",
+);
+const isSetFailed = computed(
+  () => isCgOp.value && progress.value.status === "failed",
+);
 
 const mcpOk = computed<boolean>(() => status.value.mcpRunning);
 const hasProject = computed<boolean>(
@@ -41,6 +53,8 @@ const projectMatch = computed<boolean>(() => {
 });
 
 const icon = computed<string>(() => {
+  if (isSetting.value) return "mdi-loading";
+  if (isSetFailed.value) return "mdi-alert-circle-outline";
   if (!mcpOk.value) return "mdi-database-off-outline";
   if (!hasProject.value) return "mdi-database-remove-outline";
   if (!projectMatch.value) return "mdi-alert-circle-outline";
@@ -48,6 +62,8 @@ const icon = computed<string>(() => {
 });
 
 const label = computed<string>(() => {
+  if (isSetting.value) return progress.value.currentStep || "Codegraph 设置中…";
+  if (isSetFailed.value) return "Codegraph 设置失败";
   if (!mcpOk.value) return "Codegraph 未启动";
   if (!hasProject.value) return "Codegraph 未加载";
   if (!projectMatch.value) return "Codegraph 路径不匹配";
@@ -55,6 +71,10 @@ const label = computed<string>(() => {
 });
 
 const tooltipText = computed<string>(() => {
+  if (isSetting.value) return label.value;
+  if (isSetFailed.value) {
+    return progress.value.messages.at(-1) ?? label.value;
+  }
   if (!mcpOk.value) return "MCP 未运行, codegraph 不可用";
   if (!hasProject.value) return "Codegraph 未加载项目";
   if (!projectMatch.value) {
@@ -70,7 +90,14 @@ const tooltipText = computed<string>(() => {
   return `Codegraph 已连接 · ${status.value.activeProject}`;
 });
 
-const isEmptyState = computed<boolean>(() => !mcpOk.value || !hasProject.value);
+const isEmptyState = computed<boolean>(
+  () => (!mcpOk.value || !hasProject.value) && !isSetting.value && !isSetFailed.value,
+);
+
+function onClick(): void {
+  if (isSetting.value) return; // one silent operation at a time
+  emit("open-codegraph-dialog");
+}
 </script>
 
 <template>
@@ -79,9 +106,15 @@ const isEmptyState = computed<boolean>(() => !mcpOk.value || !hasProject.value);
       <button
         v-bind="tipProps"
         type="button"
-        :class="['sp-status-badge', { 'sp-status-badge--empty': isEmptyState }]"
+        :class="[
+          'sp-status-badge',
+          {
+            'sp-status-badge--empty': isEmptyState,
+            'sp-status-badge--failed': isSetFailed,
+          },
+        ]"
         :aria-label="tooltipText"
-        @click="emit('open-codegraph-dialog')"
+        @click="onClick"
       >
         <span
           class="sp-status-badge__dot"
@@ -151,6 +184,25 @@ const isEmptyState = computed<boolean>(() => !mcpOk.value || !hasProject.value);
 .sp-status-badge--empty .sp-status-badge__dot {
   background: transparent;
   box-shadow: inset 0 0 0 1.5px var(--sp-status-dot-neutral);
+}
+
+/* Silent-operation progress states (2026-08-06) */
+.sp-status-badge--failed {
+  color: rgb(var(--v-theme-error));
+}
+
+.sp-status-badge--failed .sp-status-badge__icon {
+  color: rgb(var(--v-theme-error));
+}
+
+.sp-status-badge .mdi-loading {
+  animation: sp-rotate 1s linear infinite;
+}
+
+@keyframes sp-rotate {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .sp-status-badge__icon {
