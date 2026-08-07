@@ -232,8 +232,6 @@
       "pathHint": "必须是绝对路径,且目录存在。spcode 会在该目录下注入 AGENTS.md 并加载 codegraph。",
       "autoLoad": "打开会话时静默加载",
       "autoLoadHint": "该文件夹下的会话被打开/创建时,会自动调用 /project load(不向聊天框产生消息)。",
-      "force": "强制覆盖已加载项目",
-      "forceHint": "若当前会话已通过 /project load 加载了其他目录,自动切换。",
       "noCodegraph": "仅加载 AGENTS.md(跳过 codegraph)",
       "noCodegraphHint": "适合轻量场景,加载更快但缺少代码图谱索引。",
       "chipLoaded": "已加载: {directory}",

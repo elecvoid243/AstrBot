@@ -2113,7 +2113,6 @@ async function saveProject(formData: ProjectFormData, projectId?: string) {
         formData.workspace_type,
         formData.workspace_path,
         formData.spcode_auto_load,
-        formData.spcode_force,
         formData.spcode_no_codegraph,
       );
     } else {
@@ -2124,7 +2123,6 @@ async function saveProject(formData: ProjectFormData, projectId?: string) {
         formData.workspace_type,
         formData.workspace_path,
         formData.spcode_auto_load,
-        formData.spcode_force,
         formData.spcode_no_codegraph,
       );
     }

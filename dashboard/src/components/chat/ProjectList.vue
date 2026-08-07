@@ -153,7 +153,6 @@ export interface Project {
   workspace_path?: string | null;
   resolved_workspace_path?: string | null;
   spcode_auto_load?: boolean;
-  spcode_force?: boolean;
   spcode_no_codegraph?: boolean;
   created_at: string;
   updated_at: string;

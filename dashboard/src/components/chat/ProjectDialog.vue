@@ -28,9 +28,6 @@
                     <v-switch v-model="form.spcode_auto_load" :label="tm('project.spcode.autoLoad')" color="primary"
                         density="comfortable" hide-details class="mb-2" />
                     <div class="spcode-section-hint">{{ tm('project.spcode.autoLoadHint') }}</div>
-                    <v-switch v-model="form.spcode_force" :label="tm('project.spcode.force')" color="primary"
-                        density="comfortable" hide-details class="mb-2 mt-3" />
-                    <div class="spcode-section-hint">{{ tm('project.spcode.forceHint') }}</div>
                     <v-switch v-model="form.spcode_no_codegraph" :label="tm('project.spcode.noCodegraph')" color="primary"
                         density="comfortable" hide-details class="mb-2 mt-3" />
                     <div class="spcode-section-hint">{{ tm('project.spcode.noCodegraphHint') }}</div>
@@ -69,7 +66,6 @@ export interface Project {
     workspace_path?: string | null;
     resolved_workspace_path?: string | null;
     spcode_auto_load?: boolean;
-    spcode_force?: boolean;
     spcode_no_codegraph?: boolean;
     created_at: string;
     updated_at: string;
@@ -82,7 +78,6 @@ export interface ProjectFormData {
     workspace_type: WorkspaceType;
     workspace_path: string;
     spcode_auto_load?: boolean;
-    spcode_force?: boolean;
     spcode_no_codegraph?: boolean;
 }
 
@@ -117,7 +112,6 @@ const form = ref<ProjectFormData>({
     workspace_type: 'project',
     workspace_path: '',
     spcode_auto_load: true,
-    spcode_force: false,
     spcode_no_codegraph: false,
 });
 const workspaceTypeItems = computed(() => [
@@ -144,7 +138,6 @@ watch(() => props.modelValue, (newVal) => {
                 workspace_type: props.project.workspace_type || 'session',
                 workspace_path: props.project.workspace_path || '',
                 spcode_auto_load: props.project.spcode_auto_load !== false,
-                spcode_force: props.project.spcode_force === true,
                 spcode_no_codegraph: props.project.spcode_no_codegraph === true,
             };
         } else {
@@ -156,7 +149,6 @@ watch(() => props.modelValue, (newVal) => {
                 workspace_type: 'project',
                 workspace_path: '',
                 spcode_auto_load: true,
-                spcode_force: false,
                 spcode_no_codegraph: false,
             };
         }

@@ -27,7 +27,6 @@ function makeProject(overrides: Partial<Project> = {}): Project {
     workspace_type: "custom",
     workspace_path: "F:/proj/",
     spcode_auto_load: true,
-    spcode_force: false,
     spcode_no_codegraph: false,
     created_at: "",
     updated_at: "",
@@ -63,7 +62,7 @@ describe("useSpcodeProjectAutoLoad silentLoad", () => {
     expect(postMock().mock.calls[0][1].force).toBe(false);
   });
 
-  it("retries with force=true on true mismatch even without spcode_force", async () => {
+  it("retries with force=true on true mismatch", async () => {
     postMock()
       .mockResolvedValueOnce(
         envelope({

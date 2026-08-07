@@ -12,8 +12,8 @@
 //   - response success -> return data
 //   - response reason "no_project_loaded" + previous_directory matches
 //     workspace_path -> treat as success (idempotent re-entry)
-//   - response reason "no_project_loaded" + mismatch + spcode_force=true
-//     -> retry with force=true
+//   - response reason "no_project_loaded" + true mismatch -> retry once
+//     with force=true (the bound project is the source of truth)
 //   - any other failure -> throw ProjectLoadError
 //
 // Author: elecvoid243
@@ -191,9 +191,7 @@ export function useSpcodeProjectAutoLoad() {
       }
 
       // True mismatch: the session's bound project is the source of
-      // truth (design 2026-08-07), so always retry once with force=true —
-      // regardless of the project's spcode_force flag, which only governs
-      // the manual dialog path now.
+      // truth (design 2026-08-07), so always retry once with force=true.
       if (!resp.success && resp.reason === "no_project_loaded") {
         resp = await postLoad(req, true);
         if (resp.success) return resp.data;

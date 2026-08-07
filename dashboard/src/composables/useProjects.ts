@@ -36,7 +36,6 @@ export function useProjects() {
         workspaceType: WorkspaceType = 'project',
         workspacePath?: string,
         spcodeAutoLoad?: boolean,
-        spcodeForce?: boolean,
         spcodeNoCodegraph?: boolean
     ) {
         try {
@@ -47,7 +46,6 @@ export function useProjects() {
                 workspace_type: workspaceType,
                 workspace_path: workspacePath,
                 spcode_auto_load: spcodeAutoLoad,
-                spcode_force: spcodeForce,
                 spcode_no_codegraph: spcodeNoCodegraph
             });
             if (res.data.status === 'ok') {
@@ -69,7 +67,6 @@ export function useProjects() {
         workspaceType?: WorkspaceType,
         workspacePath?: string,
         spcodeAutoLoad?: boolean,
-        spcodeForce?: boolean,
         spcodeNoCodegraph?: boolean
     ) {
         try {
@@ -80,7 +77,6 @@ export function useProjects() {
                 workspace_type: workspaceType,
                 workspace_path: workspacePath,
                 spcode_auto_load: spcodeAutoLoad,
-                spcode_force: spcodeForce,
                 spcode_no_codegraph: spcodeNoCodegraph
             });
             if (res.data.status === 'ok') {

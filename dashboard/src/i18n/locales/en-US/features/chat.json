@@ -232,8 +232,6 @@
       "pathHint": "Must be an absolute path to an existing directory. spcode will inject AGENTS.md and load codegraph in that directory.",
       "autoLoad": "Silently load when opening a session",
       "autoLoadHint": "When a session under this folder is opened/created, automatically call /project load (no chat history pollution).",
-      "force": "Force overwrite already-loaded project",
-      "forceHint": "If the current session has already loaded another directory via /project load, automatically switch.",
       "noCodegraph": "Only load AGENTS.md (skip codegraph)",
       "noCodegraphHint": "Lighter load: faster but no code graph index.",
       "chipLoaded": "Loaded: {directory}",

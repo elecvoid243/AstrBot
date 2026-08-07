@@ -22,7 +22,6 @@ const baseProject: Project = {
   workspace_type: "custom",
   workspace_path: "/abs/repo",
   spcode_auto_load: true,
-  spcode_force: false,
   spcode_no_codegraph: false,
   created_at: "",
   updated_at: "",
@@ -126,29 +125,9 @@ describe("useSpcodeProjectAutoLoad", () => {
     expect(pluginExtensionApi.post).toHaveBeenCalledTimes(1);
   });
 
-  it("FT-5: no_project_loaded + mismatch + spcode_force=true retries with force", async () => {
-    mockPost(
-      failurePayload("no_project_loaded", {
-        previous_directory: "/old",
-      }),
-    );
-    mockPost(successPayload());
-    const { silentLoad } = useSpcodeProjectAutoLoad();
-    const r = await silentLoad({
-      project: { ...baseProject, spcode_force: true },
-      umo: "u1",
-    });
-    expect(r?.loaded).toBe(true);
-    expect(pluginExtensionApi.post).toHaveBeenCalledTimes(2);
-    const secondCall = (
-      pluginExtensionApi.post as ReturnType<typeof vi.fn>
-    ).mock.calls[1];
-    expect(secondCall[1].force).toBe(true);
-  });
-
-  it("FT-6: no_project_loaded + mismatch retries with force even when spcode_force=false", async () => {
-    // 2026-08-07: binding is the source of truth — the force retry no
-    // longer requires the spcode_force flag.
+  it("FT-5/6: no_project_loaded + mismatch retries once with force=true", async () => {
+    // 2026-08-07: binding is the source of truth — the force retry is
+    // unconditional (the spcode_force flag was removed as dead state).
     mockPost(
       failurePayload("no_project_loaded", {
         previous_directory: "/old",
