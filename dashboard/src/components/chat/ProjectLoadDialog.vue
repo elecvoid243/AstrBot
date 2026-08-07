@@ -1,3 +1,25 @@
+<script lang="ts">
+/**
+ * Structured payload emitted by ProjectLoadDialog on confirm / unload.
+ *
+ * 2026-08-06: the dialog no longer emits a raw chat-command string. It
+ * emits this payload so ChatInput can dispatch the silent webapi call
+ * (no chat-history pollution). `legacyText` keeps the exact command text
+ * for the no-session fallback path (dispatched verbatim as before).
+ */
+export interface ProjectLoadSubmitPayload {
+  mode: "project" | "codegraph" | "unload";
+  path?: string;
+  noAgentsmd?: boolean;
+  noCodegraph?: boolean;
+  create?: boolean;
+  gitInit?: boolean;
+  force?: boolean;
+  /** Legacy chat-command text, dispatched verbatim when no session exists. */
+  legacyText: string;
+}
+</script>
+
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useModuleI18n } from "@/i18n/composables";
@@ -124,7 +146,7 @@ const props = withDefaults(defineProps<Props>(), {
 });
 
 const emit = defineEmits<{
-  submit: [text: string];
+  submit: [payload: ProjectLoadSubmitPayload];
 }>();
 
 // ── i18n / shared singletons ────────────────────────────────────────────
@@ -226,10 +248,17 @@ async function onConfirm(): Promise<void> {
   // Codegraph mode: unchanged behavior (no mode/kind/overwrite logic).
   if (props.commandMode === "codegraph") {
     addToPathHistory(trimmed);
-    emit(
-      "submit",
-      buildLoadCommand(prefix, trimmed, "codegraph", loadAgentsMd.value, loadCodegraph.value),
-    );
+    emit("submit", {
+      mode: "codegraph",
+      path: trimmed,
+      legacyText: buildLoadCommand(
+        prefix,
+        trimmed,
+        "codegraph",
+        loadAgentsMd.value,
+        loadCodegraph.value,
+      ),
+    });
     dialogOpen.value = false;
     return;
   }
@@ -250,6 +279,7 @@ async function onConfirm(): Promise<void> {
   }
 
   // Overwrite confirmation (spec #5).
+  let overwriteConfirmed = false;
   if (spcodeStatus.status.value.loaded) {
     const overwriteMsg = tm("spcodeProjectLoad.dialog.overwriteMessage");
     const confirmed = confirmDialog
@@ -259,13 +289,20 @@ async function onConfirm(): Promise<void> {
         })
       : window.confirm(overwriteMsg);
     if (!confirmed) return; // keep the dialog open
+    overwriteConfirmed = true;
     extraFlags.push("replace");
   }
 
   addToPathHistory(trimmed);
-  emit(
-    "submit",
-    buildLoadCommand(
+  emit("submit", {
+    mode: "project",
+    path: trimmed,
+    noAgentsmd: !effectiveAgentsMd,
+    noCodegraph: !effectiveCodegraph,
+    create: isCreate,
+    gitInit: isCreate && autoInitGit.value,
+    force: overwriteConfirmed,
+    legacyText: buildLoadCommand(
       prefix,
       trimmed,
       "project",
@@ -273,7 +310,7 @@ async function onConfirm(): Promise<void> {
       effectiveCodegraph,
       extraFlags,
     ),
-  );
+  });
   dialogOpen.value = false;
 }
 
@@ -286,7 +323,7 @@ async function onConfirm(): Promise<void> {
  */
 function onUnload(): void {
   const prefix = props.wakePrefixes[0] || "/";
-  emit("submit", `${prefix}project unload`);
+  emit("submit", { mode: "unload", legacyText: `${prefix}project unload` });
   dialogOpen.value = false;
 }
 </script>

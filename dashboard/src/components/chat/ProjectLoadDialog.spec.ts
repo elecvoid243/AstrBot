@@ -175,11 +175,14 @@ async function clickOption(wrapper: VueWrapper, text: string): Promise<void> {
   await nextTick();
 }
 
-async function submitPath(wrapper: VueWrapper, path: string): Promise<string> {
+async function submitPayload(
+  wrapper: VueWrapper,
+  path: string,
+): Promise<Record<string, unknown>> {
   await wrapper.get('[data-testid="project-path"]').setValue(path);
   await buttonByText(wrapper, "加载").trigger("click");
   await nextTick();
-  return wrapper.emitted("submit")!.at(-1)![0] as string;
+  return wrapper.emitted("submit")!.at(-1)![0] as Record<string, unknown>;
 }
 
 function checkboxStates(wrapper: VueWrapper): boolean[] {
@@ -248,17 +251,19 @@ describe("ProjectLoadDialog load-step options", () => {
   });
 
   it.each([
-    [true, true, "/project load C:/projects/demo"],
-    [false, true, "/project load C:/projects/demo no_agentsmd"],
-    [true, false, "/project load C:/projects/demo no_codegraph"],
+    [true, true, "/project load C:/projects/demo", false, false],
+    [false, true, "/project load C:/projects/demo no_agentsmd", true, false],
+    [true, false, "/project load C:/projects/demo no_codegraph", false, true],
     [
       false,
       false,
       "/project load C:/projects/demo no_agentsmd no_codegraph",
+      true,
+      true,
     ],
   ])(
-    "maps AGENTS.md=%s and Codegraph=%s to the expected command",
-    async (loadAgentsMd, loadCodegraph, expected) => {
+    "maps AGENTS.md=%s and Codegraph=%s to the expected payload",
+    async (loadAgentsMd, loadCodegraph, expectedText, noAgentsmd, noCodegraph) => {
       const wrapper = mountDialog();
       await openDialog(wrapper);
       const checkboxes = wrapper.findAll<HTMLInputElement>(
@@ -268,11 +273,21 @@ describe("ProjectLoadDialog load-step options", () => {
       if (!loadAgentsMd) await checkboxes[0].setValue(false);
       if (!loadCodegraph) await checkboxes[1].setValue(false);
 
-      expect(await submitPath(wrapper, "C:/projects/demo")).toBe(expected);
+      const payload = await submitPayload(wrapper, "C:/projects/demo");
+      expect(payload).toMatchObject({
+        mode: "project",
+        path: "C:/projects/demo",
+        noAgentsmd,
+        noCodegraph,
+        create: false,
+        gitInit: false,
+        force: false,
+        legacyText: expectedText,
+      });
     },
   );
 
-  it("quotes a whitespace path before appending flags", async () => {
+  it("quotes a whitespace path in legacyText before appending flags", async () => {
     const wrapper = mountDialog();
     await openDialog(wrapper);
     const checkboxes = wrapper.findAll<HTMLInputElement>(
@@ -280,9 +295,13 @@ describe("ProjectLoadDialog load-step options", () => {
     );
     await checkboxes[1].setValue(false);
 
-    expect(await submitPath(wrapper, "C:/projects/my app")).toBe(
+    const payload = await submitPayload(wrapper, "C:/projects/my app");
+    expect(payload.legacyText).toBe(
       '/project load "C:/projects/my app" no_codegraph',
     );
+    // Structured path is the raw (unquoted) user input.
+    expect(payload.path).toBe("C:/projects/my app");
+    expect(payload.noCodegraph).toBe(true);
   });
 
   it("create mode submits with create + git_init and skips AGENTS.md/Codegraph", async () => {
@@ -290,9 +309,16 @@ describe("ProjectLoadDialog load-step options", () => {
     await openDialog(wrapper);
     await clickOption(wrapper, "新建一个项目");
 
-    expect(await submitPath(wrapper, "C:/projects/new")).toBe(
+    const payload = await submitPayload(wrapper, "C:/projects/new");
+    expect(payload.legacyText).toBe(
       "/project load C:/projects/new no_agentsmd no_codegraph create git_init",
     );
+    expect(payload).toMatchObject({
+      create: true,
+      gitInit: true,
+      noAgentsmd: true,
+      noCodegraph: true,
+    });
   });
 
   it("create mode without auto-init-git omits git_init", async () => {
@@ -303,9 +329,11 @@ describe("ProjectLoadDialog load-step options", () => {
       .findAll<HTMLInputElement>('input[type="checkbox"]')[0]
       .setValue(false);
 
-    expect(await submitPath(wrapper, "C:/projects/new")).toBe(
+    const payload = await submitPayload(wrapper, "C:/projects/new");
+    expect(payload.legacyText).toBe(
       "/project load C:/projects/new no_agentsmd no_codegraph create",
     );
+    expect(payload).toMatchObject({ create: true, gitInit: false });
   });
 
   it("existing plain project submits without create/git_init", async () => {
@@ -313,20 +341,23 @@ describe("ProjectLoadDialog load-step options", () => {
     await openDialog(wrapper);
     await clickOption(wrapper, "普通项目");
 
-    expect(await submitPath(wrapper, "C:/projects/notes")).toBe(
+    const payload = await submitPayload(wrapper, "C:/projects/notes");
+    expect(payload.legacyText).toBe(
       "/project load C:/projects/notes no_agentsmd no_codegraph",
     );
+    expect(payload).toMatchObject({ create: false, gitInit: false });
   });
 
-  it("appends replace when a project is loaded and the user confirms overwrite", async () => {
+  it("sets force and appends replace when a project is loaded and overwrite confirmed", async () => {
     mockStatus.value.loaded = true;
     mockConfirm.mockResolvedValueOnce(true);
     const wrapper = mountDialog();
     await openDialog(wrapper);
 
-    const command = await submitPath(wrapper, "C:/projects/other");
+    const payload = await submitPayload(wrapper, "C:/projects/other");
 
-    expect(command).toBe("/project load C:/projects/other replace");
+    expect(payload.legacyText).toBe("/project load C:/projects/other replace");
+    expect(payload.force).toBe(true);
     expect(mockConfirm).toHaveBeenCalledTimes(1);
   });
 
@@ -368,8 +399,11 @@ describe("ProjectLoadDialog load-step options", () => {
     await openDialog(wrapper);
 
     expect(wrapper.findAll('input[type="checkbox"]')).toHaveLength(0);
-    expect(await submitPath(wrapper, "C:/projects/demo")).toBe(
-      "/codegraph set C:/projects/demo",
-    );
+    const payload = await submitPayload(wrapper, "C:/projects/demo");
+    expect(payload).toMatchObject({
+      mode: "codegraph",
+      path: "C:/projects/demo",
+      legacyText: "/codegraph set C:/projects/demo",
+    });
   });
 });
