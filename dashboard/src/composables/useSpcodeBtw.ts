@@ -20,6 +20,8 @@ import { pluginExtensionApi } from "@/api/v1";
 export interface BtwParams {
   prompt: string;
   umo?: string | null;
+  /** Provider instance id; "__auto__" / empty → backend default provider. */
+  providerId?: string | null;
 }
 
 export type BtwResult =
@@ -65,6 +67,9 @@ export function useSpcodeBtw(): UseSpcodeBtw {
         {
           prompt: params.prompt,
           ...(params.umo ? { umo: params.umo } : {}),
+          ...(params.providerId && params.providerId !== "__auto__"
+            ? { provider_id: params.providerId }
+            : {}),
         },
         { signal: abortController.signal, timeout: BTW_TIMEOUT_MS },
       );
