@@ -9,6 +9,7 @@ vi.mock("@/api/v1", () => ({
 }));
 
 import { useSpcodeOperationProgress } from "@/composables/useSpcodeOperationProgress";
+import { useSpcodeProjectStatus } from "@/composables/useSpcodeProjectStatus";
 import SpcodeProjectIndicator from "./SpcodeProjectIndicator.vue";
 
 // Minimal stubs: v-tooltip renders its activator slot directly; v-menu
@@ -44,7 +45,10 @@ function setProgress(
 }
 
 describe("SpcodeProjectIndicator progress states", () => {
-  afterEach(() => useSpcodeOperationProgress().clear());
+  afterEach(() => {
+    useSpcodeOperationProgress().clear();
+    useSpcodeProjectStatus().reset();
+  });
 
   it("shows current step while loading and suppresses click", async () => {
     setProgress("running", "project_load", {
@@ -80,5 +84,27 @@ describe("SpcodeProjectIndicator progress states", () => {
     const wrapper = mount(SpcodeProjectIndicator, { global: { stubs } });
     expect(wrapper.text()).toContain("未加载项目");
     expect(wrapper.find(".sp-chip-details-btn").exists()).toBe(false);
+  });
+
+  it("shows only the basename of a loaded project path", () => {
+    useSpcodeProjectStatus().setLoaded(
+      "F:/project/python/pycharm/testproj1",
+    );
+    const wrapper = mount(SpcodeProjectIndicator, { global: { stubs } });
+    // Visible badge: label + basename only.
+    const badgeText = wrapper.find(".sp-status-badge").text();
+    expect(badgeText).toContain("已加载项目");
+    expect(badgeText).toContain("testproj1");
+    expect(badgeText).not.toContain("F:/project");
+    // Hover tooltip still exposes the full path.
+    expect(wrapper.text()).toContain("F:/project/python/pycharm/testproj1");
+  });
+
+  it("strips trailing separators before taking the basename", () => {
+    useSpcodeProjectStatus().setLoaded("C:\\proj\\demo\\");
+    const wrapper = mount(SpcodeProjectIndicator, { global: { stubs } });
+    const badgeText = wrapper.find(".sp-status-badge").text();
+    expect(badgeText).toContain("demo");
+    expect(badgeText).not.toContain("C:\\proj");
   });
 });

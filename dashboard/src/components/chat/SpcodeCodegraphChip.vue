@@ -7,7 +7,7 @@
   Visual states (v2, 2026-07-23 — inline path removed to keep the
   status row compact when the Vivado chip sits to the right):
     - mcpRunning + matched → success dot + mdi-database-check + "Codegraph 已连接"
-    - mcpRunning + mismatch → warning dot + mdi-alert-circle-outline + "Codegraph 路径不匹配"
+    - mcpRunning + mismatch → warning dot + mdi-alert-circle-outline + "Codegraph 不匹配"
     - mcp not running → empty neutral dot (NOT RED) + mdi-database-off-outline
     - mcp running but no project → empty neutral dot + mdi-database-remove-outline
 
@@ -66,7 +66,7 @@ const label = computed<string>(() => {
   if (isSetFailed.value) return "Codegraph 设置失败";
   if (!mcpOk.value) return "Codegraph 未启动";
   if (!hasProject.value) return "Codegraph 未加载";
-  if (!projectMatch.value) return "Codegraph 路径不匹配";
+  if (!projectMatch.value) return "Codegraph 不匹配";
   return "Codegraph 已连接";
 });
 
@@ -150,7 +150,7 @@ function onClick(): void {
   font-weight: 500;
   cursor: pointer;
   transition: background-color 150ms ease;
-  max-width: 100%;
+  max-width: min(240px, 100%);
   min-width: 0;
 }
 
@@ -212,5 +212,9 @@ function onClick(): void {
 
 .sp-status-badge__label {
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex-shrink: 1;
 }
 </style>

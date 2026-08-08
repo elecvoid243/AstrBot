@@ -10,6 +10,8 @@
         → warning dot + mdi-alert-circle-outline + "会话数据暂不可用"
     - not_installed (vivado-mcp package missing)
         → error dot + mdi-package-variant-closed + "vivado-mcp 未安装"
+    - toolchain_missing (mcp ok but no Vivado IDE found)
+        → error dot + mdi-tools + "找不到Vivado"
     - not_running (MCP server down)
         → neutral empty dot + mdi-server-off + "Vivado 未启动"
     - disabled (config disabled)
@@ -62,7 +64,7 @@ const label = computed<string>(() => {
   if (isOk.value) return "Vivado 已就绪";
   if (isDegraded.value) return "会话数据暂不可用";
   if (isNotInstalled.value) return "vivado-mcp 未安装";
-  if (isToolchainMissing.value) return "Vivado 工具链未找到";
+  if (isToolchainMissing.value) return "找不到Vivado";
   if (isNotRunning.value) return "Vivado 未启动";
   return "Vivado 未启用";
 });
@@ -153,7 +155,7 @@ const tooltipText = computed<string>(() => {
   font-weight: 500;
   cursor: pointer;
   transition: background-color 150ms ease;
-  max-width: 100%;
+  max-width: min(240px, 100%);
   min-width: 0;
 }
 
@@ -199,6 +201,10 @@ const tooltipText = computed<string>(() => {
 
 .sp-status-badge__label {
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex-shrink: 1;
 }
 
 .sp-status-badge__meta {
@@ -207,5 +213,6 @@ const tooltipText = computed<string>(() => {
   font-weight: 500;
   color: var(--sp-text-path);
   white-space: nowrap;
+  flex-shrink: 0;
 }
 </style>

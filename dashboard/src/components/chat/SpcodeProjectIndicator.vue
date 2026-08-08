@@ -46,15 +46,19 @@ const isFailed = computed(
   () => isProjectOp.value && progress.value.status === "failed",
 );
 
-/** Truncate a long path to 48 chars with leading ellipsis. */
-function truncatePath(path: string): string {
-  if (path.length <= 48) return path;
-  return `…${path.slice(-47)}`;
+/**
+ * Show only the basename of a loaded path so the chip stays compact;
+ * the full path is available via the hover tooltip.
+ */
+function pathBasename(path: string): string {
+  const trimmed = path.replace(/[\\/]+$/, "");
+  const idx = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
+  return idx >= 0 ? trimmed.slice(idx + 1) : trimmed;
 }
 
 const displayPath = computed(() =>
   status.value.loaded && status.value.directory
-    ? truncatePath(status.value.directory)
+    ? pathBasename(status.value.directory)
     : "",
 );
 
@@ -94,10 +98,19 @@ const tooltipText = computed(() => {
   if (isFailed.value) {
     return progress.value.messages.at(-1) ?? label.value;
   }
-  if (status.value.loaded && loadedAtDisplay.value) {
-    return `${tm("spcodeProjectLoad.indicator.loadedAtPrefix")}: ${
-      loadedAtDisplay.value
-    }`;
+  if (status.value.loaded) {
+    const parts: string[] = [];
+    if (status.value.directory) {
+      parts.push(
+        `${tm("spcodeProjectLoad.indicator.loadedLabel")} ${status.value.directory}`,
+      );
+    }
+    if (loadedAtDisplay.value) {
+      parts.push(
+        `${tm("spcodeProjectLoad.indicator.loadedAtPrefix")}: ${loadedAtDisplay.value}`,
+      );
+    }
+    return parts.join(" · ");
   }
   return tm("spcodeProjectLoad.indicator.noProject");
 });
@@ -139,7 +152,6 @@ function openLoadDialog(): void {
           <span
             v-if="displayPath && !isLoading && !isFailed"
             class="sp-status-badge__path"
-            :title="status.directory ?? ''"
             >{{ displayPath }}</span
           >
         </button>
@@ -190,7 +202,7 @@ function openLoadDialog(): void {
   font-weight: 500;
   cursor: pointer;
   transition: background-color 150ms ease;
-  max-width: 100%;
+  max-width: min(240px, 100%);
   min-width: 0;
 }
 
@@ -230,6 +242,10 @@ function openLoadDialog(): void {
 
 .sp-status-badge__label {
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex-shrink: 1;
 }
 
 .sp-status-badge__path {
@@ -237,7 +253,9 @@ function openLoadDialog(): void {
   font-size: 11px;
   font-weight: 400;
   color: var(--sp-text-path);
-  max-width: 100%;
+  max-width: 12rem;
+  min-width: 0;
+  flex-shrink: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

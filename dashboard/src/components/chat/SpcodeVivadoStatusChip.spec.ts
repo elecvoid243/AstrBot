@@ -130,7 +130,7 @@ describe('SpcodeVivadoStatusChip (status badge, 5 states)', () => {
     expect(wrapper.find('.sp-status-badge__dot--neutral').exists()).toBe(false)
     expect(wrapper.find('.sp-status-badge--empty').exists()).toBe(false)
     // 文案区分 (NOT 同 not_installed 的 "vivado-mcp 未安装")
-    expect(wrapper.text()).toContain('Vivado 工具链未找到')
+    expect(wrapper.text()).toContain('找不到Vivado')
     expect(wrapper.text()).not.toContain('vivado-mcp 未安装')
   })
 
