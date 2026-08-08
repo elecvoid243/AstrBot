@@ -67,6 +67,18 @@ export function validateInteractiveChoice(obj: unknown): boolean {
   return true;
 }
 
+/**
+ * Option description fold threshold (chars). Descriptions longer than
+ * this are collapsed in the UI behind a click-to-expand toggle.
+ */
+export const DESCRIPTION_FOLD_THRESHOLD = 200;
+
+/**
+ * extra_content fold threshold (chars). Longer prose is collapsed in
+ * the UI behind a click-to-expand toggle.
+ */
+export const EXTRA_CONTENT_FOLD_THRESHOLD = 200;
+
 export function truncateInteractiveChoice(
   part: InteractiveChoicePart,
 ): InteractiveChoicePart {
@@ -78,7 +90,7 @@ export function truncateInteractiveChoice(
     // :title="<全量>" 兜底,hover 可见原文。
     TITLE_MAX: 80,
     LABEL_MAX: 80,
-    DESC_MAX: 200,
+    DESC_MAX: 1000,
     PLACEHOLDER_MAX: 60,
     /** v1.1 新增:LLM 补充说明的 Markdown 长度上限 */
     EXTRA_CONTENT_MAX: 5000,

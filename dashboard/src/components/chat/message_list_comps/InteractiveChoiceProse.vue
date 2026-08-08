@@ -24,25 +24,53 @@
     role="note"
     :aria-label="ariaLabel"
   >
-    <MarkdownRender
-      :custom-id="customId"
-      :content="renderableContent"
-      :is-dark="isDark"
-      :final="true"
-      :is-streaming="false"
-      :smooth-streaming="false"
-      :fade="false"
-      :typewriter="false"
-      :max-live-nodes="maxLiveNodes"
-    />
+    <template v-if="isCollapsed">
+      <button
+        type="button"
+        class="choice-prose-toggle"
+        :aria-expanded="false"
+        @click="expanded = true"
+      >
+        <v-icon size="14" class="choice-prose-toggle__icon"
+          >mdi-chevron-down</v-icon
+        >
+        <span>{{ tm("interactiveChoice.expandContent") }}</span>
+      </button>
+    </template>
+    <template v-else>
+      <MarkdownRender
+        :custom-id="customId"
+        :content="renderableContent"
+        :is-dark="isDark"
+        :final="true"
+        :is-streaming="false"
+        :smooth-streaming="false"
+        :fade="false"
+        :typewriter="false"
+        :max-live-nodes="maxLiveNodes"
+      />
+      <button
+        v-if="needsFold"
+        type="button"
+        class="choice-prose-toggle"
+        :aria-expanded="true"
+        @click="expanded = false"
+      >
+        <v-icon size="14" class="choice-prose-toggle__icon"
+          >mdi-chevron-up</v-icon
+        >
+        <span>{{ tm("interactiveChoice.collapseContent") }}</span>
+      </button>
+    </template>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import { MarkdownRender } from "markstream-vue";
 import "markstream-vue/index.css";
 import { MARKDOWN_RENDER_MAX_LIVE_NODES } from "@/components/chat/markdownRenderConfig";
+import { EXTRA_CONTENT_FOLD_THRESHOLD } from "@/composables/parseInteractiveChoice";
 import { useModuleI18n } from "@/i18n/composables";
 
 const props = defineProps<{
@@ -85,6 +113,17 @@ const trimmedContent = computed(() => {
 
 const hasRenderableContent = computed(() => trimmedContent.value.length > 0);
 
+// ── 长 prose 的折叠显示 ─────────────────────────────────────────
+// 超过 EXTRA_CONTENT_FOLD_THRESHOLD(200 字)的补充说明默认折叠,
+// 只显示"展开"按钮;点击后渲染完整 Markdown 并出现"收起"按钮。
+const expanded = ref(false);
+
+const needsFold = computed(
+  () => trimmedContent.value.length > EXTRA_CONTENT_FOLD_THRESHOLD,
+);
+
+const isCollapsed = computed(() => needsFold.value && !expanded.value);
+
 const renderableContent = computed(() => {
   if (!hasRenderableContent.value) return "";
   return trimmedContent.value.replace(IMAGE_PATTERN, (_, alt) => {
@@ -114,6 +153,36 @@ const maxLiveNodes = MARKDOWN_RENDER_MAX_LIVE_NODES;
   max-width: 100%;
   /* 表格过宽时让 prose 自身横向滚动(而不是让整个候选框溢出) */
   overflow-x: auto;
+}
+
+/* 长 prose 的"展开/收起"切换按钮(>200 字折叠时出现) */
+.choice-prose-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border: 1px solid rgba(var(--v-theme-primary), 0.35);
+  border-radius: 6px;
+  background: transparent;
+  color: rgb(var(--v-theme-primary));
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease;
+}
+
+.choice-prose-toggle:hover,
+.choice-prose-toggle:focus-visible {
+  background: rgba(var(--v-theme-primary), 0.08);
+  border-color: rgb(var(--v-theme-primary));
+  outline: none;
+}
+
+.choice-prose-toggle__icon {
+  flex-shrink: 0;
 }
 
 /* 暗色主题:只加深左竖条,保持透明背景 */

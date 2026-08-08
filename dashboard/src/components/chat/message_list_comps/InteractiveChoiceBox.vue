@@ -139,7 +139,23 @@
             class="choice-option-description"
             :title="opt.description"
           >
-            {{ opt.description }}
+            {{ descDisplayText(opt) }}
+            <span
+              v-if="needsDescFold(opt)"
+              role="button"
+              tabindex="0"
+              class="choice-desc-toggle"
+              :aria-expanded="isDescExpanded(opt)"
+              @click.stop="toggleDesc(opt)"
+              @keydown.enter.stop.prevent="toggleDesc(opt)"
+              @keydown.space.stop.prevent="toggleDesc(opt)"
+            >
+              {{
+                isDescExpanded(opt)
+                  ? tm("interactiveChoice.collapseDescription")
+                  : tm("interactiveChoice.expandDescription")
+              }}
+            </span>
           </span>
         </button>
       </div>
@@ -243,7 +259,23 @@
               class="choice-option-description"
               :title="opt.description"
             >
-              {{ opt.description }}
+              {{ descDisplayText(opt) }}
+              <span
+                v-if="needsDescFold(opt)"
+                role="button"
+                tabindex="0"
+                class="choice-desc-toggle"
+                :aria-expanded="isDescExpanded(opt)"
+                @click.stop="toggleDesc(opt)"
+                @keydown.enter.stop.prevent="toggleDesc(opt)"
+                @keydown.space.stop.prevent="toggleDesc(opt)"
+              >
+                {{
+                  isDescExpanded(opt)
+                    ? tm("interactiveChoice.collapseDescription")
+                    : tm("interactiveChoice.expandDescription")
+                }}
+              </span>
             </span>
           </div>
         </div>
@@ -256,6 +288,7 @@
 import { computed, ref } from "vue";
 import { useModuleI18n } from "@/i18n/composables";
 import {
+  DESCRIPTION_FOLD_THRESHOLD,
   getOptionSubmitText,
   type InteractiveChoicePart,
   type InteractiveChoiceOption,
@@ -323,6 +356,38 @@ const freeText = ref("");
 // 非 pending 状态下"回看原始选项"折叠区的展开标志。历史信息默认折叠,
 // 保持聊天流干净;这是纯 UI 局部状态,无需持久化到 store。
 const optionsExpanded = ref(false);
+
+// ── 长 description 的折叠展开(per-option id) ──────────────────────
+// 超过 DESCRIPTION_FOLD_THRESHOLD 的选项补充说明默认折叠显示前 200 字,
+// 点击"展开"显示全文。纯 UI 局部状态,按 option id 记录展开集合。
+const expandedDescriptions = ref<Set<string>>(new Set());
+
+function needsDescFold(opt: InteractiveChoiceOption): boolean {
+  return (
+    typeof opt.description === "string" &&
+    opt.description.length > DESCRIPTION_FOLD_THRESHOLD
+  );
+}
+
+function isDescExpanded(opt: InteractiveChoiceOption): boolean {
+  return expandedDescriptions.value.has(opt.id);
+}
+
+function descDisplayText(opt: InteractiveChoiceOption): string {
+  const desc = opt.description;
+  if (typeof desc !== "string") return "";
+  if (desc.length <= DESCRIPTION_FOLD_THRESHOLD || isDescExpanded(opt)) {
+    return desc;
+  }
+  return `${desc.slice(0, DESCRIPTION_FOLD_THRESHOLD)}…`;
+}
+
+function toggleDesc(opt: InteractiveChoiceOption): void {
+  const next = new Set(expandedDescriptions.value);
+  if (next.has(opt.id)) next.delete(opt.id);
+  else next.add(opt.id);
+  expandedDescriptions.value = next;
+}
 
 // ── 派生状态机 ───────────────────────────────────────────────
 type State =
@@ -627,6 +692,25 @@ function ariaLabelForOption(opt: InteractiveChoiceOption): string {
   line-height: 1.4;
   opacity: 0.7;
   white-space: pre-wrap;
+}
+
+/* 长 description 的"展开/收起"切换(>200 字折叠时出现)。
+   放在 description 内部、独立一行;click 用 @click.stop 阻断
+   触发外层 option 按钮的选中行为。 */
+.choice-desc-toggle {
+  display: block;
+  margin-top: 4px;
+  color: rgb(var(--v-theme-primary));
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+}
+
+.choice-desc-toggle:hover,
+.choice-desc-toggle:focus-visible {
+  text-decoration: underline;
+  outline: none;
 }
 
 .choice-input-row {

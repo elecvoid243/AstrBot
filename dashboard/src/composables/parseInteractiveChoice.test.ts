@@ -163,6 +163,32 @@ test("truncateInteractiveChoice: option label above 80 is sliced to 80 (v1.2)", 
   assert.notEqual(out, input);
 });
 
+test("truncateInteractiveChoice: option description within 1000 is untouched", () => {
+  const desc = "说".repeat(1000);
+  const input = {
+    type: "interactive_choice" as const,
+    request_id: "r1",
+    prompt: "p",
+    options: [{ id: "A", label: "a", description: desc }],
+  };
+  const out = truncateInteractiveChoice(input);
+  assert.equal(out.options[0].description, desc);
+  assert.equal(out, input);
+});
+
+test("truncateInteractiveChoice: option description above 1000 is sliced to 1000", () => {
+  const desc1200 = "说".repeat(1200);
+  const input = {
+    type: "interactive_choice" as const,
+    request_id: "r1",
+    prompt: "p",
+    options: [{ id: "A", label: "a", description: desc1200 }],
+  };
+  const out = truncateInteractiveChoice(input);
+  assert.equal(out.options[0].description?.length, 1000);
+  assert.notEqual(out, input);
+});
+
 test("getOptionSubmitText returns id+label when no value", () => {
   const opt = { id: "A", label: "alpha" };
   assert.equal(getOptionSubmitText(opt), "A. alpha");

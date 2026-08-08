@@ -378,3 +378,97 @@ describe("InteractiveChoiceBox — cancel button (2026-07-23)", () => {
     expect(wrapper.find(".choice-cancel-button").exists()).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// 2026-08-08: long option description fold. Descriptions longer than
+// 200 chars are collapsed to the first 200 chars + ellipsis with a
+// click-to-expand toggle; expanding must never submit the option.
+// ---------------------------------------------------------------------------
+
+describe("InteractiveChoiceBox — description fold (>200 chars)", () => {
+  it("renders short descriptions in full without a toggle", () => {
+    const wrapper = mountBox({
+      part: makePart({
+        options: [
+          { id: "A", label: "git mv", description: "保留历史" },
+          { id: "B", label: "mv", description: "可能丢历史" },
+        ],
+      }),
+    });
+    const buttons = wrapper.findAll(".choice-option-button");
+    expect(buttons[0].text()).toContain("保留历史");
+    expect(buttons[0].find(".choice-desc-toggle").exists()).toBe(false);
+  });
+
+  it("collapses a long description and expands on toggle click", async () => {
+    const longDesc = "详".repeat(300);
+    const wrapper = mountBox({
+      part: makePart({
+        options: [
+          { id: "A", label: "git mv", description: longDesc },
+          { id: "B", label: "mv" },
+        ],
+      }),
+    });
+    const button = wrapper.findAll(".choice-option-button")[0];
+    // Collapsed: first 200 chars + ellipsis only.
+    expect(button.text()).toContain("详".repeat(200));
+    expect(button.text()).toContain("…");
+    expect(button.text()).not.toContain("详".repeat(201));
+
+    const toggle = button.find(".choice-desc-toggle");
+    expect(toggle.exists()).toBe(true);
+    expect(toggle.text()).toContain("展开");
+    expect(toggle.attributes("aria-expanded")).toBe("false");
+
+    // Expand → full text + "收起" toggle.
+    await toggle.trigger("click");
+    expect(button.text()).toContain("详".repeat(300));
+    const afterToggle = button.find(".choice-desc-toggle");
+    expect(afterToggle.text()).toContain("收起");
+    expect(afterToggle.attributes("aria-expanded")).toBe("true");
+  });
+
+  it("toggle click does not submit the option", async () => {
+    const longDesc = "详".repeat(250);
+    const wrapper = mountBox({
+      part: makePart({
+        options: [
+          { id: "A", label: "git mv", description: longDesc },
+          { id: "B", label: "mv" },
+        ],
+      }),
+    });
+    const button = wrapper.findAll(".choice-option-button")[0];
+    await button.find(".choice-desc-toggle").trigger("click");
+    expect(wrapper.emitted("submit")).toBeUndefined();
+    // Clicking the option itself still submits.
+    await button.trigger("click");
+    expect(wrapper.emitted("submit")).toHaveLength(1);
+  });
+
+  it("applies the same fold to readonly options in the details section", async () => {
+    const umo = "webchat:FriendMessage:webchat!alice!sess";
+    storeMock.markSubmitted(umo, "req-1", "option", { optionId: "A" });
+    const longDesc = "详".repeat(300);
+    const wrapper = mountBox({
+      part: makePart({
+        options: [
+          { id: "A", label: "git mv", description: longDesc },
+          { id: "B", label: "mv" },
+        ],
+      }),
+      umo,
+    });
+
+    // Expand the details collapse to reveal readonly options.
+    await wrapper.find(".choice-collapse-toggle").trigger("click");
+    const readonly = wrapper.findAll(".choice-option-readonly")[0];
+    expect(readonly.exists()).toBe(true);
+    expect(readonly.text()).toContain("详".repeat(200));
+    expect(readonly.find(".choice-desc-toggle").exists()).toBe(true);
+
+    await readonly.find(".choice-desc-toggle").trigger("click");
+    expect(readonly.text()).toContain("详".repeat(300));
+  });
+});
