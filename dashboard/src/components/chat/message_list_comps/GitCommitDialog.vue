@@ -18,6 +18,7 @@ import {
   parseCommitMessageReply,
 } from "@/composables/commitMessagePrompt";
 import { useSpcodeBtw } from "@/composables/useSpcodeBtw";
+import { listProviders } from "@/api/generated/openapi-v1";
 
 const { tm } = useModuleI18n("features/chat");
 
@@ -52,6 +53,7 @@ watch(
   (open) => {
     if (open) {
       message.value = "";
+      void loadProviders();
       generateErrorKey.value = null;
     }
   },
@@ -85,6 +87,61 @@ watch(msgLanguage, (v) => {
     /* no-op */
   }
 });
+
+// ── Provider selection (2026-08-08) ─────────────────────────────
+// Persisted like commitMsgLang: safeGet/safeSet localStorage, invalid
+// values fall back to AUTO. "__auto__" keeps the pre-existing
+// "follow the session default provider" behaviour.
+const COMMIT_PROVIDER_KEY = "astrbot.spcode.gitDiffSidebar.commitProviderId";
+const AUTO_PROVIDER = "__auto__";
+
+function loadProviderId(): string {
+  try {
+    const v = localStorage.getItem(COMMIT_PROVIDER_KEY);
+    if (v && v !== AUTO_PROVIDER) return v;
+  } catch {
+    /* localStorage unavailable — fall through to AUTO */
+  }
+  return AUTO_PROVIDER;
+}
+
+const providerId = ref<string>(loadProviderId());
+watch(providerId, (v) => {
+  try {
+    localStorage.setItem(COMMIT_PROVIDER_KEY, v);
+  } catch {
+    /* no-op */
+  }
+});
+
+interface ProviderOption {
+  id: string;
+  label: string;
+}
+
+const providerOptions = ref<ProviderOption[]>([]);
+
+async function loadProviders(): Promise<void> {
+  try {
+    const resp = await listProviders({
+      query: { capability: "chat", enabled: true },
+    });
+    const providers = (resp.data?.data as { providers?: any[] } | undefined)?.providers;
+    if (!Array.isArray(providers)) {
+      providerOptions.value = [];
+      return;
+    }
+    providerOptions.value = providers
+      .filter((p) => p && typeof p.id === "string")
+      .map((p) => ({
+        id: p.id,
+        label: `${p.name || p.id}${typeof p.model === "string" && p.model ? ` (${p.model})` : ""}`,
+      }));
+  } catch {
+    // API failure degrades to "Auto" only; existing behaviour unchanged.
+    providerOptions.value = [];
+  }
+}
 
 // i18n key suffix of the last generate failure; null = no error.
 const generateErrorKey = ref<string | null>(null);
@@ -137,7 +194,7 @@ async function onGenerate(): Promise<void> {
   // self-contained (stats + diff embedded), and session context made
   // the model answer conversationally about the chat instead of
   // following the strict JSON contract (observed 2026-07-17).
-  const result = await btw.ask({ prompt });
+  const result = await btw.ask({ prompt, providerId: providerId.value });
   if (result.ok) {
     // Spec revision 2026-07-17: the model is asked for a JSON object;
     // parse it tolerantly. When the model ignores the contract, fall
@@ -155,7 +212,9 @@ async function onGenerate(): Promise<void> {
     result.reason === "no_provider" ||
     result.reason === "empty_response" ||
     result.reason === "llm_error" ||
-    result.reason === "network"
+    result.reason === "network" ||
+    result.reason === "provider_not_found" ||
+    result.reason === "provider_type_invalid"
       ? result.reason
       : "unknown";
 }
@@ -219,6 +278,19 @@ function onKeydown(e: KeyboardEvent): void {
             {{ tm("spcodeProjectLoad.diffSidebar.gitWorkflow.commit.dialog.messageLabel") }}
           </label>
           <div class="commit-generate-controls">
+            <v-select
+              v-if="providerOptions.length > 0"
+              v-model="providerId"
+              :items="[{ id: AUTO_PROVIDER, label: tm('spcodeProjectLoad.diffSidebar.gitWorkflow.commit.dialog.providerAuto') }, ...providerOptions]"
+              item-value="id"
+              item-title="label"
+              :label="tm('spcodeProjectLoad.diffSidebar.gitWorkflow.commit.dialog.providerLabel')"
+              density="compact"
+              hide-details
+              variant="outlined"
+              class="commit-provider-select"
+              :disabled="btw.isGenerating.value"
+            />
             <v-btn-toggle
               v-model="msgLanguage"
               mandatory
@@ -339,6 +411,10 @@ function onKeydown(e: KeyboardEvent): void {
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
+}
+.commit-provider-select {
+  max-width: 200px;
+  min-width: 140px;
 }
 .commit-generate-error {
   margin-top: 4px;
