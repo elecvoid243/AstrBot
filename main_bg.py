@@ -1,9 +1,9 @@
 """AstrBot 后台运行入口 (System Tray Edition)
 
-与 ``main.py`` 功能完全一致，但额外提供：
+与 ``main.py`` 功能完全一致（保持同步），但额外提供：
 1. 适配 ``pythonw.exe`` 运行（无控制台窗口）；
 2. 在 Windows 右下角系统托盘显示图标；
-3. 托盘菜单提供「打开 WebUI / 退出」操作。
+3. 托盘菜单提供「打开 WebUI / 打开日志 / 退出」操作。
 
 依赖：
     - pystray   (托盘图标)
@@ -17,7 +17,9 @@
 
     python main_bg.py
 
-时间: 2026-05-13 22:06 (CST)
+作者: elecvoid243
+同步时间: 2026-08-08 15:30 (CST)
+同步基线: main.py @ 21f41c239 (refactor: simplify updater architecture, #9493)
 """
 
 from __future__ import annotations
@@ -54,28 +56,47 @@ def _ensure_stdio() -> None:
 _ensure_stdio()
 
 # -----------------------------------------------------------------------------
-# 以下区域与 main.py 完全一致（导入 runtime_bootstrap 之后才能 import astrbot）
+# 以下区域与 main.py 保持同步（导入 runtime_bootstrap 之后才能 import astrbot）
 # -----------------------------------------------------------------------------
 import runtime_bootstrap  # noqa: E402
 
 runtime_bootstrap.initialize_runtime_bootstrap()
 
+DASHBOARD_RESET_PASSWORD_ENV = "ASTRBOT_RESET_DASHBOARD_PASSWORD"
+
+
+def _apply_startup_env_flags(argv: list[str]) -> None:
+    """Apply startup flags that must take effect before core imports.
+
+    Args:
+        argv: Command-line arguments excluding the executable name.
+    """
+
+    if "-h" in argv or "--help" in argv:
+        return
+
+    startup_parser = argparse.ArgumentParser(add_help=False)
+    startup_parser.add_argument("--reset-password", action="store_true")
+    startup_args, _ = startup_parser.parse_known_args(argv)
+    if startup_args.reset_password:
+        os.environ[DASHBOARD_RESET_PASSWORD_ENV] = "1"
+
+
+_apply_startup_env_flags(sys.argv[1:])
+
 from astrbot.core import LogBroker, LogManager, db_helper, logger  # noqa: E402
 from astrbot.core.config.default import VERSION  # noqa: E402
 from astrbot.core.initial_loader import InitialLoader  # noqa: E402
+from astrbot.core.updater import AstrBotUpdater  # noqa: E402
 from astrbot.core.utils.astrbot_path import (  # noqa: E402
     get_astrbot_config_path,
-    get_astrbot_data_path,
     get_astrbot_knowledge_base_path,
     get_astrbot_plugin_path,
     get_astrbot_root,
     get_astrbot_site_packages_path,
     get_astrbot_temp_path,
 )
-from astrbot.core.utils.io import (  # noqa: E402
-    download_dashboard,
-    get_dashboard_version,
-)
+from astrbot.core.utils.runtime_env import is_packaged_desktop_runtime  # noqa: E402
 
 # 将父目录添加到 sys.path
 sys.path.append(Path(__file__).parent.as_posix())
@@ -123,11 +144,11 @@ def _get_default_webui_url() -> str:
 
 
 # =============================================================================
-# 与 main.py 完全相同的核心逻辑
+# 与 main.py 保持同步的核心逻辑
 # =============================================================================
 def check_env() -> None:
     if not (sys.version_info.major == 3 and sys.version_info.minor >= 10):
-        logger.error("请使用 Python3.10+ 运行本项目。")
+        logger.error("Please run this project with Python 3.10 or later.")
         sys.exit()
 
     astrbot_root = get_astrbot_root()
@@ -135,7 +156,7 @@ def check_env() -> None:
         sys.path.insert(0, astrbot_root)
 
     site_packages_path = get_astrbot_site_packages_path()
-    if site_packages_path not in sys.path:
+    if not is_packaged_desktop_runtime() and site_packages_path not in sys.path:
         sys.path.append(site_packages_path)
 
     os.makedirs(get_astrbot_config_path(), exist_ok=True)
@@ -151,41 +172,27 @@ def check_env() -> None:
 
 
 async def check_dashboard_files(webui_dir: str | None = None):
-    """下载管理面板文件"""
+    """Resolve and repair dashboard static files for startup.
+
+    Args:
+        webui_dir: Optional explicit WebUI directory path from CLI.
+
+    Returns:
+        The directory path to serve, or None when no usable WebUI can be prepared.
+    """
+
+    # 指定webui目录
     if webui_dir:
         if os.path.exists(webui_dir):
             logger.info("Using WebUI directory: %s", webui_dir)
             return webui_dir
         logger.warning("WebUI directory not found: %s. Using default.", webui_dir)
 
-    data_dist_path = os.path.join(get_astrbot_data_path(), "dist")
-    if os.path.exists(data_dist_path):
-        v = await get_dashboard_version()
-        if v is not None:
-            if v == f"v{VERSION}":
-                logger.info("WebUI is up to date.")
-            else:
-                logger.warning(
-                    "WebUI version mismatch: %s, expected v%s.",
-                    v,
-                    VERSION,
-                )
-        return data_dist_path
-
-    logger.info(
-        "Downloading WebUI. If it fails, download dist.zip from "
-        "https://github.com/AstrBotDevs/AstrBot/releases/latest and "
-        "extract dist to data/.",
-    )
-
     try:
-        await download_dashboard(version=f"v{VERSION}", latest=False)
+        return str(await AstrBotUpdater().ensure_dashboard())
     except Exception as e:
-        logger.critical(f"下载管理面板文件失败: {e}。")
+        logger.critical(f"Failed to download dashboard files: {e}.")
         return None
-
-    logger.info("管理面板下载完成。")
-    return data_dist_path
 
 
 async def main_async(
@@ -193,7 +200,7 @@ async def main_async(
     log_broker: LogBroker,
     stop_event: asyncio.Event,
 ) -> None:
-    """主异步入口
+    """主异步入口（后台版：额外支持托盘 stop_event 优雅退出）
 
     Parameters
     ----------
@@ -207,8 +214,8 @@ async def main_async(
     webui_dir = await check_dashboard_files(webui_dir_arg)
     if webui_dir is None:
         logger.warning(
-            "管理面板文件检查失败，WebUI 功能将不可用。"
-            "请检查网络连接或手动指定 --webui-dir 参数。"
+            "Dashboard file validation failed, so WebUI features will be unavailable. "
+            "Check the network connection or specify the --webui-dir argument manually."
         )
 
     db = db_helper
@@ -229,12 +236,12 @@ async def main_async(
 
     # 若是托盘触发退出，则取消核心任务
     if stop_task in done and not core_task.done():
-        logger.info("收到托盘退出信号，正在关闭 AstrBot ...")
+        logger.info("Received tray exit signal, shutting down AstrBot ...")
         core_task.cancel()
         try:
             await core_task
         except (asyncio.CancelledError, Exception) as e:  # noqa: BLE001
-            logger.info(f"AstrBot 已停止: {type(e).__name__}")
+            logger.info(f"AstrBot stopped: {type(e).__name__}")
     else:
         # core 自己结束了
         stop_task.cancel()
@@ -269,7 +276,7 @@ class AstrBotBackground:
                 main_async(self.webui_dir_arg, log_broker, self.stop_event)
             )
         except Exception as e:  # noqa: BLE001
-            logger.exception(f"AstrBot 后台运行异常: {e}")
+            logger.exception(f"AstrBot background runtime error: {e}")
         finally:
             try:
                 # 清理悬挂任务
@@ -310,7 +317,7 @@ class AstrBotBackground:
         if TRAY_ICON_PATH.exists():
             image = Image.open(TRAY_ICON_PATH)
         else:
-            logger.warning(f"未找到托盘图标 {TRAY_ICON_PATH}，使用占位图。")
+            logger.warning(f"Tray icon not found at {TRAY_ICON_PATH}, using placeholder.")
             image = Image.new("RGBA", (64, 64), (66, 133, 244, 255))
 
         def on_open_webui(icon, item):  # noqa: ARG001
@@ -323,7 +330,7 @@ class AstrBotBackground:
                 webbrowser.open(_BG_LOG_FILE.as_uri())
 
         def on_quit(icon, item):  # noqa: ARG001
-            logger.info("用户从托盘退出 AstrBot")
+            logger.info("User quit AstrBot from tray")
             self.request_stop()
             # 等待核心线程结束（最多 10 秒），然后停止托盘
             if self.core_thread is not None:
@@ -368,6 +375,14 @@ if __name__ == "__main__":
         help="Specify the directory path for WebUI static files",
         default=None,
     )
+    parser.add_argument(
+        "--reset-password",
+        action="store_true",
+        help=(
+            "Reset the dashboard initial password on startup and print it in "
+            "startup logs"
+        ),
+    )
     args = parser.parse_args()
 
     check_env()
@@ -376,5 +391,5 @@ if __name__ == "__main__":
         app = AstrBotBackground(args.webui_dir)
         app.run()
     except Exception as e:  # noqa: BLE001
-        logger.exception(f"启动 main_bg.py 失败: {e}")
+        logger.exception(f"Failed to start main_bg.py: {e}")
         sys.exit(1)
