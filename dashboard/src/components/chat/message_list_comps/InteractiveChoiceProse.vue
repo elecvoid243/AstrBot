@@ -114,9 +114,9 @@ const trimmedContent = computed(() => {
 const hasRenderableContent = computed(() => trimmedContent.value.length > 0);
 
 // ── 长 prose 的折叠显示 ─────────────────────────────────────────
-// 超过 EXTRA_CONTENT_FOLD_THRESHOLD(200 字)的补充说明默认折叠,
-// 只显示"展开"按钮;点击后渲染完整 Markdown 并出现"收起"按钮。
-const expanded = ref(false);
+// 超过 EXTRA_CONTENT_FOLD_THRESHOLD(200 字)的补充说明**默认展开**,
+// 完整渲染 Markdown 并在底部提供"收起"按钮;收起后只显示"展开"按钮。
+const expanded = ref(true);
 
 const needsFold = computed(
   () => trimmedContent.value.length > EXTRA_CONTENT_FOLD_THRESHOLD,
