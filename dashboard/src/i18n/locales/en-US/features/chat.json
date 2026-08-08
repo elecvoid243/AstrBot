@@ -978,6 +978,8 @@
             "langZh": "中文",
             "langEn": "EN",
             "langToggleAria": "Message language",
+            "providerLabel": "Provider",
+            "providerAuto": "Auto (follow session)",
             "generating": "Generating — the LLM may take a while to respond, please wait…",
             "generateError": {
               "no_provider": "AI service unavailable, please try again later",
@@ -985,7 +987,9 @@
               "llm_error": "AI service error, please retry later",
               "network": "Network error, please retry later",
               "diff_fetch_failed": "Failed to load staged changes, please retry",
-              "unknown": "Generation failed, please retry"
+              "unknown": "Generation failed, please retry",
+              "provider_not_found": "Selected provider was not found. Switch back to Auto.",
+              "provider_type_invalid": "Selected provider is not a chat provider. Switch back to Auto."
             }
           },
           "success": "Committed {sha}",
