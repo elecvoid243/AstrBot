@@ -518,7 +518,7 @@
             @stop-recording="stopRecording"
             @paste-image="handlePaste"
             @file-select="handleFilesSelected"
-            @file-path-drop="handleSidebarFileDrop"
+            @file-reference-drop="handleSidebarFileDrop"
             @clear-reply="replyTarget = null"
             @open-diff-sidebar="openGitDiffSidebar"
           />
@@ -724,7 +724,7 @@
             @stop-recording="stopRecording"
             @paste-image="handlePaste"
             @file-select="handleFilesSelected"
-            @file-path-drop="handleSidebarFileDrop"
+            @file-reference-drop="handleSidebarFileDrop"
             @clear-reply="replyTarget = null"
             @open-diff-sidebar="openGitDiffSidebar"
           />
@@ -905,6 +905,7 @@ import GitDiffSidebar from "@/components/chat/GitDiffSidebar.vue";
 import ChatMessageSearchDialog from "@/components/chat/ChatMessageSearchDialog.vue";
 import { useSessions, type Session } from "@/composables/useSessions";
 import { useFileComments } from "@/composables/useFileComments";
+import { useFileReferences } from "@/composables/useFileReferences";
 import { useInlineAnnotations } from "@/composables/useInlineAnnotations";
 import { buildWebchatUmoDetails } from "@/utils/chatConfigBinding";
 import {
@@ -998,10 +999,6 @@ const {
   stagedNonImageFiles,
   processAndUploadImage,
   processAndUploadFile,
-  // 2026-07-18 drag-to-chat (elecvoid243): sidebar file-browser drop
-  // upload helper. See processAndUploadFileFromPath docstring in
-  // useMediaHandling.ts for the full pipeline.
-  processAndUploadFileFromPath,
   handlePaste,
   removeImage,
   removeAudio,
@@ -1439,10 +1436,14 @@ const {
 // the same instance. resetForSession() drops the current session's
 // comments so they don't leak across sessions (spec §2).
 const fileComments = useFileComments();
+// 2026-08-09 drag-reference (elecvoid243): sidebar file drops become
+// references. Same singleton pattern as fileComments.
+const fileReferences = useFileReferences();
 const inlineAnnotations = useInlineAnnotations();
 watch(currSessionId, (newId, oldId) => {
   if (oldId && newId !== oldId) {
     fileComments.resetForSession();
+    fileReferences.resetForSession();
     inlineAnnotations.resetForSession();
   }
 });
@@ -2353,7 +2354,8 @@ async function sendCurrentMessage() {
   if (
     !canSend.value &&
     !stagedFiles.value.length &&
-    fileComments.totalCount.value === 0
+    fileComments.totalCount.value === 0 &&
+    fileReferences.totalCount.value === 0
   ) {
     return;
   }
@@ -2389,10 +2391,16 @@ async function sendCurrentMessage() {
 
     const userText = draft.value.trim();
     const commentText = fileComments.formatForLLM();
-    // Concatenate user text + comment block with a blank line. The
-    // bot's first message will show "[File review comments]" header
+    // 2026-08-09 drag-reference: references block goes last (after the
+    // comments block) — UserPlainMessagePart parses them back in this
+    // same order.
+    const referenceText = fileReferences.formatForLLM();
+    // Concatenate user text + comment block + references block with
+    // blank lines. The bot's first message will show the block headers
     // even when userText is empty.
-    const text = [userText, commentText].filter(Boolean).join("\n\n");
+    const text = [userText, commentText, referenceText]
+      .filter(Boolean)
+      .join("\n\n");
     const messageId = crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`;
     const outgoingParts = buildOutgoingParts(text);
     const selection = getSelectedProviderSelection();
@@ -2406,6 +2414,9 @@ async function sendCurrentMessage() {
     draft.value = "";
     replyTarget.value = null;
     clearStaged({ revokeUrls: false });
+    // Spec D3: references are per-message attachments — clear on send,
+    // unlike comments which persist until the user deletes them.
+    fileReferences.clearAll();
     scrollToBottom();
 
     sendMessageStream({
@@ -3093,28 +3104,15 @@ async function handleFilesSelected(files: FileList | File[]) {
   }
 }
 
-// 2026-07-18 drag-to-chat (elecvoid243): handle a file dropped from
-// the sidebar file browser (workspace / document manager) onto the
-// chat input. The chat input forwards `{ path, name }` here; we
-// delegate to `processAndUploadFileFromPath` which fetches the file
-// content via /spcode/file-browser and routes it through the
-// existing `uploadStagedFile` pipeline — so the stagedFiles list,
-// signature dedup, and upload POST all behave identically to the
-// "+ → Upload Files" click path.
-//
-// Errors are surfaced via toast (binary file, too-large file, or
-// file-browser failure). The helper returns `undefined` in all
-// error cases, so we just check the return value.
-async function handleSidebarFileDrop(payload: { path: string; name: string }) {
+// 2026-08-09 drag-reference (elecvoid243): a file dropped from the
+// sidebar file browser (workspace / document manager) onto the chat
+// input becomes a *reference*, not an upload. The path is appended to
+// the outgoing message at send time (see sendCurrentMessage) so the
+// agent reads the file itself. Deduped by path inside the store, so
+// repeat drags are no-ops.
+function handleSidebarFileDrop(payload: { path: string; name: string }) {
   if (!payload?.path || !payload?.name) return;
-  const result = await processAndUploadFileFromPath(payload.path, payload.name);
-  if (!result) {
-    // Helper returns undefined for: binary file, too-large file,
-    // network failure, or non-file response. We surface a single
-    // generic toast — the helper logs the underlying error to
-    // console with the full stack for debugging.
-    toast.error(tm("input.uploadSidebarFailed", { name: payload.name }));
-  }
+  fileReferences.addReference(payload.path, payload.name);
 }
 
 function toggleStreaming() {
