@@ -721,6 +721,10 @@
           "unknown": "Merge failed ({reason})"
         }
       },
+      "moreActions": {
+        "toolbar": "More",
+        "toolbarAria": "More history actions"
+      },
       "cherryPick": {
         "toolbar": "cherry-pick",
         "toolbarAria": "Cherry-pick a commit",
@@ -778,6 +782,46 @@
           "git_error": "Squash failed",
           "network": "Network error — please retry",
           "unknown": "Unknown error"
+        }
+      },
+      "changelog": {
+        "menu": "Generate changelog",
+        "menuAria": "Select commits and generate a changelog",
+        "selectionHint": "Select a contiguous range of commits (1-50)",
+        "rowSelectTitle": "Select for changelog",
+        "rowSelectAria": "Select commit {sha} for changelog",
+        "cancelSelection": "Cancel",
+        "dialogTitle": "Generate changelog",
+        "versionLabel": "Version",
+        "versionWarning": "Version does not match X.Y.Z format",
+        "providerLabel": "LLM Provider",
+        "providerAuto": "Auto (follow session)",
+        "instructionLabel": "Instruction (editable)",
+        "instructionReset": "Reset to default",
+        "referenceSome": "Style reference: {file}",
+        "referenceNone": "No previous changelog found — default format",
+        "diffFailedWarning": "Failed to fetch diffs for {count} commit(s); messages only",
+        "generate": "Generate",
+        "regenerate": "Regenerate",
+        "generatingHint": "Generating changelog…",
+        "cancel": "Cancel",
+        "save": "Save",
+        "saveSuccess": "Saved to {path}",
+        "overwriteTitle": "Confirm overwrite",
+        "overwriteMessage": "{file} already exists. Overwrite?",
+        "overwriteOk": "Overwrite",
+        "error": {
+          "no_provider": "No LLM provider available",
+          "provider_not_found": "Provider not found",
+          "provider_type_invalid": "Provider is not a chat model",
+          "llm_error": "LLM call failed",
+          "empty_response": "LLM returned empty content",
+          "network": "Network error",
+          "unknown": "Generation failed ({reason})"
+        },
+        "saveError": {
+          "network": "Network error while saving",
+          "unknown": "Save failed ({reason})"
         }
       },
       "conflict": {

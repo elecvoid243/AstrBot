@@ -598,6 +598,10 @@
           "unknown": "Слияние не удалось ({reason})"
         }
       },
+      "moreActions": {
+        "toolbar": "Ещё",
+        "toolbarAria": "Дополнительные действия с историей"
+      },
       "cherryPick": {
         "toolbar": "cherry-pick",
         "toolbarAria": "Перенести коммит (cherry-pick)",
@@ -655,6 +659,46 @@
           "git_error": "Сжатие не удалось",
           "network": "Ошибка сети — повторите попытку",
           "unknown": "Неизвестная ошибка"
+        }
+      },
+      "changelog": {
+        "menu": "Создать changelog",
+        "menuAria": "Выбрать коммиты и создать changelog",
+        "selectionHint": "Выберите непрерывный диапазон коммитов (1-50)",
+        "rowSelectTitle": "Выбрать для changelog",
+        "rowSelectAria": "Выбрать коммит {sha} для changelog",
+        "cancelSelection": "Отмена",
+        "dialogTitle": "Создать changelog",
+        "versionLabel": "Версия",
+        "versionWarning": "Версия не соответствует формату X.Y.Z",
+        "providerLabel": "LLM-провайдер",
+        "providerAuto": "Авто (как в сессии)",
+        "instructionLabel": "Инструкция (редактируемая)",
+        "instructionReset": "Сбросить",
+        "referenceSome": "Образец стиля: {file}",
+        "referenceNone": "Прошлый changelog не найден — формат по умолчанию",
+        "diffFailedWarning": "Не удалось получить diff для {count} коммит(ов); только сообщения",
+        "generate": "Создать",
+        "regenerate": "Пересоздать",
+        "generatingHint": "Создание changelog…",
+        "cancel": "Отмена",
+        "save": "Сохранить",
+        "saveSuccess": "Сохранено в {path}",
+        "overwriteTitle": "Подтвердить перезапись",
+        "overwriteMessage": "{file} уже существует. Перезаписать?",
+        "overwriteOk": "Перезаписать",
+        "error": {
+          "no_provider": "Нет доступного LLM-провайдера",
+          "provider_not_found": "Провайдер не найден",
+          "provider_type_invalid": "Провайдер не является чат-моделью",
+          "llm_error": "Ошибка вызова LLM",
+          "empty_response": "LLM вернул пустой ответ",
+          "network": "Ошибка сети",
+          "unknown": "Ошибка создания ({reason})"
+        },
+        "saveError": {
+          "network": "Ошибка сети при сохранении",
+          "unknown": "Ошибка сохранения ({reason})"
         }
       },
       "conflict": {

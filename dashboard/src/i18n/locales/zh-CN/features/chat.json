@@ -721,6 +721,10 @@
           "unknown": "合并失败（{reason}）"
         }
       },
+      "moreActions": {
+        "toolbar": "更多功能",
+        "toolbarAria": "更多历史操作"
+      },
       "cherryPick": {
         "toolbar": "cherry-pick",
         "toolbarAria": "cherry-pick 一个提交",
@@ -778,6 +782,46 @@
           "git_error": "压缩失败",
           "network": "网络错误，请重试",
           "unknown": "未知错误"
+        }
+      },
+      "changelog": {
+        "menu": "生成更新日志",
+        "menuAria": "选择提交并生成更新日志",
+        "selectionHint": "请选择连续的一段提交（1-50 条）",
+        "rowSelectTitle": "选中以生成日志",
+        "rowSelectAria": "选中提交 {sha} 以生成日志",
+        "cancelSelection": "取消",
+        "dialogTitle": "生成更新日志",
+        "versionLabel": "版本号",
+        "versionWarning": "版本号不符合 X.Y.Z 格式",
+        "providerLabel": "LLM Provider",
+        "providerAuto": "自动（跟随会话）",
+        "instructionLabel": "任务指引（可编辑）",
+        "instructionReset": "恢复默认",
+        "referenceSome": "格式参考：{file}",
+        "referenceNone": "未找到历史 changelog，使用默认格式",
+        "diffFailedWarning": "{count} 个提交的 diff 获取失败，将仅使用提交信息",
+        "generate": "生成",
+        "regenerate": "重新生成",
+        "generatingHint": "正在生成更新日志…",
+        "cancel": "取消",
+        "save": "保存",
+        "saveSuccess": "已保存到 {path}",
+        "overwriteTitle": "覆盖确认",
+        "overwriteMessage": "{file} 已存在，确定覆盖？",
+        "overwriteOk": "覆盖",
+        "error": {
+          "no_provider": "无可用 LLM Provider",
+          "provider_not_found": "指定的 Provider 不存在",
+          "provider_type_invalid": "指定的 Provider 不是对话模型",
+          "llm_error": "LLM 调用失败",
+          "empty_response": "LLM 返回空内容",
+          "network": "网络连接失败",
+          "unknown": "生成失败（{reason}）"
+        },
+        "saveError": {
+          "network": "网络错误，保存失败",
+          "unknown": "保存失败（{reason}）"
         }
       },
       "conflict": {
