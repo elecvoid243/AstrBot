@@ -268,7 +268,7 @@ function onKeydown(e: KeyboardEvent): void {
     max-width="560"
     @update:model-value="(v) => emit('update:modelValue', v)"
   >
-    <v-card>
+    <v-card id="commit-dialog-card">
       <v-card-title class="text-h6">
         {{ tm("spcodeProjectLoad.diffSidebar.gitWorkflow.commit.dialog.title") }}
       </v-card-title>
@@ -290,6 +290,7 @@ function onKeydown(e: KeyboardEvent): void {
               variant="outlined"
               class="commit-provider-select"
               :disabled="btw.isGenerating.value"
+              attach="#commit-dialog-card"
             />
             <v-btn-toggle
               v-model="msgLanguage"
@@ -415,7 +416,13 @@ function onKeydown(e: KeyboardEvent): void {
 .commit-provider-select {
   max-width: 200px;
   min-width: 140px;
+  font-size: 12px;
 }
+
+:deep(.commit-provider-select .v-field) {
+  font-size: 12px;
+}
+
 .commit-generate-error {
   margin-top: 4px;
   font-size: 12px;
@@ -539,5 +546,22 @@ function onKeydown(e: KeyboardEvent): void {
   margin-top: 8px;
   font-size: 11px;
   color: rgba(var(--v-theme-on-surface), 0.5);
+}
+</style>
+<!-- v-menu 下拉列表经由 attach 传送到 v-card 内；此处用全局（非 scoped）
+     样式覆盖下拉项默认 14px 字号，并让超长 provider 名横向滚动。 -->
+<style>
+#commit-dialog-card .v-list-item {
+  min-height: 32px;
+}
+#commit-dialog-card .v-list-item-title {
+  font-size: 12px;
+  line-height: 1.4;
+  max-width: 520px;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+#commit-dialog-card .v-select .v-field {
+  font-size: 12px;
 }
 </style>
