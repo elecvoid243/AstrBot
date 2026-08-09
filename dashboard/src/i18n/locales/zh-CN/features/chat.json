@@ -414,6 +414,9 @@
         "loadingAria": "正在丢弃 hunk {hunk}"
       }
     },
+    "fileReferencesCard": {
+      "title": "引用的文件"
+    },
     "fileReviewCard": {
       "title": "文件审查评论",
       "commentsCount": "{count} 条评论",

@@ -413,6 +413,9 @@
         "loadingAria": "Отмена hunk {hunk}"
       }
     },
+    "fileReferencesCard": {
+      "title": "Связанные файлы"
+    },
     "fileReviewCard": {
       "title": "Комментарии к проверке файлов",
       "commentsCount": "{count} комм.",

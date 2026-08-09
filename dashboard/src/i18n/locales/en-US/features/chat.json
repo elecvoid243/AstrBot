@@ -414,6 +414,9 @@
         "loadingAria": "Discarding hunk {hunk}"
       }
     },
+    "fileReferencesCard": {
+      "title": "Referenced files"
+    },
     "fileReviewCard": {
       "title": "File review comments",
       "commentsCount": "{count} comments",
