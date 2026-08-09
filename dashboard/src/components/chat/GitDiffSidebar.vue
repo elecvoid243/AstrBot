@@ -76,6 +76,7 @@ import { useSpcodeGitConflict } from "@/composables/useSpcodeGitConflict";
 import GitMergeDialog from "@/components/chat/GitMergeDialog.vue";
 import GitCherryPickDialog from "@/components/chat/GitCherryPickDialog.vue";
 import GitSquashDialog from "@/components/chat/GitSquashDialog.vue";
+import GitChangelogDialog from "@/components/chat/GitChangelogDialog.vue";
 import { useSpcodeGitSquash } from "@/composables/useSpcodeGitSquash";
 import type { SquashPayloadCommit } from "@/components/chat/message_list_comps/GitLogView.vue";
 import GitConflictPanel from "@/components/chat/GitConflictPanel.vue";
@@ -930,6 +931,26 @@ const pendingRevert = ref<{ sha: string; subject: string } | null>(null);
 const squashDialogOpen = ref(false);
 const pendingSquash = ref<SquashPayloadCommit[] | null>(null);
 const squashResetToken = ref(0);
+// 2026-08-09 changelog: dialog state + the token that clears
+// GitLogView's changelog selection after the dialog closes (any
+// path: save / cancel / scrim). Mirrors the squash pair above.
+const changelogDialogOpen = ref(false);
+const changelogCommits = ref<SquashPayloadCommit[]>([]);
+const changelogResetToken = ref(0);
+
+function onChangelogRequest(payload: { commits: SquashPayloadCommit[] }): void {
+  changelogCommits.value = payload.commits;
+  changelogDialogOpen.value = true;
+}
+function onChangelogSaved(path: string): void {
+  showSnackbar(
+    tm("spcodeProjectLoad.diffSidebar.changelog.saveSuccess", { path }),
+    "success",
+  );
+}
+function onChangelogDialogClose(): void {
+  changelogResetToken.value++;
+}
 // Symmetric dialog for "Unstage all" — visible only from the staged
 // scope where the bulk button's label flips to "取消全部暂存".
 const confirmUnstageAllOpen = ref(false);
@@ -4703,6 +4724,7 @@ watch(
             :current-branch="currentBranchName"
             :active-ref="gitLog.filter.value.ref ?? null"
             :squash-reset-token="squashResetToken"
+            :changelog-reset-token="changelogResetToken"
             @update:range="(v) => (gitStatsRange = v)"
             @update:top-files-limit="(v) => (gitStatsTopFilesLimit = v)"
             @apply="onLogApply"
@@ -4713,6 +4735,7 @@ watch(
             @cherry-pick="onLogCherryPickRequest"
             @cherry-pick-blank="onToolbarCherryPickRequest"
             @squash="onLogSquashRequest"
+            @changelog="onChangelogRequest"
           />
           <!-- 2026-07-11 document-manager:Documents 文档管理 sub-tab body。 -->
           <!--
@@ -4883,6 +4906,16 @@ watch(
           :commits="pendingSquash ?? []"
           :loading="gitSquash.isSquashing.value"
           @submit="onSquashSubmit"
+        />
+
+        <!-- 2026-08-09 changelog: generation dialog (commits listed
+             oldest → newest, same payload as squash). -->
+        <GitChangelogDialog
+          v-model="changelogDialogOpen"
+          :commits="changelogCommits"
+          :worktree="selectedWorktree"
+          @saved="onChangelogSaved"
+          @close="onChangelogDialogClose"
         />
 
         <v-dialog v-model="revertDialogOpen" persistent max-width="440">
