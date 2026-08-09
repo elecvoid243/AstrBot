@@ -91,9 +91,11 @@ const props = defineProps<{
   activeRef: string | null;
   /** 2026-08-03 git-squash (spec 2026-08-03-git-squash-design §4.2):
    *  bumped by the sidebar after a successful squash so we clear the
-   *  selection. Optional so the sidebar mount compiles before its
-   *  wiring task lands. */
+   *  selection. */
   squashResetToken?: number;
+  /** 2026-08-09 changelog: bumped by the sidebar when the changelog
+   *  dialog closes so we clear the selection (mirrors squashResetToken). */
+  changelogResetToken?: number;
 }>();
 
 /** Commit shape carried by the `squash` emit (spec
@@ -130,6 +132,8 @@ const emit = defineEmits<{
   // `body` rides along so the dialog's AI-generate feature can feed
   // the full historical messages (subject + body) to the LLM.
   (e: "squash", payload: { commits: SquashPayloadCommit[] }): void;
+  // 2026-08-09 changelog: toolbar entry. Same payload shape as squash.
+  (e: "changelog", payload: { commits: SquashPayloadCommit[] }): void;
   /** Stats-panel collapse toggle (v-model:stats-open). */
   (e: "update:statsOpen", v: boolean): void;
   /** Range popover picked a new value — sidebar owns state + persistence. */
@@ -288,6 +292,8 @@ const squashSelection = computed<"none" | "valid" | "invalid">(() => {
 function onSquashClick(): void {
   if (!squashSelecting.value) {
     // First click: arm selection mode, do NOT submit anything.
+    // 2026-08-09: mutual exclusion with the changelog selection mode.
+    if (changelogSelecting.value) onChangelogCancel();
     squashSelecting.value = true;
     return;
   }
@@ -306,6 +312,66 @@ function onSquashCancel(): void {
   squashSelecting.value = false;
   selectedCommits.value = new Set();
 }
+
+// ── Changelog selection (2026-08-09, spec 2026-08-09 §3.1) ──
+// Mirrors the squash state machine with two deliberate differences:
+//   1. Contiguity anywhere in the displayed list (NOT HEAD-anchored);
+//      min 1 commit, max 50 (prompt-size guard).
+//   2. Available in ANY history view (read-only operation), so no
+//      viewingCurrent gate.
+const CHANGELOG_MAX_COMMITS = 50;
+const changelogSelecting = ref(false);
+const selectedChangelogCommits = ref<Set<string>>(new Set<string>());
+
+function toggleChangelogSelection(sha: string): void {
+  const next = new Set(selectedChangelogCommits.value);
+  if (next.has(sha)) next.delete(sha);
+  else next.add(sha);
+  selectedChangelogCommits.value = next;
+}
+
+/** Valid iff the selected shas form a contiguous segment of the
+ *  displayed list and 1 <= size <= 50. */
+const changelogSelection = computed<"none" | "valid" | "invalid">(() => {
+  const n = selectedChangelogCommits.value.size;
+  if (n === 0) return "none";
+  if (n > CHANGELOG_MAX_COMMITS) return "invalid";
+  const indices = commits.value
+    .map((c, i) => (selectedChangelogCommits.value.has(c.sha) ? i : -1))
+    .filter((i) => i !== -1);
+  if (indices.length !== n) return "invalid";
+  return indices[indices.length - 1] - indices[0] === n - 1
+    ? "valid"
+    : "invalid";
+});
+
+function onChangelogClick(): void {
+  if (!changelogSelecting.value) {
+    // Mutual exclusion: squash checkboxes cannot coexist.
+    if (squashSelecting.value) onSquashCancel();
+    changelogSelecting.value = true;
+    return;
+  }
+  // Displayed list is newest → oldest; emit oldest → newest.
+  const picked = commits.value
+    .filter((c) => selectedChangelogCommits.value.has(c.sha))
+    .reverse()
+    .map((c) => ({ sha: c.sha, subject: c.subject, body: c.body }));
+  emit("changelog", { commits: picked });
+}
+
+function onChangelogCancel(): void {
+  changelogSelecting.value = false;
+  selectedChangelogCommits.value = new Set();
+}
+
+// Reset channels mirror the squash watchers.
+watch(
+  () => props.changelogResetToken,
+  () => {
+    onChangelogCancel();
+  },
+);
 
 // Reset channels: the sidebar bumps squashResetToken after a
 // successful squash; leaving the current-branch view unmounts the
@@ -702,41 +768,110 @@ function fileErrorMessage(state: GitShowFetchState): string | null {
             tm("spcodeProjectLoad.diffSidebar.gitWorkflow.history.filter.reset")
           }}
         </v-btn>
-        <!-- 2026-08-01 git-cherry-pick: standalone entry (blank ref). -->
-        <v-btn
-          size="small"
-          variant="text"
-          :title="tm('spcodeProjectLoad.diffSidebar.cherryPick.toolbarAria')"
-          @click="emit('cherry-pick-blank')"
-        >
-          <v-icon size="14" start>mdi-source-branch-plus</v-icon>
-          {{ tm("spcodeProjectLoad.diffSidebar.cherryPick.toolbar") }}
-        </v-btn>
-        <!-- 2026-08-03 git-squash (revised interaction): ALWAYS
-             clickable — the first click arms selection mode (row
-             checkboxes appear); a second click submits. While in
-             selection mode the button stays grey until the
-             selection is valid (>= 2 HEAD-anchored contiguous
-             rows). Title doubles as the invalid-selection hint. -->
-        <v-btn
-          v-if="viewingCurrent"
-          class="git-log-squash-btn"
-          size="small"
-          variant="text"
-          :disabled="squashSelecting && squashSelection !== 'valid'"
-          :title="
-            squashSelecting && squashSelection !== 'valid'
-              ? tm('spcodeProjectLoad.diffSidebar.squash.selectionHint')
-              : tm('spcodeProjectLoad.diffSidebar.squash.toolbarAria')
-          "
-          @click="onSquashClick"
-        >
-          <v-icon size="14" start>mdi-arrow-collapse-vertical</v-icon>
-          {{ tm("spcodeProjectLoad.diffSidebar.squash.toolbar") }}
-          <template v-if="squashSelecting && selectedCommits.size > 0">
-            ({{ selectedCommits.size }})</template
-          >
-        </v-btn>
+        <!-- 2026-08-09 (elecvoid243) more-actions menu: Cherry-Pick and
+             Squash move into a "更多功能" dropdown so future history-tab
+             actions can be added as extra v-list-items without widening
+             the toolbar. The squash item keeps its dynamic state
+             (disabled while the selection is invalid, count suffix,
+             hint tooltip). The selection-mode cancel button stays in
+             the toolbar — it only appears while picking rows, when the
+             menu is closed. -->
+        <v-menu location="bottom end">
+          <template #activator="{ props: menuProps }">
+            <v-btn
+              v-bind="menuProps"
+              size="small"
+              variant="text"
+              :title="
+                tm('spcodeProjectLoad.diffSidebar.moreActions.toolbarAria')
+              "
+            >
+              <v-icon size="14" start>mdi-dots-horizontal</v-icon>
+              {{ tm("spcodeProjectLoad.diffSidebar.moreActions.toolbar") }}
+            </v-btn>
+          </template>
+          <v-list density="compact" class="git-log-more-actions-list">
+            <v-list-item
+              class="git-log-more-actions-item"
+              @click="emit('cherry-pick-blank')"
+            >
+              <template #prepend>
+                <v-icon size="14">mdi-source-branch-plus</v-icon>
+              </template>
+              <v-list-item-title>
+                {{ tm("spcodeProjectLoad.diffSidebar.cherryPick.toolbar") }}
+              </v-list-item-title>
+              <v-tooltip
+                activator="parent"
+                location="start"
+                :text="
+                  tm('spcodeProjectLoad.diffSidebar.cherryPick.toolbarAria')
+                "
+              />
+            </v-list-item>
+            <!-- Squash (2026-08-03 revised interaction): ALWAYS clickable
+                 — the first click arms selection mode (row checkboxes
+                 appear); a second click submits. While in selection mode
+                 the item stays disabled until the selection is valid
+                 (>= 2 HEAD-anchored contiguous rows). -->
+            <v-list-item
+              v-if="viewingCurrent"
+              class="git-log-more-actions-item"
+              :disabled="squashSelecting && squashSelection !== 'valid'"
+              @click="onSquashClick"
+            >
+              <template #prepend>
+                <v-icon size="14">mdi-arrow-collapse-vertical</v-icon>
+              </template>
+              <v-list-item-title>
+                {{ tm("spcodeProjectLoad.diffSidebar.squash.toolbar") }}
+                <template v-if="squashSelecting && selectedCommits.size > 0">
+                  ({{ selectedCommits.size }})</template
+                >
+              </v-list-item-title>
+              <v-tooltip
+                activator="parent"
+                location="start"
+                :text="
+                  squashSelecting && squashSelection !== 'valid'
+                    ? tm('spcodeProjectLoad.diffSidebar.squash.selectionHint')
+                    : tm('spcodeProjectLoad.diffSidebar.squash.toolbarAria')
+                "
+              />
+            </v-list-item>
+            <!-- 2026-08-09 changelog: contiguous-anywhere selection,
+                 min 1 / max 50 commits, available in every history
+                 view (read-only). -->
+            <v-list-item
+              class="git-log-more-actions-item"
+              :disabled="changelogSelecting && changelogSelection !== 'valid'"
+              @click="onChangelogClick"
+            >
+              <template #prepend>
+                <v-icon size="14">mdi-file-document-edit-outline</v-icon>
+              </template>
+              <v-list-item-title>
+                {{ tm("spcodeProjectLoad.diffSidebar.changelog.menu") }}
+                <template
+                  v-if="changelogSelecting && selectedChangelogCommits.size > 0"
+                >
+                  ({{ selectedChangelogCommits.size }})</template
+                >
+              </v-list-item-title>
+              <v-tooltip
+                activator="parent"
+                location="start"
+                :text="
+                  changelogSelecting && changelogSelection !== 'valid'
+                    ? tm(
+                        'spcodeProjectLoad.diffSidebar.changelog.selectionHint',
+                      )
+                    : tm('spcodeProjectLoad.diffSidebar.changelog.menuAria')
+                "
+              />
+            </v-list-item>
+          </v-list>
+        </v-menu>
         <!-- Selection-mode exit affordance (the main button is
              disabled while the selection is invalid, so it cannot
              double as the exit). -->
@@ -748,6 +883,16 @@ function fileErrorMessage(state: GitShowFetchState): string | null {
           @click="onSquashCancel"
         >
           {{ tm("spcodeProjectLoad.diffSidebar.squash.cancelSelection") }}
+        </v-btn>
+        <!-- 2026-08-09 changelog: selection-mode exit affordance. -->
+        <v-btn
+          v-if="changelogSelecting"
+          class="git-log-squash-cancel-btn"
+          size="small"
+          variant="text"
+          @click="onChangelogCancel"
+        >
+          {{ tm("spcodeProjectLoad.diffSidebar.changelog.cancelSelection") }}
         </v-btn>
       </div>
     </div>
@@ -781,7 +926,7 @@ function fileErrorMessage(state: GitShowFetchState): string | null {
     <div
       v-else
       class="git-log-list"
-      :class="{ 'squash-selecting': squashSelecting }"
+      :class="{ 'squash-selecting': squashSelecting || changelogSelecting }"
     >
       <div
         v-for="c in commits"
@@ -818,6 +963,30 @@ function fileErrorMessage(state: GitShowFetchState): string | null {
           <v-icon size="14">
             {{
               selectedCommits.has(c.sha)
+                ? "mdi-checkbox-marked"
+                : "mdi-checkbox-blank-outline"
+            }}
+          </v-icon>
+        </button>
+        <!-- 2026-08-09 changelog: same checkbox UI bound to the
+             changelog selection set (mutually exclusive modes). -->
+        <button
+          v-if="changelogSelecting"
+          type="button"
+          class="git-log-item-select"
+          :class="{ 'is-selected': selectedChangelogCommits.has(c.sha) }"
+          :title="tm('spcodeProjectLoad.diffSidebar.changelog.rowSelectTitle')"
+          :aria-label="
+            tm('spcodeProjectLoad.diffSidebar.changelog.rowSelectAria', {
+              sha: c.shaShort || c.sha.slice(0, 7),
+            })
+          "
+          :aria-pressed="selectedChangelogCommits.has(c.sha)"
+          @click.stop="toggleChangelogSelection(c.sha)"
+        >
+          <v-icon size="14">
+            {{
+              selectedChangelogCommits.has(c.sha)
                 ? "mdi-checkbox-marked"
                 : "mdi-checkbox-blank-outline"
             }}
@@ -886,16 +1055,12 @@ function fileErrorMessage(state: GitShowFetchState): string | null {
               )
             "
             :aria-label="
-              tm(
-                'spcodeProjectLoad.diffSidebar.gitWorkflow.history.revertAria',
-              )
+              tm('spcodeProjectLoad.diffSidebar.gitWorkflow.history.revertAria')
             "
             @click="emit('revert', { sha: c.sha, subject: c.subject })"
           >
             <v-icon size="13">mdi-undo-variant</v-icon>
-            {{
-              tm("spcodeProjectLoad.diffSidebar.gitWorkflow.history.revert")
-            }}
+            {{ tm("spcodeProjectLoad.diffSidebar.gitWorkflow.history.revert") }}
           </button>
           <!-- 2026-08-01 git-cherry-pick: per-row action, hover-revealed
                like the revert button beside it. -->
@@ -1608,5 +1773,23 @@ function fileErrorMessage(state: GitShowFetchState): string | null {
 }
 .git-log-branch-list .v-list-item {
   min-height: 28px;
+}
+
+/* 2026-08-09 (elecvoid243) more-actions menu: v-menu content is
+   teleported outside this component's subtree, so these rules must
+   live in the global block (same reason as .git-log-branch-list
+   above). Keeps the two action rows compact and aligns the
+   prepend icon with the label. */
+.git-log-more-actions-list {
+  min-width: 160px;
+}
+.git-log-more-actions-list .v-list-item {
+  min-height: 32px;
+}
+.git-log-more-actions-list .v-list-item-title {
+  font-size: 13px;
+}
+.git-log-more-actions-list .v-list-item__prepend .v-icon {
+  margin-inline-end: 8px;
 }
 </style>
