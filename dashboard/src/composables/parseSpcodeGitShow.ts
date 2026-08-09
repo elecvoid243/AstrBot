@@ -48,6 +48,11 @@ export interface SpcodeGitShowRawData {
   // v3.9 (2026-06-25): 单文件 patch 视图(可选;仅在 ?path= 给出时存在)
   // binary 文件 patch=null;path 不在该 ref 中时 status="unknown"
   file?: SpcodeGitShowRawFileView;
+
+  // 2026-08-09 (elecvoid243): full-commit patch view (optional; only
+  // present when ?full_patch=1 was requested and the git call succeeded)
+  patch?: string | null;
+  patch_truncated?: boolean;
 }
 
 export interface GitShowFileView {
@@ -123,6 +128,10 @@ export interface GitShowData {
 
   // v3.9 (2026-06-25): 单文件 patch 视图(可选,仅在 ?path= 给出时存在)
   file: GitShowFileView | null;
+
+  // 2026-08-09: full-commit patch (null unless requested + successful)
+  patch: string | null;
+  patchTruncated: boolean;
 }
 
 export type ParseResult<T> =
@@ -256,6 +265,8 @@ export function parseSpcodeGitShow(raw: unknown): ParseResult<GitShowData> {
       truncated: asBoolean(d.truncated),
       maxFiles: asNumber(d.max_files, 500),
       file: fileView,
+      patch: asStringOrNull(d.patch),
+      patchTruncated: asBoolean(d.patch_truncated),
     },
   };
 }

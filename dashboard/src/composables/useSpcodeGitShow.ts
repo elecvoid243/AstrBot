@@ -74,6 +74,17 @@ export interface UseSpcodeGitShow {
   getFileState: (refName: string, filePath: string) => GitShowFileFetchState;
   /** v3.9: True while a single-file fetch is in flight. */
   isFileLoading: (refName: string, filePath: string) => boolean;
+  /** 2026-08-09: Fetch (or no-op) for a commit's full patch
+   *  (?full_patch=1). Idempotent; per-ref cached in dedicated maps
+   *  so the commit-level and per-file caches stay untouched. */
+  fetchFullPatch: (refName: string) => Promise<void>;
+  /** 2026-08-09: Read cached full-patch snapshot (read .patch /
+   *  .patchTruncated off the returned GitShowData). */
+  getFullPatchData: (refName: string) => GitShowData | null;
+  /** 2026-08-09: Read per-ref full-patch state. */
+  getFullPatchState: (refName: string) => GitShowFetchState;
+  /** 2026-08-09: True while a full-patch fetch is in flight. */
+  isFullPatchLoading: (refName: string) => boolean;
   /** Clear every cached ref and ETag entry. Does NOT abort in-flight. */
   invalidateAll: () => void;
   /** Clear the ETag map only (e.g. on worktree / umo change). Keeps
@@ -110,6 +121,11 @@ export function useSpcodeGitShow(
   const fileDataMap = ref<Map<string, GitShowFileView>>(new Map());
   const fileEtagMap = new Map<string, string>();
   const fileInflight = new Map<string, AbortController>();
+  // 2026-08-09: per-ref full-patch state (changelog generation).
+  const patchStateMap = ref<Map<string, GitShowFetchState>>(new Map());
+  const patchDataMap = ref<Map<string, GitShowData>>(new Map());
+  const patchEtagMap = new Map<string, string>();
+  const patchInflight = new Map<string, AbortController>();
   let isMounted = true;
   const spcodeStatus = useSpcodeProjectStatus();
 
@@ -350,6 +366,114 @@ export function useSpcodeGitShow(
   function getData(refName: string): GitShowData | null {
     return dataMap.value.get(refName) ?? null;
   }
+
+  // ──────────────────────────────────────────────────────────
+  // 2026-08-09: per-ref full-commit patch fetch (?full_patch=1)
+  // Mirrors fetchFile but keyed on ref alone. Used by the changelog
+  // dialog to gather per-commit diffs for the LLM prompt.
+  // ──────────────────────────────────────────────────────────
+  async function fetchFullPatch(refName: string): Promise<void> {
+    if (!isMounted) return;
+    if (!refName) return;
+    if (patchInflight.has(refName)) return;
+    const current = patchStateMap.value.get(refName);
+    if (current?.kind === "ok") return;
+
+    const umo = spcodeStatus.status.value.umo;
+    if (!umo) {
+      setPatchState(refName, { kind: "error", reason: "no_project_loaded" });
+      return;
+    }
+
+    const ctrl = new AbortController();
+    patchInflight.set(refName, ctrl);
+    setPatchState(refName, { kind: "loading" });
+
+    const worktree = toValue(worktreeRef);
+    const key = `${etagKey({ umo, worktree, ref: refName })}|full`;
+    const etag = patchEtagMap.get(key);
+
+    try {
+      const resp = await pluginExtensionApi.get<unknown>(
+        "spcode/git-show",
+        {
+          params: {
+            umo,
+            ...(worktree ? { worktree } : {}),
+            ref: refName,
+            full_patch: "1",
+            max_files: 1, // patch 视图不需要完整文件列表
+          },
+          headers: etag ? { "If-None-Match": etag } : {},
+          validateStatus: (s) => (s >= 200 && s < 300) || s === 304,
+          signal: ctrl.signal,
+        },
+      );
+      if (!isMounted) return;
+      patchInflight.delete(refName);
+
+      if (resp.status === 304) {
+        const prev = patchDataMap.value.get(refName);
+        if (prev) {
+          setPatchState(refName, { kind: "ok", data: prev, notModified: true });
+        }
+        return;
+      }
+
+      const parsed: ParseResult<GitShowData> = parseSpcodeGitShow(resp.data);
+      if (parsed.kind !== "ok") {
+        setPatchState(refName, { kind: "error", reason: "unknown" });
+        return;
+      }
+      const snap = parsed.snapshot;
+      if (!snap.success) {
+        setPatchState(refName, {
+          kind: "error",
+          reason: snap.reason ?? "unknown",
+        });
+        return;
+      }
+
+      const headers = resp.headers as Record<string, string> | undefined;
+      const newEtag = headers?.["etag"] ?? headers?.["ETag"];
+      if (newEtag) patchEtagMap.set(key, newEtag);
+
+      setPatchData(refName, snap);
+      setPatchState(refName, { kind: "ok", data: snap, notModified: false });
+    } catch (err) {
+      if (!isMounted) return;
+      patchInflight.delete(refName);
+      if ((err as { name?: string })?.name === "CanceledError") {
+        return;
+      }
+      const anyErr = err as { code?: string; message?: string };
+      const reason =
+        anyErr.code === "ERR_NETWORK" || /network/i.test(anyErr.message ?? "")
+          ? "network"
+          : "unknown";
+      setPatchState(refName, { kind: "error", reason });
+    }
+  }
+
+  function setPatchState(refName: string, next: GitShowFetchState): void {
+    const m = new Map(patchStateMap.value);
+    m.set(refName, next);
+    patchStateMap.value = m;
+  }
+  function setPatchData(refName: string, next: GitShowData): void {
+    const m = new Map(patchDataMap.value);
+    m.set(refName, next);
+    patchDataMap.value = m;
+  }
+  function getFullPatchData(refName: string): GitShowData | null {
+    return patchDataMap.value.get(refName) ?? null;
+  }
+  function getFullPatchState(refName: string): GitShowFetchState {
+    return patchStateMap.value.get(refName) ?? { kind: "idle" };
+  }
+  function isFullPatchLoading(refName: string): boolean {
+    return getFullPatchState(refName).kind === "loading";
+  }
   function getState(refName: string): GitShowFetchState {
     return stateMap.value.get(refName) ?? { kind: "idle" };
   }
@@ -377,12 +501,18 @@ export function useSpcodeGitShow(
     fileStateMap.value = new Map();
     fileDataMap.value = new Map();
     fileEtagMap.clear();
+    // 2026-08-09: full-patch caches
+    patchStateMap.value = new Map();
+    patchDataMap.value = new Map();
+    patchEtagMap.clear();
   }
 
   function invalidateEtag(): void {
     etagMap.clear();
     // v3.9: ETag-only drop for files; data is kept to avoid flash
     fileEtagMap.clear();
+    // 2026-08-09: full-patch ETags
+    patchEtagMap.clear();
   }
 
   // Worktree / umo change: clear ETag only, keep cached data so the
@@ -413,6 +543,12 @@ export function useSpcodeGitShow(
     fileEtagMap.clear();
     fileStateMap.value = new Map();
     fileDataMap.value = new Map();
+    // 2026-08-09: abort / drop the full-patch fetches
+    for (const ctrl of patchInflight.values()) ctrl.abort();
+    patchInflight.clear();
+    patchEtagMap.clear();
+    patchStateMap.value = new Map();
+    patchDataMap.value = new Map();
   }
 
   return {
@@ -425,6 +561,10 @@ export function useSpcodeGitShow(
     getFileData,
     getFileState,
     isFileLoading,
+    fetchFullPatch,
+    getFullPatchData,
+    getFullPatchState,
+    isFullPatchLoading,
     invalidateAll,
     invalidateEtag,
     dispose,
