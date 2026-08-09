@@ -154,6 +154,16 @@ async def test_managed_shell_uses_windows_powershell(monkeypatch, tmp_path):
         "Get-ChildItem",
     )
     assert "creationflags" in calls[0][1]
+    # The managed shell hides its console window via STARTUPINFO so spawning
+    # powershell.exe under pythonw.exe does not flash a window, while keeping
+    # CREATE_NEW_PROCESS_GROUP (and a real console) so CTRL_BREAK_EVENT
+    # interrupt keeps working.
+    creationflags = calls[0][1]["creationflags"]
+    assert creationflags & subprocess.CREATE_NEW_PROCESS_GROUP
+    assert not (creationflags & subprocess.CREATE_NO_WINDOW)
+    startupinfo = calls[0][1]["startupinfo"]
+    assert startupinfo.dwFlags & subprocess.STARTF_USESHOWWINDOW
+    assert startupinfo.wShowWindow == 0  # SW_HIDE
 
 
 def test_local_shell_component_prefers_utf8_before_windows_locale(

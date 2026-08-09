@@ -410,11 +410,22 @@ class LocalShellComponent(ShellComponent):
 
         process_kwargs: dict[str, Any] = {}
         if sys.platform == "win32":
+            # CREATE_NEW_PROCESS_GROUP keeps CTRL_BREAK_EVENT interrupt
+            # (see interrupt_session) working by giving the child its own
+            # process group attached to a console. CREATE_NO_WINDOW cannot be
+            # used here because it drops the console entirely and breaks that
+            # interrupt path. Instead, hide the console window via STARTUPINFO
+            # so spawning powershell.exe under pythonw.exe (GUI subsystem)
+            # does not flash a visible console window.
             process_kwargs["creationflags"] = getattr(
                 subprocess,
                 "CREATE_NEW_PROCESS_GROUP",
                 0,
             )
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            startupinfo.wShowWindow = 0  # SW_HIDE
+            process_kwargs["startupinfo"] = startupinfo
         else:
             process_kwargs["start_new_session"] = True
 
