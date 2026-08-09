@@ -515,6 +515,34 @@
                   <v-icon size="14">mdi-view-split-vertical</v-icon>
                 </button>
               </div>
+              <!-- 2026-08-09 (elecvoid243): bulk fold controls. Only in
+                   fullscreen — the inline card stays lightweight; folding
+                   every hunk is the fullscreen use-case (long diffs). -->
+              <span
+                v-if="parsedHunks.length > 0"
+                class="diff-hunk-bulk"
+                role="group"
+                :aria-label="tm('diffPreview.fullscreen.bulkAria')"
+              >
+                <button
+                  type="button"
+                  class="diff-hunk-bulk-btn"
+                  :title="tm('diffPreview.fullscreen.expandAll')"
+                  @click.stop="expandAllHunks"
+                >
+                  <v-icon size="14">mdi-chevron-double-down</v-icon>
+                  <span>{{ tm("diffPreview.fullscreen.expandAll") }}</span>
+                </button>
+                <button
+                  type="button"
+                  class="diff-hunk-bulk-btn"
+                  :title="tm('diffPreview.fullscreen.collapseAll')"
+                  @click.stop="collapseAllHunks"
+                >
+                  <v-icon size="14">mdi-chevron-double-right</v-icon>
+                  <span>{{ tm("diffPreview.fullscreen.collapseAll") }}</span>
+                </button>
+              </span>
               <!-- Fullscreen button is intentionally omitted here:
                    the overlay has its own "Back" exit button above. -->
               <v-icon
@@ -1039,6 +1067,19 @@ function toggleHunk(idx: number): void {
   if (next.has(idx)) next.delete(idx);
   else next.add(idx);
   collapsedHunks.value = next;
+}
+
+// 2026-08-09 (elecvoid243): bulk fold controls (fullscreen only).
+// Expand / collapse every hunk at once; shares toggleHunk's guard so
+// a pending discard confirmation can't be interrupted by a bulk flip.
+function expandAllHunks(): void {
+  if (confirmingHunkIndex.value !== null) return;
+  collapsedHunks.value = new Set();
+}
+
+function collapseAllHunks(): void {
+  if (confirmingHunkIndex.value !== null) return;
+  collapsedHunks.value = new Set(parsedHunks.value.map((_, i) => i));
 }
 
 function onDiscardHunkClick(hi: number, e: MouseEvent): void {
@@ -1766,6 +1807,48 @@ const statsDels = computed(() => {
 .diff-view-toggle-btn.active {
   background: rgba(var(--v-theme-primary), 0.15);
   color: rgb(var(--v-theme-primary));
+}
+
+/* 2026-08-09 (elecvoid243): bulk fold controls (fullscreen header).
+   Small ghost buttons that share the header's visual language; the
+   double-chevron mirrors the hunk chevron metaphor (right = folded,
+   down = expanded). The font stack overrides the diff's inherited
+   monospace with the AstrBot UI face (scss/_variables.scss
+   $body-font-family: Outfit / Noto Sans / CJK fallbacks) so the
+   buttons read as UI chrome, not code. */
+.diff-hunk-bulk {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 4px;
+  flex-shrink: 0;
+}
+.diff-hunk-bulk-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 22px;
+  padding: 0 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: rgba(var(--v-theme-on-surface), 0.55);
+  font-family:
+    "Outfit", "Noto Sans", "PingFang SC", "Hiragino Sans GB",
+    "Noto Sans CJK SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+  font-size: 11px;
+  cursor: pointer;
+  transition:
+    background 0.12s ease,
+    color 0.12s ease;
+}
+.diff-hunk-bulk-btn:hover {
+  color: rgba(var(--v-theme-on-surface), 0.85);
+  background: rgba(127, 127, 127, 0.08);
+}
+.diff-hunk-bulk-btn:focus-visible {
+  outline: 2px solid rgb(var(--v-theme-primary));
+  outline-offset: -2px;
 }
 
 .diff-chevron {

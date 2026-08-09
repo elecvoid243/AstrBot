@@ -346,7 +346,10 @@
       "enter": "全屏",
       "exit": "退出全屏",
       "exitLabel": "返回",
-      "ariaLabel": "全屏显示差异"
+      "ariaLabel": "全屏显示差异",
+      "expandAll": "全部展开",
+      "collapseAll": "全部折叠",
+      "bulkAria": "批量折叠控制"
     }
   },
   "spcodeProjectLoad": {

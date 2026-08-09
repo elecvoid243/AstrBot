@@ -372,3 +372,49 @@ describe("DiffPreview comment dock", () => {
     }
   });
 });
+
+// 2026-08-09 (elecvoid243): bulk fold controls (fullscreen only).
+describe("DiffPreview bulk fold controls (fullscreen)", () => {
+  it("collapse all folds every hunk; expand all restores them", async () => {
+    // Two hunks so the bulk action has more than one target.
+    const content = [
+      "@@ -1,2 +1,2 @@\n line1\n+line2\n",
+      "@@ -5,1 +6,1 @@\n-old\n+new\n",
+    ].join("");
+    const wrapper = mount(DiffPreview, {
+      props: { content, filePath: "sample.txt", maxLines: 30 },
+      global: { stubs: STUB_CHILDREN },
+    });
+    const vm = wrapper.vm as unknown as DiffPreviewInternals & {
+      collapseAllHunks: () => void;
+      expandAllHunks: () => void;
+    };
+    vm.enterFullscreen();
+    await nextTick();
+
+    // The bulk buttons render inside the overlay (first teleport patch).
+    const overlay = document.body.querySelector(".diff-fullscreen-overlay")!;
+    expect(overlay.querySelectorAll(".diff-hunk-bulk-btn").length).toBe(2);
+
+    // happy-dom's Teleport drops later patches / event listeners on the
+    // overlay subtree (see the comment dock describe above), so we drive
+    // the handlers through the setup bindings and assert on the inline
+    // card — it shares the same `collapsedHunks` state and is not
+    // teleported.
+    expect(wrapper.findAll(".hunk-header").length).toBe(2);
+    expect(wrapper.findAll(".is-hunk-folded").length).toBe(0);
+
+    vm.collapseAllHunks();
+    await nextTick();
+    expect(wrapper.findAll(".is-hunk-folded").length).toBe(2);
+
+    vm.expandAllHunks();
+    await nextTick();
+    expect(wrapper.findAll(".is-hunk-folded").length).toBe(0);
+  });
+
+  it("bulk buttons are not rendered in the inline (non-fullscreen) card", () => {
+    const wrapper = mountDiff();
+    expect(wrapper.findAll(".diff-hunk-bulk-btn").length).toBe(0);
+  });
+});
