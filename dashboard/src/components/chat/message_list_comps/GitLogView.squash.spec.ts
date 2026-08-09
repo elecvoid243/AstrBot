@@ -120,8 +120,18 @@ function findSquashButton(w: ReturnType<typeof mountView>) {
   return w.find(".git-log-squash-menu-item");
 }
 
+// 2026-08-09 interaction revision: once selection mode is armed the
+// "更多功能" dropdown is replaced by a direct confirm button.
+function findSquashConfirm(w: ReturnType<typeof mountView>) {
+  return w.find(".git-log-squash-confirm-btn");
+}
+
 function findChangelogItem(w: ReturnType<typeof mountView>) {
   return w.find(".git-log-changelog-menu-item");
+}
+
+function findChangelogConfirm(w: ReturnType<typeof mountView>) {
+  return w.find(".git-log-changelog-confirm-btn");
 }
 
 describe("GitLogView squash selection (spec 2026-08-03, revised interaction)", () => {
@@ -141,9 +151,12 @@ describe("GitLogView squash selection (spec 2026-08-03, revised interaction)", (
     const w = mountView();
     await findSquashButton(w).trigger("click");
     expect(w.findAll(".git-log-item-select")).toHaveLength(SHAS.length);
-    // Nothing submitted yet, and with 0 selected the button is grey.
+    // Nothing submitted yet, and with 0 selected the confirm button
+    // (which replaces the "更多功能" menu while armed) is grey.
     expect(w.emitted("squash")).toBeUndefined();
-    expect(findSquashButton(w).attributes("disabled")).toBeDefined();
+    expect(findSquashButton(w).exists()).toBe(false);
+    expect(findSquashConfirm(w).exists()).toBe(true);
+    expect(findSquashConfirm(w).attributes("disabled")).toBeDefined();
   });
 
   it("hides everything when viewing another ref", async () => {
@@ -157,6 +170,7 @@ describe("GitLogView squash selection (spec 2026-08-03, revised interaction)", (
     await w.setProps({ activeRef: "dev" });
     await w.setProps({ activeRef: "HEAD" });
     expect(w.findAll(".git-log-item-select")).toHaveLength(0);
+    expect(findSquashConfirm(w).exists()).toBe(false);
   });
 
   it("single selection stays grey; top-2 contiguous enables submit", async () => {
@@ -164,9 +178,9 @@ describe("GitLogView squash selection (spec 2026-08-03, revised interaction)", (
     await findSquashButton(w).trigger("click");
     const boxes = w.findAll(".git-log-item-select");
     await boxes[0].trigger("click");
-    expect(findSquashButton(w).attributes("disabled")).toBeDefined();
+    expect(findSquashConfirm(w).attributes("disabled")).toBeDefined();
     await boxes[1].trigger("click");
-    expect(findSquashButton(w).attributes("disabled")).toBeUndefined();
+    expect(findSquashConfirm(w).attributes("disabled")).toBeUndefined();
   });
 
   it("non-contiguous selection (gap) stays grey", async () => {
@@ -175,7 +189,7 @@ describe("GitLogView squash selection (spec 2026-08-03, revised interaction)", (
     const boxes = w.findAll(".git-log-item-select");
     await boxes[0].trigger("click");
     await boxes[2].trigger("click"); // skips row 1 → gap
-    expect(findSquashButton(w).attributes("disabled")).toBeDefined();
+    expect(findSquashConfirm(w).attributes("disabled")).toBeDefined();
   });
 
   it("missing-HEAD selection stays grey", async () => {
@@ -184,16 +198,16 @@ describe("GitLogView squash selection (spec 2026-08-03, revised interaction)", (
     const boxes = w.findAll(".git-log-item-select");
     await boxes[1].trigger("click");
     await boxes[2].trigger("click");
-    expect(findSquashButton(w).attributes("disabled")).toBeDefined();
+    expect(findSquashConfirm(w).attributes("disabled")).toBeDefined();
   });
 
-  it("second click with a valid selection emits payload oldest → newest", async () => {
+  it("confirm button with a valid selection emits payload oldest → newest", async () => {
     const w = mountView();
     await findSquashButton(w).trigger("click");
     const boxes = w.findAll(".git-log-item-select");
     await boxes[0].trigger("click");
     await boxes[1].trigger("click");
-    await findSquashButton(w).trigger("click");
+    await findSquashConfirm(w).trigger("click");
     const events = w.emitted("squash");
     expect(events).toHaveLength(1);
     const payload = events![0][0] as {
@@ -211,6 +225,9 @@ describe("GitLogView squash selection (spec 2026-08-03, revised interaction)", (
     await boxes[1].trigger("click");
     await w.find(".git-log-squash-cancel-btn").trigger("click");
     expect(w.findAll(".git-log-item-select")).toHaveLength(0);
+    // The "更多功能" menu (and its squash item) is back.
+    expect(findSquashConfirm(w).exists()).toBe(false);
+    expect(findSquashButton(w).exists()).toBe(true);
     // Re-entering starts from a clean selection.
     await findSquashButton(w).trigger("click");
     expect(w.findAll(".git-log-item-select.is-selected")).toHaveLength(0);
@@ -224,6 +241,7 @@ describe("GitLogView squash selection (spec 2026-08-03, revised interaction)", (
     await boxes[1].trigger("click");
     await w.setProps({ squashResetToken: 1 });
     expect(w.findAll(".git-log-item-select")).toHaveLength(0);
+    expect(findSquashConfirm(w).exists()).toBe(false);
     await findSquashButton(w).trigger("click");
     expect(w.findAll(".git-log-item-select.is-selected")).toHaveLength(0);
   });
@@ -248,8 +266,10 @@ describe("GitLogView changelog selection (spec 2026-08-09)", () => {
     await findChangelogItem(w).trigger("click");
     expect(w.findAll(".git-log-item-select")).toHaveLength(SHAS.length);
     expect(w.emitted("changelog")).toBeUndefined();
-    // 0 selected → item disabled.
-    expect(findChangelogItem(w).attributes("disabled")).toBeDefined();
+    // 0 selected → the confirm button (replacing the menu) is disabled.
+    expect(findChangelogItem(w).exists()).toBe(false);
+    expect(findChangelogConfirm(w).exists()).toBe(true);
+    expect(findChangelogConfirm(w).attributes("disabled")).toBeDefined();
   });
 
   it("single non-HEAD commit is a valid selection (differs from squash)", async () => {
@@ -257,7 +277,7 @@ describe("GitLogView changelog selection (spec 2026-08-09)", () => {
     await findChangelogItem(w).trigger("click");
     const boxes = w.findAll(".git-log-item-select");
     await boxes[2].trigger("click"); // middle row, not HEAD
-    expect(findChangelogItem(w).attributes("disabled")).toBeUndefined();
+    expect(findChangelogConfirm(w).attributes("disabled")).toBeUndefined();
   });
 
   it("non-contiguous selection (gap) stays disabled", async () => {
@@ -266,16 +286,16 @@ describe("GitLogView changelog selection (spec 2026-08-09)", () => {
     const boxes = w.findAll(".git-log-item-select");
     await boxes[0].trigger("click");
     await boxes[2].trigger("click"); // skips row 1 → gap
-    expect(findChangelogItem(w).attributes("disabled")).toBeDefined();
+    expect(findChangelogConfirm(w).attributes("disabled")).toBeDefined();
   });
 
-  it("second click with a valid selection emits payload oldest → newest", async () => {
+  it("confirm button with a valid selection emits payload oldest → newest", async () => {
     const w = mountView();
     await findChangelogItem(w).trigger("click");
     const boxes = w.findAll(".git-log-item-select");
     await boxes[1].trigger("click");
     await boxes[2].trigger("click");
-    await findChangelogItem(w).trigger("click");
+    await findChangelogConfirm(w).trigger("click");
     const events = w.emitted("changelog");
     expect(events).toHaveLength(1);
     const payload = events![0][0] as {
@@ -284,17 +304,25 @@ describe("GitLogView changelog selection (spec 2026-08-09)", () => {
     expect(payload.commits.map((c) => c.sha)).toEqual([SHAS[2], SHAS[1]]);
   });
 
-  it("arming changelog cancels an active squash selection (mutual exclusion)", async () => {
+  it("selection modes are exclusive; the menu is hidden while armed", async () => {
     const w = mountView();
     await findSquashButton(w).trigger("click");
     const boxes = w.findAll(".git-log-item-select");
     await boxes[0].trigger("click");
+    // While squash is armed the "更多功能" menu is replaced by the
+    // squash confirm button, so the changelog item is unreachable.
+    expect(findChangelogItem(w).exists()).toBe(false);
+    expect(findSquashConfirm(w).exists()).toBe(true);
+    // Cancel exits back to the menu.
+    await w.find(".git-log-squash-cancel-btn").trigger("click");
+    expect(findChangelogItem(w).exists()).toBe(true);
+    expect(findSquashConfirm(w).exists()).toBe(false);
+    // Arming changelog shows its confirm button and hides the menu.
     await findChangelogItem(w).trigger("click");
-    // Squash selection cleared; changelog mode owns the checkboxes.
-    expect(w.findAll(".git-log-item-select.is-selected")).toHaveLength(0);
+    expect(findChangelogConfirm(w).exists()).toBe(true);
     const changelogBoxes = w.findAll(".git-log-item-select");
     await changelogBoxes[1].trigger("click");
-    await findChangelogItem(w).trigger("click");
+    await findChangelogConfirm(w).trigger("click");
     const events = w.emitted("changelog");
     expect(events).toHaveLength(1);
     expect(w.emitted("squash")).toBeUndefined();
@@ -307,6 +335,7 @@ describe("GitLogView changelog selection (spec 2026-08-09)", () => {
     await boxes[1].trigger("click");
     await w.setProps({ changelogResetToken: 1 });
     expect(w.findAll(".git-log-item-select")).toHaveLength(0);
+    expect(findChangelogConfirm(w).exists()).toBe(false);
     await findChangelogItem(w).trigger("click");
     expect(w.findAll(".git-log-item-select.is-selected")).toHaveLength(0);
   });

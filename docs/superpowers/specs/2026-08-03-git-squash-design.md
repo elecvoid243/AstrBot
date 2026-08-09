@@ -231,6 +231,13 @@ Interaction model (revised 2026-08-03 per user feedback):
    **second click with a valid selection submits**. A separate small
    "取消" button exits the mode (the main button can't double as the
    exit because it is disabled exactly when the user may want out).
+4. **(revised 2026-08-09 per user feedback)** While selection mode is
+   armed, the "更多功能" dropdown activator is **replaced** by a direct
+   confirm button at the same toolbar slot (same label "压缩提交" +
+   selection count + validity state as the old menu item; styled
+   `variant="tonal" color="primary"`). The confirming click therefore
+   no longer requires reopening the menu; the "取消" button stays next
+   to it and remains the only exit.
 
 - **Checkbox per row**, rendered OUTSIDE the row header `<button>`
   (nested buttons are invalid HTML) and only while
@@ -279,6 +286,17 @@ Clone of `GitCherryPickDialog.vue` structure (`v-model`, `:loading`,
   the JSON contract more reliably). The language toggle shares the
   commit dialog's localStorage key; all UI strings reuse the existing
   `gitWorkflow.commit.dialog.*` i18n keys (zero new keys).
+- **Provider selector (added 2026-08-09)**: cloned from
+  `GitCommitDialog.vue` — `listProviders({capability:"chat",
+  enabled:true})` + `__auto__` (Auto) option, shown only when at least
+  one provider is returned. The selection SHARES the commit dialog's
+  persisted key (`astrbot.spcode.gitDiffSidebar.commitProviderId`), so
+  commit and squash message generation follow one provider preference;
+  the btw call forwards `providerId`. `provider_not_found` /
+  `provider_type_invalid` are mapped to their existing
+  `gitWorkflow.commit.dialog.generateError.*` i18n keys (added to
+  ru-RU in the same change). Dialog width widened 520 → 560 to fit the
+  controls row. Still NO backend change.
 - Warning line: 压缩会改写历史，已推送的提交需要 force push
   (`squash.historyRewriteWarning`).
 - Emits `(e: "submit", { shas: string[], message: string })`.

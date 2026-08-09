@@ -7,15 +7,21 @@
      2026-08-03 AI-generate: the 中文/EN toggle + "AI 生成" button are
      cloned from GitCommitDialog.vue, but the prompt context is ONLY
      the historical commit messages (subject + body) — no git diff is
-     fetched or sent (user requirement 2026-08-03). -->
+     fetched or sent (user requirement 2026-08-03).
+
+     2026-08-09 provider selector: cloned from GitCommitDialog — shares
+     the same persisted key (astrbot.spcode.gitDiffSidebar.commitProviderId)
+     so commit + squash message generation use ONE provider preference.
+     The btw call now forwards providerId; __auto__ keeps the old
+     "follow the session default provider" behaviour. -->
 <template>
   <v-dialog
     :model-value="modelValue"
     persistent
-    max-width="520"
+    max-width="560"
     @update:model-value="emit('update:modelValue', $event)"
   >
-    <v-card>
+    <v-card id="git-squash-dialog-card">
       <v-card-title class="text-h3 pa-4 pb-0 pl-6">
         {{ tm("spcodeProjectLoad.diffSidebar.squash.dialogTitle") }}
       </v-card-title>
@@ -35,6 +41,32 @@
             {{ tm("spcodeProjectLoad.diffSidebar.squash.messageLabel") }}
           </label>
           <div class="git-squash-dialog-generate-controls">
+            <v-select
+              v-if="providerOptions.length > 0"
+              v-model="providerId"
+              :items="[
+                {
+                  id: AUTO_PROVIDER,
+                  label: tm(
+                    'spcodeProjectLoad.diffSidebar.gitWorkflow.commit.dialog.providerAuto',
+                  ),
+                },
+                ...providerOptions,
+              ]"
+              item-value="id"
+              item-title="label"
+              :label="
+                tm(
+                  'spcodeProjectLoad.diffSidebar.gitWorkflow.commit.dialog.providerLabel',
+                )
+              "
+              density="compact"
+              hide-details
+              variant="outlined"
+              class="git-squash-dialog-provider-select"
+              :disabled="btw.isGenerating.value"
+              attach="#git-squash-dialog-card"
+            />
             <v-btn-toggle
               v-model="msgLanguage"
               mandatory
@@ -158,6 +190,7 @@ import {
   parseCommitMessageReply,
 } from "@/composables/commitMessagePrompt";
 import { useSpcodeBtw } from "@/composables/useSpcodeBtw";
+import { listProviders } from "@/api/generated/openapi-v1";
 import type { SquashPayloadCommit } from "./message_list_comps/GitLogView.vue";
 
 const props = defineProps<{
@@ -189,6 +222,7 @@ watch(
       messageInput.value = "";
       messageError.value = "";
       generateErrorKey.value = null;
+      void loadProviders();
     } else {
       // Generation never blocks closing (btw is side-effect-free);
       // abort it so a late resolution can't write into a closed
@@ -228,6 +262,66 @@ watch(msgLanguage, (v) => {
   }
 });
 
+// ── Provider selection (2026-08-09) ─────────────────────────────
+// Mirrors GitCommitDialog: the SAME localStorage key is shared so
+// commit + squash message generation follow one provider preference.
+// "__auto__" keeps the pre-existing "follow the session default
+// provider" behaviour (btw omits provider_id for it).
+const COMMIT_PROVIDER_KEY = "astrbot.spcode.gitDiffSidebar.commitProviderId";
+const AUTO_PROVIDER = "__auto__";
+
+function loadProviderId(): string {
+  try {
+    const v = localStorage.getItem(COMMIT_PROVIDER_KEY);
+    if (v && v !== AUTO_PROVIDER) return v;
+  } catch {
+    /* localStorage may be unavailable (private mode) — fall through */
+  }
+  return AUTO_PROVIDER;
+}
+
+const providerId = ref<string>(loadProviderId());
+watch(providerId, (v) => {
+  try {
+    localStorage.setItem(COMMIT_PROVIDER_KEY, v);
+  } catch {
+    /* no-op */
+  }
+});
+
+interface ProviderOption {
+  id: string;
+  label: string;
+}
+
+const providerOptions = ref<ProviderOption[]>([]);
+
+async function loadProviders(): Promise<void> {
+  try {
+    const resp = await listProviders({
+      query: { capability: "chat", enabled: true },
+    });
+    const providers = (
+      resp.data?.data as { providers?: any[] } | undefined
+    )?.providers;
+    if (!Array.isArray(providers)) {
+      providerOptions.value = [];
+      return;
+    }
+    providerOptions.value = providers
+      .filter((p) => p && typeof p.id === "string")
+      .map((p) => ({
+        id: p.id,
+        label: `${p.name || p.id}${
+          typeof p.model === "string" && p.model ? ` (${p.model})` : ""
+        }`,
+      }));
+  } catch {
+    // API failure degrades to "Auto" only; existing behaviour unchanged.
+    providerOptions.value = [];
+  }
+}
+
 // i18n key suffix of the last generate failure; null = no error.
 const generateErrorKey = ref<string | null>(null);
 
@@ -248,7 +342,10 @@ async function onGenerate(): Promise<void> {
   // Deliberately context-free (no umo) — same rationale as
   // GitCommitDialog: self-contained prompts follow the strict JSON
   // contract more reliably.
-  const result = await btw.ask({ prompt });
+  const result = await btw.ask({
+    prompt,
+    providerId: providerId.value,
+  });
   if (result.ok) {
     // Tolerant parse of the JSON contract; fall back to the
     // fence-stripped raw reply so the user can still edit.
@@ -266,7 +363,9 @@ async function onGenerate(): Promise<void> {
     result.reason === "no_provider" ||
     result.reason === "empty_response" ||
     result.reason === "llm_error" ||
-    result.reason === "network"
+    result.reason === "network" ||
+    result.reason === "provider_not_found" ||
+    result.reason === "provider_type_invalid"
       ? result.reason
       : "unknown";
 }
@@ -331,6 +430,11 @@ function onSubmit(): void {
   gap: 8px;
   flex-shrink: 0;
 }
+.git-squash-dialog-provider-select {
+  max-width: 200px;
+  min-width: 140px;
+  font-size: 12px;
+}
 .git-squash-dialog-generating-hint {
   display: flex;
   align-items: center;
@@ -348,5 +452,22 @@ function onSubmit(): void {
   margin-top: 8px;
   font-size: 11.5px;
   color: rgb(var(--v-theme-warning));
+}
+</style>
+<!-- v-menu 下拉列表经由 attach 传送到 v-card 内；此处用全局（非 scoped）
+     样式覆盖下拉项默认 14px 字号，并让超长 provider 名横向滚动。 -->
+<style>
+#git-squash-dialog-card .v-list-item {
+  min-height: 32px;
+}
+#git-squash-dialog-card .v-list-item-title {
+  font-size: 12px;
+  line-height: 1.4;
+  max-width: 520px;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+#git-squash-dialog-card .v-select .v-field {
+  font-size: 12px;
 }
 </style>

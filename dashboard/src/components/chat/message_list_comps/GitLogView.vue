@@ -769,14 +769,59 @@ function fileErrorMessage(state: GitShowFetchState): string | null {
           }}
         </v-btn>
         <!-- 2026-08-09 (elecvoid243) more-actions menu: Cherry-Pick and
-             Squash move into a "更多功能" dropdown so future history-tab
-             actions can be added as extra v-list-items without widening
-             the toolbar. The squash item keeps its dynamic state
-             (disabled while the selection is invalid, count suffix,
-             hint tooltip). The selection-mode cancel button stays in
-             the toolbar — it only appears while picking rows, when the
-             menu is closed. -->
-        <v-menu location="bottom end">
+             Squash/Changelog live in a "更多功能" dropdown so future
+             history-tab actions can be added as extra v-list-items
+             without widening the toolbar.
+
+             2026-08-09 interaction revision (user feedback): while a
+             selection mode is armed, the "更多功能" dropdown is
+             REPLACED by a direct confirm button sitting exactly where
+             the menu activator was — the second (confirming) click no
+             longer requires reopening the menu. The button carries the
+             same label + selection count + validity state as the old
+             menu item; the "取消" button next to it still exits the
+             mode. -->
+        <v-btn
+          v-if="viewingCurrent && squashSelecting"
+          class="git-log-squash-confirm-btn"
+          size="small"
+          variant="tonal"
+          color="primary"
+          :disabled="squashSelection !== 'valid'"
+          :title="
+            squashSelection !== 'valid'
+              ? tm('spcodeProjectLoad.diffSidebar.squash.selectionHint')
+              : tm('spcodeProjectLoad.diffSidebar.squash.toolbarAria')
+          "
+          @click="onSquashClick"
+        >
+          <v-icon size="14" start>mdi-arrow-collapse-vertical</v-icon>
+          {{ tm("spcodeProjectLoad.diffSidebar.squash.toolbar") }}
+          <template v-if="selectedCommits.size > 0">
+            ({{ selectedCommits.size }})
+          </template>
+        </v-btn>
+        <v-btn
+          v-else-if="changelogSelecting"
+          class="git-log-changelog-confirm-btn"
+          size="small"
+          variant="tonal"
+          color="primary"
+          :disabled="changelogSelection !== 'valid'"
+          :title="
+            changelogSelection !== 'valid'
+              ? tm('spcodeProjectLoad.diffSidebar.changelog.selectionHint')
+              : tm('spcodeProjectLoad.diffSidebar.changelog.menuAria')
+          "
+          @click="onChangelogClick"
+        >
+          <v-icon size="14" start>mdi-file-document-edit-outline</v-icon>
+          {{ tm("spcodeProjectLoad.diffSidebar.changelog.menu") }}
+          <template v-if="selectedChangelogCommits.size > 0">
+            ({{ selectedChangelogCommits.size }})
+          </template>
+        </v-btn>
+        <v-menu v-else location="bottom end">
           <template #activator="{ props: menuProps }">
             <v-btn
               v-bind="menuProps"
@@ -809,11 +854,12 @@ function fileErrorMessage(state: GitShowFetchState): string | null {
                 "
               />
             </v-list-item>
-            <!-- Squash (2026-08-03 revised interaction): ALWAYS clickable
-                 — the first click arms selection mode (row checkboxes
-                 appear); a second click submits. While in selection mode
-                 the item stays disabled until the selection is valid
-                 (>= 2 HEAD-anchored contiguous rows). -->
+            <!-- Squash (2026-08-03 revised interaction): the first
+                 click arms selection mode (row checkboxes appear).
+                 2026-08-09: while armed the menu is replaced by the
+                 direct confirm button, so this item is only reachable
+                 for the arming click; the disabled/count states below
+                 are kept as defensive logic. -->
             <v-list-item
               v-if="viewingCurrent"
               class="git-log-more-actions-item git-log-squash-menu-item"

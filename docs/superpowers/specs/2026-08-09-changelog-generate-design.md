@@ -36,8 +36,9 @@ git diff 与提交信息作为上下文，由 LLM 产出规范的中文更新日
 ```
 「更多功能」菜单 → 生成更新日志（第一次点击）
   → changelogSelecting = true，日志列表行首出现复选框
-  → 用户勾选连续区段（菜单项显示计数 (N)，选区无效时禁用）
-  → 第二次点击菜单项 → emit('changelog', {commits})
+  → 用户勾选连续区段（选区无效时禁用）
+  → （2026-08-09 修订）选择模式下「更多功能」按钮原位替换为
+    「生成更新日志 (N)」直接确认按钮 → 点击 → emit('changelog', {commits})
   → GitDiffSidebar 打开 GitChangelogDialog
   → 对话框内：版本号 + provider + 任务指引（可编辑）→ 生成 → 预览/编辑 → 保存
   → 保存成功：snackbar 显示路径，bump changelogResetToken 退出选择模式
