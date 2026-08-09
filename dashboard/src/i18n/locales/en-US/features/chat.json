@@ -11,8 +11,11 @@
     "recordingPrompt": "Recording, please speak...",
     "chatPrompt": "Let's chat!",
     "dropToUpload": "Drop files to upload",
+    "dropToReference": "Drop to reference this file",
     "stopGenerating": "Stop generating",
-    "uploadSidebarFailed": "Failed to upload {name} from sidebar"
+    "references": {
+      "removeAria": "Remove reference {name}"
+    }
   },
   "message": {
     "user": "User",

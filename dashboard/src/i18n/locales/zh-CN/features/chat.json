@@ -11,8 +11,11 @@
     "recordingPrompt": "录音中，请说话...",
     "chatPrompt": "聊天吧!",
     "dropToUpload": "松开鼠标上传文件",
+    "dropToReference": "松开鼠标引用该文件",
     "stopGenerating": "停止生成",
-    "uploadSidebarFailed": "无法从侧边栏上传 {name}"
+    "references": {
+      "removeAria": "移除引用 {name}"
+    }
   },
   "message": {
     "user": "用户",

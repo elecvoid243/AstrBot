@@ -11,8 +11,11 @@
     "recordingPrompt": "Запись... говорите",
     "chatPrompt": "Давай пообщаемся!",
     "dropToUpload": "Отпустите, чтобы загрузить файл",
+    "dropToReference": "Отпустите, чтобы добавить ссылку на файл",
     "stopGenerating": "Остановить генерацию",
-    "uploadSidebarFailed": "Не удалось загрузить {name} из боковой панели"
+    "references": {
+      "removeAria": "Убрать ссылку {name}"
+    }
   },
   "message": {
     "user": "Вы",

@@ -106,12 +106,20 @@
         transition: 'min-height 0.2s ease, padding 0.2s ease',
       }"
     >
-      <!-- 拖拽上传遮罩 -->
+      <!-- 拖拽遮罩：原生文件拖入=上传；sidebar 拖入=引用 -->
       <transition name="fade">
         <div v-if="isDragging" class="drop-overlay">
           <div class="drop-overlay-content">
-            <v-icon size="48" color="primary">mdi-cloud-upload</v-icon>
-            <span class="drop-text">{{ tm("input.dropToUpload") }}</span>
+            <v-icon size="48" color="primary">{{
+              dragKind === "reference"
+                ? "mdi-file-link-outline"
+                : "mdi-cloud-upload"
+            }}</v-icon>
+            <span class="drop-text">{{
+              dragKind === "reference"
+                ? tm("input.dropToReference")
+                : tm("input.dropToUpload")
+            }}</span>
           </div>
         </div>
       </transition>
@@ -131,6 +139,37 @@
             color="grey"
             variant="text"
           />
+        </div>
+      </transition>
+
+      <!-- 2026-08-09 drag-reference: staged file-reference chips. Each
+           chip shows the basename (full path in the title tooltip) and
+           removes itself on ✕. The block is appended to the outgoing
+           message at send time and cleared on success (spec D3). -->
+      <transition name="attachments">
+        <div
+          v-if="fileReferences.totalCount.value > 0"
+          class="references-preview"
+        >
+          <div
+            v-for="r in fileReferences.references"
+            :key="r.id"
+            class="reference-chip"
+            :title="r.path"
+          >
+            <v-icon size="14" class="reference-chip__icon">
+              mdi-file-outline
+            </v-icon>
+            <span class="reference-chip__name">{{ r.name }}</span>
+            <button
+              type="button"
+              class="reference-chip__remove"
+              :aria-label="tm('input.references.removeAria', { name: r.name })"
+              @click="fileReferences.removeReference(r.id)"
+            >
+              <v-icon size="12">mdi-close</v-icon>
+            </button>
+          </div>
         </div>
       </transition>
 
@@ -480,6 +519,7 @@ import {
 } from "@/composables/useSpcodeProjectAutoLoad";
 import { useToastStore } from "@/stores/toast";
 import { useFileComments } from "@/composables/useFileComments";
+import { useFileReferences } from "@/composables/useFileReferences";
 import { useConfirmDialog } from "@/utils/confirmDialog";
 import { useSpcodeProjectLoad } from "@/composables/useSpcodeProjectLoad";
 import { useSpcodePlanMode } from "@/composables/useSpcodePlanMode";
@@ -551,14 +591,12 @@ const emit = defineEmits<{
   stopRecording: [];
   pasteImage: [event: ClipboardEvent];
   fileSelect: [files: FileList | File[]];
-  // 2026-07-18 drag-to-chat (elecvoid243): emitted when a file from
-  // the sidebar file browser (workspace / document manager) is dropped
-  // onto the chat input. payload carries the absolute server-side
-  // path + the basename the user saw in the list. Parent (Chat.vue)
-  // fetches the content via /spcode/file-browser and re-uses the
-  // existing `uploadStagedFile` pipeline. See
-  // `processAndUploadFileFromPath` in useMediaHandling.ts.
-  filePathDrop: [payload: { path: string; name: string }];
+  // 2026-08-09 drag-reference (elecvoid243): sidebar file-browser drop.
+  // The payload carries the remote absolute path + the basename the user
+  // saw in the list. Parent (Chat.vue) adds a *reference* via
+  // useFileReferences; paths are appended to the outgoing message text
+  // at send time — nothing is uploaded.
+  fileReferenceDrop: [payload: { path: string; name: string }];
   clearReply: [];
   openLiveMode: [];
   "open-diff-sidebar": [];
@@ -577,6 +615,9 @@ const providerModelMenuRef = ref<InstanceType<typeof ProviderModelMenu> | null>(
 const providerSelectorAvailable = ref(true);
 const isReplyClosing = ref(false);
 const isDragging = ref(false);
+/** 2026-08-09 drag-reference: which drop overlay to show. "Files" drags
+ *  upload; sidebar MIME drags reference. */
+const dragKind = ref<"upload" | "reference">("upload");
 const isComposing = ref(false);
 const inputIsMultiline = ref(false);
 const lastCompositionEndAt = ref<number | null>(null);
@@ -587,6 +628,10 @@ let dragLeaveTimeout: number | null = null;
 // surface; it reads the comment store directly (same singleton that
 // FileBrowserFilePreview writes to) so it does not need a prop.
 const fileComments = useFileComments();
+// 2026-08-09 drag-reference (elecvoid243): sidebar file drops become
+// references (not uploads). Same singleton pattern as fileComments —
+// read directly, no prop. See useFileReferences.ts header.
+const fileReferences = useFileReferences();
 const previewDialogOpen = ref(false);
 const chipHovered = ref(false);
 
@@ -1401,8 +1446,8 @@ function handlePaste(e: ClipboardEvent) {
 // 2026-07-18 drag-to-chat (elecvoid243): custom MIME type used by
 // the sidebar file browser to mark a drag payload as a remote file
 // path. The chat input's drop handler checks for this FIRST so we
-// can route sidebar file drops through `processAndUploadFileFromPath`
-// instead of the native FileList path. Kept as a module-local
+// can route sidebar file drops to the reference store instead of the
+// native FileList path. Kept as a module-local
 // constant (not exported) because the only consumer is the sidebar
 // file list which lives in the same Vue tree.
 const SIDEBAR_FILE_MIME = "application/x-astrbot-file-path";
@@ -1414,14 +1459,15 @@ function handleDragOver(e: DragEvent) {
     dragLeaveTimeout = null;
   }
 
-  // 显示拖拽遮罩的判定：既支持原生文件拖入（"Files"），也支持
-  // sidebar 文件浏览器拖入（自定义 MIME）。两种都是"可以松手
-  // 上传"的信号，所以共用同一个 isDragging overlay。
+  // 显示拖拽遮罩的判定：既支持原生文件拖入（"Files" → 上传），也支持
+  // sidebar 文件浏览器拖入（自定义 MIME → 引用）。两种共用一个
+  // isDragging overlay，但图标与文案按 dragKind 分流。
   const types = e.dataTransfer?.types;
-  if (
-    types?.includes("Files") ||
-    types?.includes(SIDEBAR_FILE_MIME)
-  ) {
+  if (types?.includes("Files")) {
+    dragKind.value = "upload";
+    isDragging.value = true;
+  } else if (types?.includes(SIDEBAR_FILE_MIME)) {
+    dragKind.value = "reference";
     isDragging.value = true;
   }
 }
@@ -1436,12 +1482,11 @@ function handleDragLeave(e: DragEvent) {
 function handleDrop(e: DragEvent) {
   isDragging.value = false;
 
-  // 优先处理 sidebar 文件拖入：自定义 MIME 携带的是远端文件路径,
-  // 父组件需要走 `processAndUploadFileFromPath` (先 fetch content,
-  // 再走和原生上传完全相同的 uploadStagedFile 流程)。如果 dataTransfer
-  // 同时携带 Files（极少见,例如从外部桌面把同一个文件既通过路径也通过
-  // File 拖入），优先信任自定义类型 — 它意味着这是 sidebar 的拖拽,
-  // 走远端路径更可靠(本地 File 可能因为沙箱而不可读)。
+  // 优先处理 sidebar 文件拖入：自定义 MIME 携带的是远端文件路径，
+  // 父组件把它登记为引用（useFileReferences），发送时拼接到消息末尾。
+  // 如果 dataTransfer 同时携带 Files（极少见,例如从外部桌面把同一个
+  // 文件既通过路径也通过 File 拖入），优先信任自定义类型 — 它意味着
+  // 这是 sidebar 的拖拽。
   const sidebarPayload = e.dataTransfer?.getData(SIDEBAR_FILE_MIME);
   if (sidebarPayload) {
     try {
@@ -1449,11 +1494,8 @@ function handleDrop(e: DragEvent) {
         path?: unknown;
         name?: unknown;
       };
-      if (
-        typeof parsed.path === "string" &&
-        typeof parsed.name === "string"
-      ) {
-        emit("filePathDrop", { path: parsed.path, name: parsed.name });
+      if (typeof parsed.path === "string" && typeof parsed.name === "string") {
+        emit("fileReferenceDrop", { path: parsed.path, name: parsed.name });
         return;
       }
     } catch {
@@ -2552,5 +2594,49 @@ defineExpose({
 .comment-count-chip__clear:hover {
   opacity: 1;
   transform: scale(1.08);
+}
+
+/* 2026-08-09 drag-reference: file-reference chips row. Reuses the
+   "attachments" transition; each chip is a compact pill showing the
+   basename, with the absolute path on the title tooltip. */
+.references-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 12px 0;
+}
+.reference-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 220px;
+  padding: 3px 6px 3px 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.14);
+  background: rgba(var(--v-theme-primary), 0.07);
+  font-size: 12px;
+  color: rgb(var(--v-theme-on-surface));
+}
+.reference-chip__icon {
+  flex: none;
+  color: rgb(var(--v-theme-primary));
+}
+.reference-chip__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.reference-chip__remove {
+  display: inline-flex;
+  align-items: center;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 1px;
+  border-radius: 50%;
+  color: rgba(var(--v-theme-on-surface), 0.55);
+}
+.reference-chip__remove:hover {
+  color: rgb(var(--v-theme-error));
 }
 </style>

@@ -225,15 +225,18 @@ onBeforeUnmount(() => {
 });
 
 // ── Drag-to-chat (2026-07-18, elecvoid243) ────────────────────────
+// Updated 2026-08-09 (elecvoid243): drops no longer upload — the chat
+// input registers the path as a file *reference* (useFileReferences)
+// whose absolute paths are appended to the outgoing message at send
+// time, so the agent reads the file itself.
 // Allows the user to drag a file entry directly onto the chat input
-// to upload it as a message attachment — equivalent to clicking the
-// "+ → Upload Files" button, but with a single gesture.
+// to reference it in the next message.
 //
 // The payload is encoded with a CUSTOM MIME type
 // ("application/x-astrbot-file-path") so the chat input's drop
 // handler can distinguish sidebar files from native OS file drops
-// and route them to the same upload pipeline (`uploadStagedFile`
-// via `useMediaHandling.processAndUploadFileFromPath`).
+// and route them to the reference store instead of the upload
+// pipeline.
 //
 // We also set "text/plain" as a fallback because some browsers
 // (and the test in handleDrop) prefer a plain-text payload when
