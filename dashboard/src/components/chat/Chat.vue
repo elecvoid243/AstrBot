@@ -116,6 +116,41 @@
       </div>
 
       <div v-if="!isSidebarCollapsed" class="sidebar-content">
+        <!-- 2026-08-09 sidebar batch delete (elecvoid243): batch action
+             bar shown while selection mode is active. -->
+        <div v-if="selectionMode" class="batch-select-bar">
+          <v-checkbox-btn
+            :model-value="allChecked"
+            :indeterminate="someChecked"
+            density="compact"
+            class="batch-select-all"
+            :title="allChecked ? tm('batch.deselectAll') : tm('batch.selectAll')"
+            @update:model-value="toggleSelectAll"
+          />
+          <span class="batch-select-count">
+            {{ tm("batch.selected", { count: checkedSessionIds.size }) }}
+          </span>
+          <v-btn
+            size="x-small"
+            variant="text"
+            color="error"
+            class="batch-select-delete"
+            :disabled="checkedSessionIds.size === 0"
+            :loading="deletingCheckedSessions"
+            @click="deleteCheckedSessions"
+          >
+            {{ tm("batch.delete") }}
+          </v-btn>
+          <v-btn
+            size="x-small"
+            variant="text"
+            class="batch-select-exit"
+            @click="toggleSelectionMode"
+          >
+            {{ tm("batch.exit") }}
+          </v-btn>
+        </div>
+
         <ProjectList
           :projects="projects"
           :project-sessions="projectSessionsById"
@@ -123,6 +158,8 @@
           :selected-project-id="selectedProjectId"
           :active-session-id="currSessionId"
           :is-session-running="isSessionRunning"
+          :selection-mode="selectionMode"
+          :checked-session-ids="checkedSessionIds"
           @create-project="openCreateProjectDialog"
           @edit-project="openEditProjectDialog"
           @delete-project="handleDeleteProject"
@@ -131,19 +168,31 @@
           @select-session="selectProjectSession"
           @edit-session-title="editProjectSessionTitle"
           @delete-session="deleteProjectSession"
+          @toggle-session-checked="toggleSessionChecked"
         />
 
         <section class="sidebar-section session-list">
           <div class="sidebar-section-header">
             <span>{{ tm("conversation.title") }}</span>
-            <button
-              class="search-btn"
-              type="button"
-              :title="tm('search.title')"
-              @click="searchDialogOpen = true"
-            >
-              <Search :size="14" />
-            </button>
+            <div class="sidebar-section-header-actions">
+              <button
+                class="search-btn"
+                :class="{ active: selectionMode }"
+                type="button"
+                :title="tm('batch.manage')"
+                @click="toggleSelectionMode"
+              >
+                <ListChecks :size="14" />
+              </button>
+              <button
+                class="search-btn"
+                type="button"
+                :title="tm('search.title')"
+                @click="searchDialogOpen = true"
+              >
+                <Search :size="14" />
+              </button>
+            </div>
           </div>
           <div
             v-for="session in sessions"
@@ -152,19 +201,33 @@
             :class="{
               active:
                 !isProviderWorkspace && currSessionId === session.session_id,
+              selection: selectionMode,
+              checked: selectionMode && checkedSessionIds.has(session.session_id),
               'has-branch-meta':
-                Boolean(session.branches?.length) ||
-                Boolean(session.branch_source),
+                !selectionMode &&
+                (Boolean(session.branches?.length) ||
+                  Boolean(session.branch_source)),
             }"
             role="button"
             tabindex="0"
-            @click="selectSession(session.session_id)"
-            @keydown.enter="selectSession(session.session_id)"
-            @keydown.space.prevent="selectSession(session.session_id)"
+            @click="handleSidebarSessionClick(session.session_id)"
+            @keydown.enter="handleSidebarSessionClick(session.session_id)"
+            @keydown.space.prevent="handleSidebarSessionClick(session.session_id)"
           >
+            <v-checkbox-btn
+              v-if="selectionMode"
+              :model-value="checkedSessionIds.has(session.session_id)"
+              density="compact"
+              class="session-select-checkbox"
+              @click.stop
+              @update:model-value="toggleSessionChecked(session.session_id)"
+            />
             <span class="session-title">{{ sessionTitle(session) }}</span>
             <div
-              v-if="session.branches?.length || session.branch_source"
+              v-if="
+                !selectionMode &&
+                (session.branches?.length || session.branch_source)
+              "
               class="session-branch-meta"
               @click.stop
             >
@@ -212,7 +275,7 @@
                 <CornerUpLeft :size="14" />
               </v-btn>
             </div>
-            <div class="session-actions" @click.stop>
+            <div v-if="!selectionMode" class="session-actions" @click.stop>
               <v-btn
                 icon
                 size="x-small"
@@ -803,6 +866,7 @@ import {
   CornerUpLeft,
   GitBranch,
   Languages,
+  ListChecks,
   Moon,
   PanelLeft,
   Pencil,
@@ -913,6 +977,7 @@ const {
   newSession,
   newChat,
   deleteSession,
+  batchDeleteSessions,
   updateSessionTitle,
 } = useSessions(props.chatboxMode);
 const {
@@ -2064,6 +2129,120 @@ async function saveSessionTitleDialog() {
 
 function editSidebarSessionTitle(session: Session) {
   openSessionTitleDialog(session.session_id, session.display_name || "");
+}
+
+// 2026-08-09 sidebar batch delete (elecvoid243): selection mode lets the
+// user check multiple conversations (sidebar list + project sessions) and
+// delete them via the batch-delete endpoint in one request.
+const selectionMode = ref(false);
+const checkedSessionIds = ref<Set<string>>(new Set());
+const deletingCheckedSessions = ref(false);
+
+/** All session ids the batch bar can act on: sidebar list plus every
+ * project session list that has been loaded so far. */
+const selectableSessionIds = computed(() => {
+  const ids = sessions.value.map((session) => session.session_id);
+  for (const projectSessionList of Object.values(
+    projectSessionsById.value,
+  )) {
+    for (const session of projectSessionList) {
+      ids.push(session.session_id);
+    }
+  }
+  return ids;
+});
+
+const allChecked = computed(
+  () =>
+    selectableSessionIds.value.length > 0 &&
+    selectableSessionIds.value.every((id) => checkedSessionIds.value.has(id)),
+);
+
+const someChecked = computed(
+  () => checkedSessionIds.value.size > 0 && !allChecked.value,
+);
+
+function toggleSelectionMode() {
+  selectionMode.value = !selectionMode.value;
+  if (!selectionMode.value) {
+    checkedSessionIds.value = new Set();
+  }
+}
+
+function toggleSessionChecked(sessionId: string) {
+  const next = new Set(checkedSessionIds.value);
+  if (next.has(sessionId)) {
+    next.delete(sessionId);
+  } else {
+    next.add(sessionId);
+  }
+  checkedSessionIds.value = next;
+}
+
+function toggleSelectAll() {
+  checkedSessionIds.value = allChecked.value
+    ? new Set()
+    : new Set(selectableSessionIds.value);
+}
+
+/** Row click dispatcher: in selection mode a click toggles the checkbox
+ * instead of opening the session. */
+function handleSidebarSessionClick(sessionId: string) {
+  if (selectionMode.value) {
+    toggleSessionChecked(sessionId);
+    return;
+  }
+  selectSession(sessionId);
+}
+
+async function deleteCheckedSessions() {
+  const ids = [...checkedSessionIds.value];
+  if (!ids.length) return;
+  const message = tm("batch.confirmDelete", { count: ids.length });
+  if (!(await askForConfirmation(message, confirmDialog))) return;
+
+  deletingCheckedSessions.value = true;
+  try {
+    const result = await batchDeleteSessions(ids);
+
+    // Refresh cached project session lists so deleted entries also
+    // disappear from expanded projects.
+    const failedIds = new Set(result.failed_items.map((item) => item.session_id));
+    const deletedIds = new Set(ids.filter((id) => !failedIds.has(id)));
+    const affectedProjectIds = Object.keys(projectSessionsById.value).filter(
+      (projectId) =>
+        (projectSessionsById.value[projectId] || []).some((session) =>
+          deletedIds.has(session.session_id),
+        ),
+    );
+    await Promise.all(
+      affectedProjectIds.map((projectId) => loadProjectSessions(projectId)),
+    );
+
+    if (result.currentSessionDeleted) {
+      selectedProjectId.value = null;
+      await router.push(basePath());
+    }
+
+    if (result.failed_count > 0) {
+      toast.error(
+        tm("batch.partialFailure", {
+          failed: result.failed_count,
+          total: ids.length,
+        }),
+      );
+    } else {
+      toast.success(tm("batch.deleteSuccess", { count: result.deleted_count }));
+    }
+
+    selectionMode.value = false;
+    checkedSessionIds.value = new Set();
+  } catch (error) {
+    console.error("Failed to batch delete sessions:", error);
+    toast.error(tm("batch.requestFailed"));
+  } finally {
+    deletingCheckedSessions.value = false;
+  }
 }
 
 async function deleteSidebarSession(session: Session) {
@@ -3496,6 +3675,77 @@ function toggleTheme() {
 
 .session-action-btn:hover {
   color: rgb(var(--v-theme-on-surface));
+}
+
+/* 2026-08-09 sidebar batch delete (elecvoid243): selection mode styles. */
+.sidebar-section-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.sidebar-section-header-actions .search-btn {
+  margin-left: 0;
+}
+
+.sidebar-section-header .search-btn.active {
+  color: rgb(var(--v-theme-on-surface));
+  background: rgba(var(--v-theme-on-surface), 0.08);
+}
+
+.batch-select-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 4px 6px;
+  padding: 2px 6px;
+  border-radius: 8px;
+  background: var(--chat-session-active-bg);
+  font-size: 12px;
+  color: var(--chat-muted);
+}
+
+.batch-select-count {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.batch-select-all,
+.session-select-checkbox {
+  flex: 0 0 auto;
+}
+
+.batch-select-all :deep(.v-selection-control),
+.session-select-checkbox :deep(.v-selection-control) {
+  min-height: 24px;
+}
+
+/* 2026-08-09 (elecvoid243): larger batch-bar action labels, smaller
+   per-row checkboxes. */
+.batch-select-delete,
+.batch-select-exit {
+  font-size: 13px;
+}
+
+.session-select-checkbox :deep(.v-selection-control__input) {
+  width: 16px;
+  height: 16px;
+}
+
+.session-select-checkbox :deep(.v-icon) {
+  font-size: 16px;
+}
+
+.session-item.selection {
+  padding-right: 10px;
+}
+
+.session-item.checked {
+  background: var(--chat-session-active-bg);
 }
 
 .empty-sessions {

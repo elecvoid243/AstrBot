@@ -320,6 +320,18 @@
     "sendMessageFailed": "Ошибка отправки сообщения, попробуйте еще раз",
     "createSessionFailed": "Ошибка создания сессии, обновите страницу"
   },
+  "batch": {
+    "selected": "Выбрано: {count}",
+    "confirmDelete": "Удалить выбранные диалоги ({count})? Это действие необратимо.",
+    "selectAll": "Выбрать все",
+    "deselectAll": "Снять выбор",
+    "delete": "Удалить",
+    "exit": "Выход",
+    "partialFailure": "Не удалось удалить {failed} из {total} диалогов",
+    "requestFailed": "Не удалось удалить диалоги. Повторите попытку.",
+    "manage": "Выбрать диалоги",
+    "deleteSuccess": "Удалено диалогов: {count}"
+  },
   "diffPreview": {
     "viewMode": {
       "label": "Режим просмотра",

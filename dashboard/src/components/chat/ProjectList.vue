@@ -75,17 +75,39 @@
                 v-for="session in projectSessionList(project.project_id)"
                 :key="session.session_id"
                 class="project-session-row"
-                :class="{ active: activeSessionId === session.session_id }"
+                :class="{
+                  active: activeSessionId === session.session_id,
+                  selection: selectionMode,
+                  checked:
+                    selectionMode &&
+                    checkedSessionIds.has(session.session_id),
+                }"
                 role="button"
                 tabindex="0"
-                @click="$emit('selectSession', session.session_id)"
-                @keydown.enter="$emit('selectSession', session.session_id)"
-                @keydown.space.prevent="$emit('selectSession', session.session_id)"
+                @click="handleSessionRowClick(session.session_id)"
+                @keydown.enter="handleSessionRowClick(session.session_id)"
+                @keydown.space.prevent="
+                  handleSessionRowClick(session.session_id)
+                "
               >
+                <v-checkbox-btn
+                  v-if="selectionMode"
+                  :model-value="checkedSessionIds.has(session.session_id)"
+                  density="compact"
+                  class="project-session-select-checkbox"
+                  @click.stop
+                  @update:model-value="
+                    emit('toggleSessionChecked', session.session_id)
+                  "
+                />
                 <span class="project-session-title">
                   {{ sessionTitle(session) }}
                 </span>
-                <span class="project-session-actions" @click.stop>
+                <span
+                  v-if="!selectionMode"
+                  class="project-session-actions"
+                  @click.stop
+                >
                   <v-btn
                     icon
                     size="x-small"
@@ -171,11 +193,17 @@ interface Props {
   selectedProjectId?: string | null;
   activeSessionId?: string | null;
   isSessionRunning?: (sessionId: string) => boolean;
+  /** 2026-08-09 sidebar batch delete (elecvoid243): when true, session
+   * rows render checkboxes and toggle selection instead of opening. */
+  selectionMode?: boolean;
+  checkedSessionIds?: Set<string>;
 }
 
 const props = withDefaults(defineProps<Props>(), {
   selectedProjectId: null,
   activeSessionId: null,
+  selectionMode: false,
+  checkedSessionIds: () => new Set<string>(),
 });
 
 const emit = defineEmits<{
@@ -187,6 +215,7 @@ const emit = defineEmits<{
   selectSession: [sessionId: string];
   editSessionTitle: [sessionId: string, title: string];
   deleteSession: [sessionId: string, projectId: string];
+  toggleSessionChecked: [sessionId: string];
 }>();
 
 const { tm } = useModuleI18n("features/chat");
@@ -267,6 +296,16 @@ function sessionRunning(sessionId: string) {
 
 function sessionTitle(session: ProjectSession) {
   return session.display_name?.trim() || tm("conversation.newConversation");
+}
+
+/** Row click dispatcher: in selection mode a click toggles the checkbox
+ * instead of opening the session. */
+function handleSessionRowClick(sessionId: string) {
+  if (props.selectionMode) {
+    emit("toggleSessionChecked", sessionId);
+    return;
+  }
+  emit("selectSession", sessionId);
 }
 
 async function handleDeleteProject(project: Project) {
@@ -424,6 +463,33 @@ async function handleDeleteSession(projectId: string, session: ProjectSession) {
 
 .project-session-list {
   padding: 2px 0 4px 26px;
+}
+
+/* 2026-08-09 sidebar batch delete (elecvoid243): selection mode styles. */
+.project-session-row.selection {
+  padding-right: 10px;
+}
+
+.project-session-row.checked {
+  background: var(--chat-session-active-bg);
+}
+
+.project-session-select-checkbox {
+  flex: 0 0 auto;
+}
+
+.project-session-select-checkbox :deep(.v-selection-control) {
+  min-height: 24px;
+}
+
+/* 2026-08-09 (elecvoid243): smaller per-row checkboxes. */
+.project-session-select-checkbox :deep(.v-selection-control__input) {
+  width: 16px;
+  height: 16px;
+}
+
+.project-session-select-checkbox :deep(.v-icon) {
+  font-size: 16px;
 }
 
 .project-session-fade-enter-active {
