@@ -1447,9 +1447,7 @@ async function onConfirmRevert(): Promise<void> {
 }
 
 // ── Squash commits (History view, 2026-08-03) ────────────────────
-function onLogSquashRequest(payload: {
-  commits: SquashPayloadCommit[];
-}): void {
+function onLogSquashRequest(payload: { commits: SquashPayloadCommit[] }): void {
   pendingSquash.value = payload.commits;
   squashDialogOpen.value = true;
 }
@@ -1608,12 +1606,23 @@ async function onManualRefresh(): Promise<void> {
     //     tabs, so leaving it stale would surprise the user
     //     (e.g. they just added a worktree in a terminal and want
     //     to see it in the sidebar immediately).
-    // We add it as a side-effect, NOT a replacement, so the
-    // view-mode branch keeps its original target.
+    // 2026-08-09 (elecvoid243): in diff view the button also reloads
+    // git-status (branch / untracked / intent-to-add), so the "new
+    // files" section and the Stage-all count update immediately
+    // instead of waiting for the next 10s polling tick. git-status
+    // is irrelevant to history/docs views, so it only joins the
+    // diff branch. Mirrors the parallel refresh pattern used by
+    // stage / unstage / commit handlers.
     const worktreeRefresh = worktreesComposable.refresh();
     if (viewMode.value === "files") {
       await Promise.all([
         fileBrowserRef.value?.refresh() ?? Promise.resolve(),
+        worktreeRefresh,
+      ]);
+    } else if (viewMode.value === "diff") {
+      await Promise.all([
+        composable.refresh(),
+        gitStatus.refresh(),
         worktreeRefresh,
       ]);
     } else {
@@ -3962,228 +3971,241 @@ watch(
           class="git-diff-sidebar-bw"
           :class="{ 'is-collapsed': !worktreeTabsExpanded }"
         >
-        <!-- Branch switcher (spec 2026-07-21 §3.3, layout revised 2026-07-21)
+          <!-- Branch switcher (spec 2026-07-21 §3.3, layout revised 2026-07-21)
              Sits ABOVE the worktree tabs (not inside the flex row) so its
              dropdown anchors to the button instead of being squeezed by
              the tab strip. The button is wrapped by v-menu's activator slot
              so Vuetify's positioning pipeline has an HTMLElement to anchor
              against; without it the menu falls back to the viewport's
              top-left corner. -->
-        <div
-          v-if="isGitRepo && hasMultipleWorktrees"
-          class="git-diff-sidebar-branch-mgmt"
-        >
-          <span class="git-diff-sidebar-branch-mgmt-label">
-            {{ tm("spcodeProjectLoad.diffSidebar.branchMgmt.currentLabel") }}
-          </span>
-          <v-menu
-            v-model="branchMenuOpen"
-            :close-on-content-click="false"
-            location="bottom end"
-            max-width="320"
+          <div
+            v-if="isGitRepo && hasMultipleWorktrees"
+            class="git-diff-sidebar-branch-mgmt"
           >
-            <template #activator="{ props: menuProps }">
-              <button
-                v-bind="menuProps"
-                type="button"
-                class="git-diff-sidebar-branch-mgmt-btn"
-                :aria-label="
-                  tm('spcodeProjectLoad.diffSidebar.branchMgmt.menuButtonAria')
-                "
-                :title="
-                  tm('spcodeProjectLoad.diffSidebar.branchMgmt.menuButton')
-                "
-              >
-                <v-icon size="14">mdi-source-branch</v-icon>
-                <span class="git-diff-sidebar-branch-mgmt-btn-name">
-                  {{
-                    currentBranchName ??
-                    tm("spcodeProjectLoad.diffSidebar.branchMgmt.detached")
-                  }}
-                </span>
-                <v-icon size="12">mdi-menu-down</v-icon>
-              </button>
-            </template>
-            <v-list density="compact" class="git-diff-sidebar-branch-menu">
-              <!-- Loading -->
-              <template
-                v-if="branchesComposable.state.value.kind === 'loading'"
-              >
-                <v-list-item>
-                  <template #prepend>
-                    <v-progress-circular indeterminate :size="14" :width="2" />
-                  </template>
-                  <v-list-item-title>
-                    {{ tm("spcodeProjectLoad.diffSidebar.branchMgmt.loading") }}
-                  </v-list-item-title>
-                </v-list-item>
-              </template>
-
-              <!-- Error -->
-              <template
-                v-else-if="branchesComposable.state.value.kind === 'error'"
-              >
-                <v-list-item disabled>
-                  <v-list-item-title class="text-caption text-error">
-                    {{
-                      tm("spcodeProjectLoad.diffSidebar.branchMgmt.error", {
-                        reason: branchesComposable.state.value.reason,
-                      })
-                    }}
-                  </v-list-item-title>
-                </v-list-item>
-              </template>
-
-              <!-- Branch list -->
-              <template v-else>
-                <v-list-item v-if="branchList.length === 0" disabled>
-                  <v-list-item-title class="text-caption">
-                    {{ tm("spcodeProjectLoad.diffSidebar.branchMgmt.empty") }}
-                  </v-list-item-title>
-                </v-list-item>
-                <v-list-item
-                  v-for="b in branchList"
-                  :key="b.name"
-                  :active="b.current"
-                  :disabled="isBranchSwitching"
-                  @click="onBranchMenuItemClick(b)"
+            <span class="git-diff-sidebar-branch-mgmt-label">
+              {{ tm("spcodeProjectLoad.diffSidebar.branchMgmt.currentLabel") }}
+            </span>
+            <v-menu
+              v-model="branchMenuOpen"
+              :close-on-content-click="false"
+              location="bottom end"
+              max-width="320"
+            >
+              <template #activator="{ props: menuProps }">
+                <button
+                  v-bind="menuProps"
+                  type="button"
+                  class="git-diff-sidebar-branch-mgmt-btn"
+                  :aria-label="
+                    tm(
+                      'spcodeProjectLoad.diffSidebar.branchMgmt.menuButtonAria',
+                    )
+                  "
+                  :title="
+                    tm('spcodeProjectLoad.diffSidebar.branchMgmt.menuButton')
+                  "
                 >
-                  <template #prepend>
-                    <v-icon v-if="b.current" size="14" color="primary"
-                      >mdi-check</v-icon
-                    >
-                    <v-icon v-else-if="b.remote" size="14" color="grey"
-                      >mdi-cloud-outline</v-icon
-                    >
-                    <v-icon v-else size="14">mdi-source-branch</v-icon>
-                  </template>
-                  <v-list-item-title>
-                    {{ b.name }}
-                  </v-list-item-title>
-                  <template #append>
-                    <!-- 2026-08-01 git-merge: per-row merge-into-current
+                  <v-icon size="14">mdi-source-branch</v-icon>
+                  <span class="git-diff-sidebar-branch-mgmt-btn-name">
+                    {{
+                      currentBranchName ??
+                      tm("spcodeProjectLoad.diffSidebar.branchMgmt.detached")
+                    }}
+                  </span>
+                  <v-icon size="12">mdi-menu-down</v-icon>
+                </button>
+              </template>
+              <v-list density="compact" class="git-diff-sidebar-branch-menu">
+                <!-- Loading -->
+                <template
+                  v-if="branchesComposable.state.value.kind === 'loading'"
+                >
+                  <v-list-item>
+                    <template #prepend>
+                      <v-progress-circular
+                        indeterminate
+                        :size="14"
+                        :width="2"
+                      />
+                    </template>
+                    <v-list-item-title>
+                      {{
+                        tm("spcodeProjectLoad.diffSidebar.branchMgmt.loading")
+                      }}
+                    </v-list-item-title>
+                  </v-list-item>
+                </template>
+
+                <!-- Error -->
+                <template
+                  v-else-if="branchesComposable.state.value.kind === 'error'"
+                >
+                  <v-list-item disabled>
+                    <v-list-item-title class="text-caption text-error">
+                      {{
+                        tm("spcodeProjectLoad.diffSidebar.branchMgmt.error", {
+                          reason: branchesComposable.state.value.reason,
+                        })
+                      }}
+                    </v-list-item-title>
+                  </v-list-item>
+                </template>
+
+                <!-- Branch list -->
+                <template v-else>
+                  <v-list-item v-if="branchList.length === 0" disabled>
+                    <v-list-item-title class="text-caption">
+                      {{ tm("spcodeProjectLoad.diffSidebar.branchMgmt.empty") }}
+                    </v-list-item-title>
+                  </v-list-item>
+                  <v-list-item
+                    v-for="b in branchList"
+                    :key="b.name"
+                    :active="b.current"
+                    :disabled="isBranchSwitching"
+                    @click="onBranchMenuItemClick(b)"
+                  >
+                    <template #prepend>
+                      <v-icon v-if="b.current" size="14" color="primary"
+                        >mdi-check</v-icon
+                      >
+                      <v-icon v-else-if="b.remote" size="14" color="grey"
+                        >mdi-cloud-outline</v-icon
+                      >
+                      <v-icon v-else size="14">mdi-source-branch</v-icon>
+                    </template>
+                    <v-list-item-title>
+                      {{ b.name }}
+                    </v-list-item-title>
+                    <template #append>
+                      <!-- 2026-08-01 git-merge: per-row merge-into-current
                          action. Hidden for the current branch (no-op)
                          and remote branches. -->
-                    <v-icon
-                      v-if="!b.current && !b.remote"
-                      size="14"
-                      class="git-diff-sidebar-branch-merge"
-                      :title="
-                        tm('spcodeProjectLoad.diffSidebar.merge.rowAction')
-                      "
-                      @click.stop="onBranchMergeClick(b)"
-                      >mdi-source-merge</v-icon
-                    >
-                    <v-icon
-                      v-if="!b.current"
-                      size="14"
-                      class="git-diff-sidebar-branch-delete"
-                      @click.stop="onBranchDeleteClick(b)"
-                      >mdi-close</v-icon
-                    >
-                  </template>
-                </v-list-item>
-              </template>
-
-              <!-- Inline create form -->
-              <v-divider />
-              <div
-                v-if="branchCreateExpanded"
-                class="git-diff-sidebar-branch-create"
-              >
-                <v-text-field
-                  v-model="branchCreateName"
-                  :label="
-                    tm('spcodeProjectLoad.diffSidebar.branchMgmt.create.name')
-                  "
-                  :error-messages="branchCreateError ? [branchCreateError] : []"
-                  density="compact"
-                  variant="outlined"
-                  autofocus
-                  autocomplete="off"
-                  name="branch-create-name"
-                  @keyup.enter="onBranchCreateSubmit"
-                />
-                <v-text-field
-                  v-model="branchCreateStartPoint"
-                  :label="
-                    tm(
-                      'spcodeProjectLoad.diffSidebar.branchMgmt.create.startPoint',
-                    )
-                  "
-                  :placeholder="'HEAD'"
-                  density="compact"
-                  variant="outlined"
-                  class="mt-1"
-                  autocomplete="off"
-                  name="branch-create-start"
-                  @keyup.enter="onBranchCreateSubmit"
-                />
-                <div class="git-diff-sidebar-branch-create-actions">
-                  <v-btn
-                    size="x-small"
-                    variant="text"
-                    :disabled="isBranchCreating"
-                    @click="
-                      branchCreateExpanded = false;
-                      branchCreateError = null;
-                    "
-                  >
-                    {{
-                      tm(
-                        "spcodeProjectLoad.diffSidebar.branchMgmt.create.cancel",
-                      )
-                    }}
-                  </v-btn>
-                  <v-btn
-                    size="x-small"
-                    variant="flat"
-                    color="primary"
-                    :loading="isBranchCreating"
-                    :disabled="!branchCreateName.trim()"
-                    @click="onBranchCreateSubmit"
-                  >
-                    {{
-                      tm(
-                        "spcodeProjectLoad.diffSidebar.branchMgmt.create.submit",
-                      )
-                    }}
-                  </v-btn>
-                </div>
-              </div>
-              <v-list-item
-                v-else
-                :disabled="isBranchCreating"
-                @click="branchCreateExpanded = true"
-              >
-                <template #prepend>
-                  <v-icon size="14">mdi-plus</v-icon>
+                      <v-icon
+                        v-if="!b.current && !b.remote"
+                        size="14"
+                        class="git-diff-sidebar-branch-merge"
+                        :title="
+                          tm('spcodeProjectLoad.diffSidebar.merge.rowAction')
+                        "
+                        @click.stop="onBranchMergeClick(b)"
+                        >mdi-source-merge</v-icon
+                      >
+                      <v-icon
+                        v-if="!b.current"
+                        size="14"
+                        class="git-diff-sidebar-branch-delete"
+                        @click.stop="onBranchDeleteClick(b)"
+                        >mdi-close</v-icon
+                      >
+                    </template>
+                  </v-list-item>
                 </template>
-                <v-list-item-title>
-                  {{
-                    tm(
-                      "spcodeProjectLoad.diffSidebar.branchMgmt.create.menuItem",
-                    )
-                  }}
-                </v-list-item-title>
-              </v-list-item>
-            </v-list>
-          </v-menu>
-          <!-- Ahead/behind indicator for the current branch. Mirrors
+
+                <!-- Inline create form -->
+                <v-divider />
+                <div
+                  v-if="branchCreateExpanded"
+                  class="git-diff-sidebar-branch-create"
+                >
+                  <v-text-field
+                    v-model="branchCreateName"
+                    :label="
+                      tm('spcodeProjectLoad.diffSidebar.branchMgmt.create.name')
+                    "
+                    :error-messages="
+                      branchCreateError ? [branchCreateError] : []
+                    "
+                    density="compact"
+                    variant="outlined"
+                    autofocus
+                    autocomplete="off"
+                    name="branch-create-name"
+                    @keyup.enter="onBranchCreateSubmit"
+                  />
+                  <v-text-field
+                    v-model="branchCreateStartPoint"
+                    :label="
+                      tm(
+                        'spcodeProjectLoad.diffSidebar.branchMgmt.create.startPoint',
+                      )
+                    "
+                    :placeholder="'HEAD'"
+                    density="compact"
+                    variant="outlined"
+                    class="mt-1"
+                    autocomplete="off"
+                    name="branch-create-start"
+                    @keyup.enter="onBranchCreateSubmit"
+                  />
+                  <div class="git-diff-sidebar-branch-create-actions">
+                    <v-btn
+                      size="x-small"
+                      variant="text"
+                      :disabled="isBranchCreating"
+                      @click="
+                        branchCreateExpanded = false;
+                        branchCreateError = null;
+                      "
+                    >
+                      {{
+                        tm(
+                          "spcodeProjectLoad.diffSidebar.branchMgmt.create.cancel",
+                        )
+                      }}
+                    </v-btn>
+                    <v-btn
+                      size="x-small"
+                      variant="flat"
+                      color="primary"
+                      :loading="isBranchCreating"
+                      :disabled="!branchCreateName.trim()"
+                      @click="onBranchCreateSubmit"
+                    >
+                      {{
+                        tm(
+                          "spcodeProjectLoad.diffSidebar.branchMgmt.create.submit",
+                        )
+                      }}
+                    </v-btn>
+                  </div>
+                </div>
+                <v-list-item
+                  v-else
+                  :disabled="isBranchCreating"
+                  @click="branchCreateExpanded = true"
+                >
+                  <template #prepend>
+                    <v-icon size="14">mdi-plus</v-icon>
+                  </template>
+                  <v-list-item-title>
+                    {{
+                      tm(
+                        "spcodeProjectLoad.diffSidebar.branchMgmt.create.menuItem",
+                      )
+                    }}
+                  </v-list-item-title>
+                </v-list-item>
+              </v-list>
+            </v-menu>
+            <!-- Ahead/behind indicator for the current branch. Mirrors
                  the worktree tab badges ("主" / "游离" / "损坏") in
                  shape and palette; hidden when there's no upstream
                  (local-only branch) or no tracking info. -->
-          <span
-            v-if="currentBranchTracking"
-            class="git-diff-sidebar-branch-mgmt-tracking"
-            :title="
-              tm('spcodeProjectLoad.diffSidebar.branchMgmt.tracking.tooltip', {
-                ahead: currentBranchTracking.ahead,
-                behind: currentBranchTracking.behind,
-              })
-            "
-          >
-            <!-- 2026-07-22 redesigned: the original used the unicode
+            <span
+              v-if="currentBranchTracking"
+              class="git-diff-sidebar-branch-mgmt-tracking"
+              :title="
+                tm(
+                  'spcodeProjectLoad.diffSidebar.branchMgmt.tracking.tooltip',
+                  {
+                    ahead: currentBranchTracking.ahead,
+                    behind: currentBranchTracking.behind,
+                  },
+                )
+              "
+            >
+              <!-- 2026-07-22 redesigned: the original used the unicode
                  "↑" / "↓" characters in the same font / color / weight
                  as the count, which the eye confused with the digit
                  "1" — both render as a vertical stem with a small mark
@@ -4200,42 +4222,82 @@ watch(
                  announce the count, not the meaningless glyph, so the
                  badge is read aloud as "16 ahead, 5 behind" rather
                  than "up arrow 16, down arrow 5". -->
-            <span
-              v-if="currentBranchTracking.ahead > 0"
-              class="git-diff-sidebar-branch-mgmt-tracking-ahead"
-            >
-              <v-icon
-                size="10"
-                class="git-diff-sidebar-branch-mgmt-tracking-arrow"
-                aria-hidden="true"
-              >mdi-arrow-up-thick</v-icon>
               <span
-                class="git-diff-sidebar-branch-mgmt-tracking-count"
-              >{{ currentBranchTracking.ahead }}</span>
-            </span>
-            <span
-              v-if="currentBranchTracking.behind > 0"
-              class="git-diff-sidebar-branch-mgmt-tracking-behind"
-            >
-              <v-icon
-                size="10"
-                class="git-diff-sidebar-branch-mgmt-tracking-arrow"
-                aria-hidden="true"
-              >mdi-arrow-down-thick</v-icon>
+                v-if="currentBranchTracking.ahead > 0"
+                class="git-diff-sidebar-branch-mgmt-tracking-ahead"
+              >
+                <v-icon
+                  size="10"
+                  class="git-diff-sidebar-branch-mgmt-tracking-arrow"
+                  aria-hidden="true"
+                  >mdi-arrow-up-thick</v-icon
+                >
+                <span class="git-diff-sidebar-branch-mgmt-tracking-count">{{
+                  currentBranchTracking.ahead
+                }}</span>
+              </span>
               <span
-                class="git-diff-sidebar-branch-mgmt-tracking-count"
-              >{{ currentBranchTracking.behind }}</span>
+                v-if="currentBranchTracking.behind > 0"
+                class="git-diff-sidebar-branch-mgmt-tracking-behind"
+              >
+                <v-icon
+                  size="10"
+                  class="git-diff-sidebar-branch-mgmt-tracking-arrow"
+                  aria-hidden="true"
+                  >mdi-arrow-down-thick</v-icon
+                >
+                <span class="git-diff-sidebar-branch-mgmt-tracking-count">{{
+                  currentBranchTracking.behind
+                }}</span>
+              </span>
             </span>
-          </span>
-          <!-- Spec 2026-07-23 §4.2.1: branch/worktree row manual
+            <!-- Spec 2026-07-23 §4.2.1: branch/worktree row manual
                refresh. Expanded state: anchored to the right end of
                the branch row. Loading state replaces the icon with
                a progress spinner (derived from the underlying
                composables' `state.kind === 'loading'` rather than
                a local ref, so the spinner never lags the real
                request). -->
+            <button
+              v-if="worktreeTabsExpanded"
+              type="button"
+              class="git-diff-sidebar-bw-refresh"
+              :class="{ 'is-flashing': bwClickFlash }"
+              :title="tm('spcodeProjectLoad.diffSidebar.bwRefreshTooltip')"
+              :aria-label="tm('spcodeProjectLoad.diffSidebar.bwRefreshTooltip')"
+              :disabled="
+                branchesComposable.state.value.kind === 'loading' ||
+                worktreesComposable.state.value.kind === 'loading'
+              "
+              @click="refreshBranchesAndWorktrees"
+            >
+              <span class="git-diff-sidebar-bw-refresh-text">
+                {{ tm("spcodeProjectLoad.diffSidebar.bwRefreshTooltip") }}
+              </span>
+              <v-progress-circular
+                v-if="
+                  branchesComposable.state.value.kind === 'loading' ||
+                  worktreesComposable.state.value.kind === 'loading'
+                "
+                indeterminate
+                :size="14"
+                :width="2"
+              />
+              <v-icon v-else size="14">mdi-refresh</v-icon>
+            </button>
+          </div>
+
+          <!-- Spec 2026-07-23 §4.2.2: collapsed-state counterpart of
+             the refresh button above. Sits as a DIRECT CHILD of
+             `.git-diff-sidebar-bw` so the collapsed flex layout
+             (`justify-content: space-between`, 3 children) can
+             park it visually in the middle. DOM order placed
+             BEFORE .git-diff-sidebar-tabs so the screen-reader
+             order matches the expanded layout (branch-related
+             controls announced first). Visual position is
+             controlled by `order: 2` in CSS. -->
           <button
-            v-if="worktreeTabsExpanded"
+            v-if="!worktreeTabsExpanded"
             type="button"
             class="git-diff-sidebar-bw-refresh"
             :class="{ 'is-flashing': bwClickFlash }"
@@ -4261,55 +4323,17 @@ watch(
             />
             <v-icon v-else size="14">mdi-refresh</v-icon>
           </button>
-        </div>
 
-        <!-- Spec 2026-07-23 §4.2.2: collapsed-state counterpart of
-             the refresh button above. Sits as a DIRECT CHILD of
-             `.git-diff-sidebar-bw` so the collapsed flex layout
-             (`justify-content: space-between`, 3 children) can
-             park it visually in the middle. DOM order placed
-             BEFORE .git-diff-sidebar-tabs so the screen-reader
-             order matches the expanded layout (branch-related
-             controls announced first). Visual position is
-             controlled by `order: 2` in CSS. -->
-        <button
-          v-if="!worktreeTabsExpanded"
-          type="button"
-          class="git-diff-sidebar-bw-refresh"
-          :class="{ 'is-flashing': bwClickFlash }"
-          :title="tm('spcodeProjectLoad.diffSidebar.bwRefreshTooltip')"
-          :aria-label="tm('spcodeProjectLoad.diffSidebar.bwRefreshTooltip')"
-          :disabled="
-            branchesComposable.state.value.kind === 'loading' ||
-            worktreesComposable.state.value.kind === 'loading'
-          "
-          @click="refreshBranchesAndWorktrees"
-        >
-          <span class="git-diff-sidebar-bw-refresh-text">
-            {{ tm("spcodeProjectLoad.diffSidebar.bwRefreshTooltip") }}
-          </span>
-          <v-progress-circular
-            v-if="
-              branchesComposable.state.value.kind === 'loading' ||
-              worktreesComposable.state.value.kind === 'loading'
+          <!-- Worktree tabs (visible in BOTH views, spec 2026-06-20 §5.3) -->
+          <div
+            v-if="hasMultipleWorktrees && (isGitRepo || showNotGitRepoChip)"
+            class="git-diff-sidebar-tabs"
+            role="tablist"
+            :aria-label="
+              tm('spcodeProjectLoad.diffSidebar.worktreeTabs.ariaLabel')
             "
-            indeterminate
-            :size="14"
-            :width="2"
-          />
-          <v-icon v-else size="14">mdi-refresh</v-icon>
-        </button>
-
-        <!-- Worktree tabs (visible in BOTH views, spec 2026-06-20 §5.3) -->
-        <div
-          v-if="hasMultipleWorktrees && (isGitRepo || showNotGitRepoChip)"
-          class="git-diff-sidebar-tabs"
-          role="tablist"
-          :aria-label="
-            tm('spcodeProjectLoad.diffSidebar.worktreeTabs.ariaLabel')
-          "
-        >
-          <!-- Section label: clarifies that the buttons below switch
+          >
+            <!-- Section label: clarifies that the buttons below switch
              worktrees (otherwise they look like generic pills with
              no obvious purpose). Anchored to the left of the flex row;
              existing flex-wrap still lets the tabs wrap to a new line
@@ -4319,105 +4343,116 @@ watch(
              chevron-right = collapsed (only the active worktree
              visible). Clicking flips worktreeTabsExpanded so users
              with many worktrees can keep the sidebar compact. -->
-          <button
-            type="button"
-            class="git-diff-sidebar-tabs-toggle"
-            :aria-expanded="worktreeTabsExpanded"
-            :title="
-              tm(
-                worktreeTabsExpanded
-                  ? 'spcodeProjectLoad.diffSidebar.worktreeTabs.collapse'
-                  : 'spcodeProjectLoad.diffSidebar.worktreeTabs.expand',
-              )
-            "
-            :aria-label="
-              tm(
-                worktreeTabsExpanded
-                  ? 'spcodeProjectLoad.diffSidebar.worktreeTabs.collapse'
-                  : 'spcodeProjectLoad.diffSidebar.worktreeTabs.expand',
-              )
-            "
-            @click="worktreeTabsExpanded = !worktreeTabsExpanded"
-          >
-            <span>{{ tm("spcodeProjectLoad.diffSidebar.worktreeTabs.label") }}</span>
-            <v-icon size="12" class="git-diff-sidebar-tabs-toggle-chevron">
-              {{
-                worktreeTabsExpanded ? "mdi-chevron-down" : "mdi-chevron-right"
-              }}
-            </v-icon>
-          </button>
-          <button
-            v-for="wt in visibleWorktreeList"
-            :key="wt.path"
-            type="button"
-            role="tab"
-            :aria-selected="(selectedWorktree ?? mainWorktreePath) === wt.path"
-            :class="[
-              'git-diff-sidebar-tab',
-              {
-                'git-diff-sidebar-tab--active':
-                  (selectedWorktree ?? mainWorktreePath) === wt.path,
-                'git-diff-sidebar-tab--prunable': wt.prunable,
-              },
-            ]"
-            :title="
-              wt.prunable
-                ? tm(
-                    'spcodeProjectLoad.diffSidebar.worktreeTabs.prunableTooltip',
-                  )
-                : wt.path
-            "
-            @click="onWorktreeChange(wt.isMain ? null : wt.path)"
-            @contextmenu.prevent="(e) => openContextMenu(e, wt)"
-          >
-            <v-icon v-if="wt.isMain" size="12" class="git-diff-sidebar-tab-icon"
-              >mdi-home</v-icon
+            <button
+              type="button"
+              class="git-diff-sidebar-tabs-toggle"
+              :aria-expanded="worktreeTabsExpanded"
+              :title="
+                tm(
+                  worktreeTabsExpanded
+                    ? 'spcodeProjectLoad.diffSidebar.worktreeTabs.collapse'
+                    : 'spcodeProjectLoad.diffSidebar.worktreeTabs.expand',
+                )
+              "
+              :aria-label="
+                tm(
+                  worktreeTabsExpanded
+                    ? 'spcodeProjectLoad.diffSidebar.worktreeTabs.collapse'
+                    : 'spcodeProjectLoad.diffSidebar.worktreeTabs.expand',
+                )
+              "
+              @click="worktreeTabsExpanded = !worktreeTabsExpanded"
             >
-            <v-icon
-              v-else-if="wt.prunable"
-              size="12"
-              class="git-diff-sidebar-tab-icon git-diff-sidebar-tab-icon--prunable"
-              >mdi-alert</v-icon
+              <span>{{
+                tm("spcodeProjectLoad.diffSidebar.worktreeTabs.label")
+              }}</span>
+              <v-icon size="12" class="git-diff-sidebar-tabs-toggle-chevron">
+                {{
+                  worktreeTabsExpanded
+                    ? "mdi-chevron-down"
+                    : "mdi-chevron-right"
+                }}
+              </v-icon>
+            </button>
+            <button
+              v-for="wt in visibleWorktreeList"
+              :key="wt.path"
+              type="button"
+              role="tab"
+              :aria-selected="
+                (selectedWorktree ?? mainWorktreePath) === wt.path
+              "
+              :class="[
+                'git-diff-sidebar-tab',
+                {
+                  'git-diff-sidebar-tab--active':
+                    (selectedWorktree ?? mainWorktreePath) === wt.path,
+                  'git-diff-sidebar-tab--prunable': wt.prunable,
+                },
+              ]"
+              :title="
+                wt.prunable
+                  ? tm(
+                      'spcodeProjectLoad.diffSidebar.worktreeTabs.prunableTooltip',
+                    )
+                  : wt.path
+              "
+              @click="onWorktreeChange(wt.isMain ? null : wt.path)"
+              @contextmenu.prevent="(e) => openContextMenu(e, wt)"
             >
-            <v-icon
-              v-else-if="wt.locked"
-              size="12"
-              class="git-diff-sidebar-tab-icon"
-              >mdi-lock</v-icon
+              <v-icon
+                v-if="wt.isMain"
+                size="12"
+                class="git-diff-sidebar-tab-icon"
+                >mdi-home</v-icon
+              >
+              <v-icon
+                v-else-if="wt.prunable"
+                size="12"
+                class="git-diff-sidebar-tab-icon git-diff-sidebar-tab-icon--prunable"
+                >mdi-alert</v-icon
+              >
+              <v-icon
+                v-else-if="wt.locked"
+                size="12"
+                class="git-diff-sidebar-tab-icon"
+                >mdi-lock</v-icon
+              >
+              <span class="git-diff-sidebar-tab-label">
+                {{
+                  wt.branch ??
+                  (wt.isMain
+                    ? tm("spcodeProjectLoad.diffSidebar.worktreeTabs.mainBadge")
+                    : wt.headSha.slice(0, 7))
+                }}
+              </span>
+              <span
+                v-if="wt.prunable"
+                class="git-diff-sidebar-tab-badge git-diff-sidebar-tab-badge--prunable"
+                >{{
+                  tm("spcodeProjectLoad.diffSidebar.worktreeTabs.prunableBadge")
+                }}</span
+              >
+              <span v-else-if="!wt.branch" class="git-diff-sidebar-tab-badge">{{
+                tm("spcodeProjectLoad.diffSidebar.worktreeTabs.detachedBadge")
+              }}</span>
+            </button>
+            <!-- Add button (spec 2026-06-27 §2.1) -->
+            <button
+              type="button"
+              class="git-diff-sidebar-tab-add"
+              :aria-label="
+                tm('spcodeProjectLoad.diffSidebar.worktreeMgmt.addButtonAria')
+              "
+              :title="
+                tm('spcodeProjectLoad.diffSidebar.worktreeMgmt.addButton')
+              "
+              @click="openCreateDialog"
             >
-            <span class="git-diff-sidebar-tab-label">
-              {{
-                wt.branch ??
-                (wt.isMain
-                  ? tm("spcodeProjectLoad.diffSidebar.worktreeTabs.mainBadge")
-                  : wt.headSha.slice(0, 7))
-              }}
-            </span>
-            <span
-              v-if="wt.prunable"
-              class="git-diff-sidebar-tab-badge git-diff-sidebar-tab-badge--prunable"
-              >{{
-                tm("spcodeProjectLoad.diffSidebar.worktreeTabs.prunableBadge")
-              }}</span
-            >
-            <span v-else-if="!wt.branch" class="git-diff-sidebar-tab-badge">{{
-              tm("spcodeProjectLoad.diffSidebar.worktreeTabs.detachedBadge")
-            }}</span>
-          </button>
-          <!-- Add button (spec 2026-06-27 §2.1) -->
-          <button
-            type="button"
-            class="git-diff-sidebar-tab-add"
-            :aria-label="
-              tm('spcodeProjectLoad.diffSidebar.worktreeMgmt.addButtonAria')
-            "
-            :title="tm('spcodeProjectLoad.diffSidebar.worktreeMgmt.addButton')"
-            @click="openCreateDialog"
-          >
-            <v-icon size="14">mdi-plus</v-icon>
-          </button>
+              <v-icon size="14">mdi-plus</v-icon>
+            </button>
 
-          <!-- Context menu (spec 2026-06-27 §2.3)
+            <!-- Context menu (spec 2026-06-27 §2.3)
                      Teleported to <body> and positioned with manual
                      `position: fixed` styles so the menu opens exactly at the
                      right-click cursor. Vuetify 3 v-menu's positioning pipeline
@@ -4427,78 +4462,78 @@ watch(
                      left corner of the viewport regardless of cursor position.
                      Manual positioning gives us deterministic behavior and a
                      single source of truth (contextMenuStyle computed). -->
-          <Teleport to="body">
-            <div
-              v-if="contextMenu.open"
-              ref="contextMenuEl"
-              class="worktree-context-menu"
-              :style="contextMenuStyle"
-              role="menu"
-              :aria-label="
-                tm(
-                  'spcodeProjectLoad.diffSidebar.worktreeMgmt.contextMenu.ariaLabel',
-                )
-              "
-              @click.stop
-              @contextmenu.prevent
-            >
-              <v-list density="compact">
-                <template v-if="contextMenu.wt && !contextMenu.wt.isMain">
-                  <!-- Lock/unlock toggle: never disabled. When the worktree
+            <Teleport to="body">
+              <div
+                v-if="contextMenu.open"
+                ref="contextMenuEl"
+                class="worktree-context-menu"
+                :style="contextMenuStyle"
+                role="menu"
+                :aria-label="
+                  tm(
+                    'spcodeProjectLoad.diffSidebar.worktreeMgmt.contextMenu.ariaLabel',
+                  )
+                "
+                @click.stop
+                @contextmenu.prevent
+              >
+                <v-list density="compact">
+                  <template v-if="contextMenu.wt && !contextMenu.wt.isMain">
+                    <!-- Lock/unlock toggle: never disabled. When the worktree
                              is locked this button reads "unlock" and the click
                              opens the unlock confirm dialog; when unlocked it
                              reads "lock" and opens the lock-reason dialog.
                              Disabling it when locked would prevent the very
                              action it represents. -->
-                  <v-list-item @click="onLockClick(contextMenu.wt!)">
-                    <template #prepend>
-                      <v-icon>{{
+                    <v-list-item @click="onLockClick(contextMenu.wt!)">
+                      <template #prepend>
+                        <v-icon>{{
+                          contextMenu.wt.locked
+                            ? "mdi-lock-open-variant"
+                            : "mdi-lock"
+                        }}</v-icon>
+                      </template>
+                      <v-list-item-title>{{
                         contextMenu.wt.locked
-                          ? "mdi-lock-open-variant"
-                          : "mdi-lock"
-                      }}</v-icon>
-                    </template>
-                    <v-list-item-title>{{
-                      contextMenu.wt.locked
-                        ? tm(
-                            "spcodeProjectLoad.diffSidebar.worktreeMgmt.contextMenu.unlock",
-                          )
-                        : tm(
-                            "spcodeProjectLoad.diffSidebar.worktreeMgmt.contextMenu.lock",
-                          )
-                    }}</v-list-item-title>
-                  </v-list-item>
-                  <!-- Remove: disabled only when locked (a locked worktree
+                          ? tm(
+                              "spcodeProjectLoad.diffSidebar.worktreeMgmt.contextMenu.unlock",
+                            )
+                          : tm(
+                              "spcodeProjectLoad.diffSidebar.worktreeMgmt.contextMenu.lock",
+                            )
+                      }}</v-list-item-title>
+                    </v-list-item>
+                    <!-- Remove: disabled only when locked (a locked worktree
                              must be unlocked before it can be removed). -->
-                  <v-list-item
-                    :disabled="!!contextMenu.wt.locked"
-                    @click="onRemoveClick(contextMenu.wt!)"
-                  >
-                    <template #prepend>
-                      <v-icon color="error">mdi-trash-can-outline</v-icon>
-                    </template>
-                    <v-list-item-title>{{
-                      tm(
-                        "spcodeProjectLoad.diffSidebar.worktreeMgmt.contextMenu.remove",
-                      )
-                    }}</v-list-item-title>
-                  </v-list-item>
-                </template>
-                <template v-else>
-                  <v-list-item disabled>
-                    <v-list-item-title class="text-caption">
-                      {{
+                    <v-list-item
+                      :disabled="!!contextMenu.wt.locked"
+                      @click="onRemoveClick(contextMenu.wt!)"
+                    >
+                      <template #prepend>
+                        <v-icon color="error">mdi-trash-can-outline</v-icon>
+                      </template>
+                      <v-list-item-title>{{
                         tm(
-                          "spcodeProjectLoad.diffSidebar.worktreeMgmt.contextMenu.mainDisabled",
+                          "spcodeProjectLoad.diffSidebar.worktreeMgmt.contextMenu.remove",
                         )
-                      }}
-                    </v-list-item-title>
-                  </v-list-item>
-                </template>
-              </v-list>
-            </div>
-          </Teleport>
-        </div>
+                      }}</v-list-item-title>
+                    </v-list-item>
+                  </template>
+                  <template v-else>
+                    <v-list-item disabled>
+                      <v-list-item-title class="text-caption">
+                        {{
+                          tm(
+                            "spcodeProjectLoad.diffSidebar.worktreeMgmt.contextMenu.mainDisabled",
+                          )
+                        }}
+                      </v-list-item-title>
+                    </v-list-item>
+                  </template>
+                </v-list>
+              </div>
+            </Teleport>
+          </div>
         </div>
         <!-- /git-diff-sidebar-bw -->
 
@@ -5683,7 +5718,9 @@ watch(
   white-space: nowrap;
   user-select: none;
   cursor: pointer;
-  transition: background-color 0.12s ease, color 0.12s ease;
+  transition:
+    background-color 0.12s ease,
+    color 0.12s ease;
 }
 .git-diff-sidebar-bw-refresh:hover:not(:disabled) {
   background: rgba(var(--v-theme-on-surface), 0.08);
