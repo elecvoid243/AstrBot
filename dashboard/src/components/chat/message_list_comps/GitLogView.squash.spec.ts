@@ -28,6 +28,23 @@ const vuetifyStubs = {
     template: "<div />",
   },
   "v-progress-circular": { template: "<i />" },
+  // 2026-08-09: the squash / cherry-pick / changelog actions moved into
+  // a "更多功能" v-menu; the stub renders both slots inline so the menu
+  // items are reachable in tests without opening an overlay.
+  "v-menu": {
+    name: "v-menu",
+    template:
+      '<div class="v-menu-stub"><slot name="activator" :props="{}" /><slot /></div>',
+  },
+  "v-list": { name: "v-list", template: "<div><slot /></div>" },
+  "v-list-item": {
+    name: "v-list-item",
+    props: ["disabled"],
+    template:
+      '<button class="v-list-item-stub" :disabled="disabled"><slot name="prepend" /><slot /></button>',
+  },
+  "v-list-item-title": { template: "<span><slot /></span>" },
+  "v-tooltip": { template: "<i />" },
   GitStatsPanel: { template: "<div />" },
   FilePatchPanel: { template: "<div />" },
 };
@@ -89,6 +106,7 @@ function mountView(props: Record<string, unknown> = {}) {
       currentBranch: "main",
       activeRef: "HEAD",
       squashResetToken: 0,
+      changelogResetToken: 0,
       ...props,
     },
     global: { stubs: vuetifyStubs },
@@ -96,10 +114,14 @@ function mountView(props: Record<string, unknown> = {}) {
 }
 
 function findSquashButton(w: ReturnType<typeof mountView>) {
-  // The squash toolbar button is the only one carrying this class
-  // (added in Task 4); the v-btn stub merges fallthrough classes
-  // onto its root <button>.
-  return w.find(".git-log-squash-btn");
+  // 2026-08-09: the squash action is now a v-list-item inside the
+  // "更多功能" menu; it carries a dedicated class so tests can find
+  // it among the sibling menu items.
+  return w.find(".git-log-squash-menu-item");
+}
+
+function findChangelogItem(w: ReturnType<typeof mountView>) {
+  return w.find(".git-log-changelog-menu-item");
 }
 
 describe("GitLogView squash selection (spec 2026-08-03, revised interaction)", () => {
@@ -203,6 +225,89 @@ describe("GitLogView squash selection (spec 2026-08-03, revised interaction)", (
     await w.setProps({ squashResetToken: 1 });
     expect(w.findAll(".git-log-item-select")).toHaveLength(0);
     await findSquashButton(w).trigger("click");
+    expect(w.findAll(".git-log-item-select.is-selected")).toHaveLength(0);
+  });
+});
+
+// 2026-08-09 changelog selection (spec 2026-08-09 §3.1): contiguous
+// anywhere in the displayed list, min 1 / max 50, available in every
+// history view (no viewingCurrent gate), mutually exclusive with the
+// squash mode.
+describe("GitLogView changelog selection (spec 2026-08-09)", () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+  });
+
+  it("menu item is always visible, even when viewing another ref", () => {
+    const w = mountView({ activeRef: "dev" });
+    expect(findChangelogItem(w).exists()).toBe(true);
+  });
+
+  it("first click arms selection mode (checkboxes appear, no submit)", async () => {
+    const w = mountView();
+    await findChangelogItem(w).trigger("click");
+    expect(w.findAll(".git-log-item-select")).toHaveLength(SHAS.length);
+    expect(w.emitted("changelog")).toBeUndefined();
+    // 0 selected → item disabled.
+    expect(findChangelogItem(w).attributes("disabled")).toBeDefined();
+  });
+
+  it("single non-HEAD commit is a valid selection (differs from squash)", async () => {
+    const w = mountView();
+    await findChangelogItem(w).trigger("click");
+    const boxes = w.findAll(".git-log-item-select");
+    await boxes[2].trigger("click"); // middle row, not HEAD
+    expect(findChangelogItem(w).attributes("disabled")).toBeUndefined();
+  });
+
+  it("non-contiguous selection (gap) stays disabled", async () => {
+    const w = mountView();
+    await findChangelogItem(w).trigger("click");
+    const boxes = w.findAll(".git-log-item-select");
+    await boxes[0].trigger("click");
+    await boxes[2].trigger("click"); // skips row 1 → gap
+    expect(findChangelogItem(w).attributes("disabled")).toBeDefined();
+  });
+
+  it("second click with a valid selection emits payload oldest → newest", async () => {
+    const w = mountView();
+    await findChangelogItem(w).trigger("click");
+    const boxes = w.findAll(".git-log-item-select");
+    await boxes[1].trigger("click");
+    await boxes[2].trigger("click");
+    await findChangelogItem(w).trigger("click");
+    const events = w.emitted("changelog");
+    expect(events).toHaveLength(1);
+    const payload = events![0][0] as {
+      commits: { sha: string; subject: string }[];
+    };
+    expect(payload.commits.map((c) => c.sha)).toEqual([SHAS[2], SHAS[1]]);
+  });
+
+  it("arming changelog cancels an active squash selection (mutual exclusion)", async () => {
+    const w = mountView();
+    await findSquashButton(w).trigger("click");
+    const boxes = w.findAll(".git-log-item-select");
+    await boxes[0].trigger("click");
+    await findChangelogItem(w).trigger("click");
+    // Squash selection cleared; changelog mode owns the checkboxes.
+    expect(w.findAll(".git-log-item-select.is-selected")).toHaveLength(0);
+    const changelogBoxes = w.findAll(".git-log-item-select");
+    await changelogBoxes[1].trigger("click");
+    await findChangelogItem(w).trigger("click");
+    const events = w.emitted("changelog");
+    expect(events).toHaveLength(1);
+    expect(w.emitted("squash")).toBeUndefined();
+  });
+
+  it("clears the selection and exits the mode when changelogResetToken changes", async () => {
+    const w = mountView();
+    await findChangelogItem(w).trigger("click");
+    const boxes = w.findAll(".git-log-item-select");
+    await boxes[1].trigger("click");
+    await w.setProps({ changelogResetToken: 1 });
+    expect(w.findAll(".git-log-item-select")).toHaveLength(0);
+    await findChangelogItem(w).trigger("click");
     expect(w.findAll(".git-log-item-select.is-selected")).toHaveLength(0);
   });
 });

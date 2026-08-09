@@ -816,7 +816,7 @@ function fileErrorMessage(state: GitShowFetchState): string | null {
                  (>= 2 HEAD-anchored contiguous rows). -->
             <v-list-item
               v-if="viewingCurrent"
-              class="git-log-more-actions-item"
+              class="git-log-more-actions-item git-log-squash-menu-item"
               :disabled="squashSelecting && squashSelection !== 'valid'"
               @click="onSquashClick"
             >
@@ -843,7 +843,7 @@ function fileErrorMessage(state: GitShowFetchState): string | null {
                  min 1 / max 50 commits, available in every history
                  view (read-only). -->
             <v-list-item
-              class="git-log-more-actions-item"
+              class="git-log-more-actions-item git-log-changelog-menu-item"
               :disabled="changelogSelecting && changelogSelection !== 'valid'"
               @click="onChangelogClick"
             >
