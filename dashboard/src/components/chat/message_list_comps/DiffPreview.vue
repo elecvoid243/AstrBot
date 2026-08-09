@@ -1925,13 +1925,18 @@ const statsDels = computed(() => {
   filter: brightness(1.15);
 }
 
+/* 2026-08-09 (elecvoid243): unified rows now use the -strong tints so
+   their red/green matches the split view's changed cells exactly
+   (previously the 0.12-alpha base tints read visibly lighter than the
+   split view's 0.22-alpha cells). The base --diff-*-bg vars stay for
+   the split view's faint "blank side" cells. */
 .diff-line.add {
-  background: var(--diff-add-bg);
+  background: var(--diff-add-bg-strong);
   border-left: 3px solid var(--diff-add-border);
 }
 
 .diff-line.del {
-  background: var(--diff-del-bg);
+  background: var(--diff-del-bg-strong);
   border-left: 3px solid var(--diff-del-border);
 }
 
