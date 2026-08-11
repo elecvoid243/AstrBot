@@ -908,7 +908,7 @@ import { useSessions, type Session } from "@/composables/useSessions";
 import { useFileComments } from "@/composables/useFileComments";
 import { useFileReferences } from "@/composables/useFileReferences";
 import { useInlineAnnotations } from "@/composables/useInlineAnnotations";
-import { buildWebchatUmoDetails } from "@/utils/chatConfigBinding";
+import { resolveSessionUmo } from "@/utils/resolveSessionUmo";
 import {
   messageBlocks as buildMessageBlocks,
   useMessages,
@@ -1898,20 +1898,17 @@ watch(currSessionId, (next) => {
  * session).
  */
 function resolveCurrentUmo(sessionId: string): string | null {
-  if (!sessionId) return null;
-  const session =
-    sessions.value.find((s) => s.session_id === sessionId) ||
-    projectSessions.value.find((s) => s.session_id === sessionId);
-  if (!session) return null;
-  const platformId = session.platform_id || "webchat";
-  if (platformId === "webchat") {
-    return buildWebchatUmoDetails(sessionId, Boolean(session.is_group)).umo;
-  }
-  // Generic fallback for non-webchat platforms: trust the platform's
-  // own session_id format. message_type falls back to FriendMessage
-  // when is_group is missing or zero.
-  const messageType = session.is_group ? "GroupMessage" : "FriendMessage";
-  return `${platformId}:${messageType}:${sessionId}`;
+  // 2026-08-11 bug fix (elecvoid243): delegate to the shared resolver,
+  // which also searches the projectSessionsById cache. The flat list
+  // excludes project sessions server-side and projectSessions only
+  // covers the currently selected project, so sessions under other
+  // folders previously resolved to null — leaving the spcode chip on
+  // the stale "most-recently-loaded" backend fallback.
+  return resolveSessionUmo(sessionId, {
+    sessions: sessions.value,
+    projectSessions: projectSessions.value,
+    projectSessionsById: projectSessionsById.value,
+  });
 }
 
 /**
