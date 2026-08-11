@@ -547,7 +547,9 @@
         "loading": "Thinking…",
         "error": "Request failed",
         "deleteAria": "Delete this annotation",
-        "tooltipDelete": "Delete"
+        "tooltipDelete": "Delete",
+        "closeAria": "Close bubble (keep annotation)",
+        "tooltipClose": "Close"
       },
       "error": {
         "loadFailedTitle": "Failed to load",

@@ -547,7 +547,9 @@
         "loading": "正在思考…",
         "error": "请求失败",
         "deleteAria": "删除此标注",
-        "tooltipDelete": "删除"
+        "tooltipDelete": "删除",
+        "closeAria": "关闭气泡（保留标注）",
+        "tooltipClose": "关闭"
       },
       "error": {
         "loadFailedTitle": "无法加载",

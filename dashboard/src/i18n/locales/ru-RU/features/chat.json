@@ -544,7 +544,9 @@
         "loading": "Думаю…",
         "error": "Ошибка запроса",
         "deleteAria": "Удалить аннотацию",
-        "tooltipDelete": "Удалить"
+        "tooltipDelete": "Удалить",
+        "closeAria": "Закрыть пузырь (аннотация сохранится)",
+        "tooltipClose": "Закрыть"
       },
       "error": {
         "loadFailedTitle": "Не удалось загрузить",

@@ -3,7 +3,10 @@
      2026-07-17 selection-comment: drag-select to open an action
      menu (copy / comment). Implemented as a self-contained
      selection listener + line mapper; the parent owns the
-     editor-open logic. -->
+     editor-open logic.
+     2026-08-11 elecvoid243 inline-ask: the answer bubble is now
+     user-resizable via a bottom-right grip; the size is clamped
+     to the viewport and persisted to localStorage. -->
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import { useModuleI18n } from "@/i18n/composables";
@@ -89,6 +92,108 @@ const annotationTooltip = ref<{
   y: number;
   annotation: InlineAnnotation | null;
 }>({ visible: false, x: 0, y: 0, annotation: null });
+
+// 2026-08-11 inline-ask resizable bubble: user-adjustable tooltip
+// size, persisted across remounts and sessions. null = auto layout
+// (CSS default max-width/max-height apply).
+const TOOLTIP_SIZE_KEY = "astrbot.spcode.inlineAsk.tooltipSize";
+const TOOLTIP_MIN_WIDTH = 200;
+const TOOLTIP_MIN_HEIGHT = 120;
+const TOOLTIP_VIEWPORT_MARGIN = 16;
+
+const annotationTooltipRef = ref<HTMLElement | null>(null);
+const tooltipSize = ref<{ width: number; height: number } | null>(null);
+try {
+  const raw = localStorage.getItem(TOOLTIP_SIZE_KEY);
+  const parsed: unknown = raw ? JSON.parse(raw) : null;
+  if (
+    parsed !== null &&
+    typeof parsed === "object" &&
+    typeof (parsed as { width?: unknown }).width === "number" &&
+    typeof (parsed as { height?: unknown }).height === "number"
+  ) {
+    const { width, height } = parsed as { width: number; height: number };
+    tooltipSize.value = { width, height };
+  }
+} catch {
+  // Ignore malformed persisted sizes and fall back to auto layout.
+}
+
+const tooltipStyle = computed<Record<string, string>>(() => {
+  const style: Record<string, string> = {
+    left: annotationTooltip.value.x + "px",
+    top: annotationTooltip.value.y + "px",
+  };
+  if (tooltipSize.value) {
+    // Clamp the persisted size so the bubble never overflows the
+    // current viewport (e.g. after the window got smaller).
+    const maxWidth = Math.max(
+      window.innerWidth - annotationTooltip.value.x - TOOLTIP_VIEWPORT_MARGIN,
+      TOOLTIP_MIN_WIDTH,
+    );
+    const maxHeight = Math.max(
+      window.innerHeight - annotationTooltip.value.y - TOOLTIP_VIEWPORT_MARGIN,
+      TOOLTIP_MIN_HEIGHT,
+    );
+    style.width = Math.min(tooltipSize.value.width, maxWidth) + "px";
+    style.height = Math.min(tooltipSize.value.height, maxHeight) + "px";
+  }
+  return style;
+});
+
+/** Start a bottom-right grip drag that resizes the annotation
+ *  tooltip. Listeners live on window so the drag survives the
+ *  pointer leaving the bubble; size is persisted on mouseup. */
+function startTooltipResize(e: MouseEvent): void {
+  const el = annotationTooltipRef.value;
+  if (!el) return;
+  const startX = e.clientX;
+  const startY = e.clientY;
+  const startWidth = el.offsetWidth;
+  const startHeight = el.offsetHeight;
+  const maxWidth = Math.max(
+    window.innerWidth - annotationTooltip.value.x - TOOLTIP_VIEWPORT_MARGIN,
+    TOOLTIP_MIN_WIDTH,
+  );
+  const maxHeight = Math.max(
+    window.innerHeight - annotationTooltip.value.y - TOOLTIP_VIEWPORT_MARGIN,
+    TOOLTIP_MIN_HEIGHT,
+  );
+
+  function onMove(ev: MouseEvent): void {
+    tooltipSize.value = {
+      width: Math.min(
+        Math.max(startWidth + ev.clientX - startX, TOOLTIP_MIN_WIDTH),
+        maxWidth,
+      ),
+      height: Math.min(
+        Math.max(startHeight + ev.clientY - startY, TOOLTIP_MIN_HEIGHT),
+        maxHeight,
+      ),
+    };
+  }
+  function onUp(): void {
+    window.removeEventListener("mousemove", onMove);
+    window.removeEventListener("mouseup", onUp);
+    document.body.style.userSelect = "";
+    document.body.style.cursor = "";
+    if (tooltipSize.value) {
+      try {
+        localStorage.setItem(
+          TOOLTIP_SIZE_KEY,
+          JSON.stringify(tooltipSize.value),
+        );
+      } catch {
+        // Persistence is best-effort only.
+      }
+    }
+  }
+  // Suppress text selection and keep the resize cursor while dragging.
+  document.body.style.userSelect = "none";
+  document.body.style.cursor = "nwse-resize";
+  window.addEventListener("mousemove", onMove);
+  window.addEventListener("mouseup", onUp);
+}
 
 // 2026-07-17 selection-comment: gutter coverage now considers
 // range comments (commentCoversLine walks [line, endLine] for
@@ -462,11 +567,10 @@ watch(
     <!-- 2026-07-30 inline-ask: annotation tooltip bubble -->
     <div
       v-if="annotationTooltip.visible && annotationTooltip.annotation"
+      ref="annotationTooltipRef"
       class="annotation-tooltip"
-      :style="{
-        left: annotationTooltip.x + 'px',
-        top: annotationTooltip.y + 'px',
-      }"
+      :class="{ 'annotation-tooltip--resized': tooltipSize !== null }"
+      :style="tooltipStyle"
       @mousedown.stop
     >
       <div class="annotation-tooltip-header">
@@ -474,11 +578,24 @@ watch(
         <span class="annotation-tooltip-question">
           {{ annotationTooltip.annotation.question }}
         </span>
+        <!-- 2026-08-11 inline-ask: split the old single "x" into a
+             delete button (removes the annotation) and a close
+             button (hides the bubble only, annotation kept). -->
         <button
           type="button"
-          class="annotation-tooltip-delete"
+          class="annotation-tooltip-btn annotation-tooltip-btn--danger"
           :aria-label="tm('spcodeProjectLoad.fileBrowser.inlineAsk.deleteAria')"
+          :title="tm('spcodeProjectLoad.fileBrowser.inlineAsk.tooltipDelete')"
           @click="onDeleteAnnotation(annotationTooltip.annotation.id)"
+        >
+          <v-icon size="12">mdi-delete-outline</v-icon>
+        </button>
+        <button
+          type="button"
+          class="annotation-tooltip-btn"
+          :aria-label="tm('spcodeProjectLoad.fileBrowser.inlineAsk.closeAria')"
+          :title="tm('spcodeProjectLoad.fileBrowser.inlineAsk.tooltipClose')"
+          @click="closeAnnotationTooltip"
         >
           <v-icon size="12">mdi-close</v-icon>
         </button>
@@ -506,6 +623,12 @@ watch(
           :is-dark="isDark"
         />
       </div>
+      <!-- 2026-08-11 inline-ask: bottom-right resize grip -->
+      <div
+        class="annotation-tooltip-resize"
+        aria-hidden="true"
+        @mousedown.stop.prevent="startTooltipResize"
+      ></div>
     </div>
   </div>
 </template>
@@ -712,6 +835,15 @@ watch(
   font-size: 12.5px;
   user-select: text;
   overflow: hidden;
+  /* 2026-08-11 resizable bubble: column flex so the body fills the
+     explicit height set by the resize grip. */
+  display: flex;
+  flex-direction: column;
+}
+/* 2026-08-11 resizable bubble: once the user picked a size, inline
+   width/height take over and the auto max-width cap must not apply. */
+.annotation-tooltip--resized {
+  max-width: none;
 }
 .annotation-tooltip-header {
   display: flex;
@@ -720,6 +852,9 @@ watch(
   padding: 6px 10px;
   border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.08);
   background: rgba(var(--v-theme-primary), 0.04);
+  /* 2026-08-11 resizable bubble: keep the header at natural height
+     when the tooltip has an explicit (small) user-set height. */
+  flex-shrink: 0;
 }
 .annotation-tooltip-question {
   flex: 1;
@@ -729,7 +864,9 @@ watch(
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.annotation-tooltip-delete {
+/* 2026-08-11 inline-ask: shared header action button style; the
+   --danger modifier marks the destructive (delete) action. */
+.annotation-tooltip-btn {
   background: transparent;
   border: none;
   cursor: pointer;
@@ -739,7 +876,11 @@ watch(
   display: flex;
   align-items: center;
 }
-.annotation-tooltip-delete:hover {
+.annotation-tooltip-btn:hover {
+  color: rgba(var(--v-theme-on-surface), 0.8);
+  background: rgba(var(--v-theme-on-surface), 0.08);
+}
+.annotation-tooltip-btn--danger:hover {
   color: rgb(var(--v-theme-error));
   background: rgba(var(--v-theme-error), 0.1);
 }
@@ -752,6 +893,38 @@ watch(
   display: flex;
   align-items: flex-start;
   gap: 4px;
+  /* 2026-08-11 resizable bubble: fill the explicit tooltip height. */
+  flex: 1;
+  min-height: 0;
+}
+/* 2026-08-11 resizable bubble: user-set height replaces the auto cap. */
+.annotation-tooltip--resized .annotation-tooltip-body {
+  max-height: none;
+}
+/* 2026-08-11 resizable bubble: bottom-right grip. Positioned
+   absolutely against the fixed tooltip; kept subtle until hover. */
+.annotation-tooltip-resize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+  touch-action: none;
+}
+.annotation-tooltip-resize::after {
+  content: "";
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 7px;
+  height: 7px;
+  border-right: 2px solid rgba(var(--v-theme-on-surface), 0.35);
+  border-bottom: 2px solid rgba(var(--v-theme-on-surface), 0.35);
+  border-bottom-right-radius: 4px;
+}
+.annotation-tooltip-resize:hover::after {
+  border-color: rgb(var(--v-theme-primary));
 }
 /* 2026-07-31 markdown reply: MarkdownView renders block content,
    so drop the flex-row / pre-wrap layout inherited from the
