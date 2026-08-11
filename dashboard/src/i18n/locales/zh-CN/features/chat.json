@@ -120,6 +120,10 @@
       "error": "错误"
     }
   },
+  "fileChange": {
+    "lines": "{count} 行",
+    "editing": "正在编辑…"
+  },
   "shellSession": {
     "headers": {
       "list": "Shell 会话（{count}）",
@@ -232,6 +236,7 @@
     "summarySeparator": "，",
     "thinkSummary": "思考了 {count} 次",
     "toolSummary": "使用了 {count} 次工具",
+    "fileChangeSummary": "变更了 {count} 次文件",
     "think": "思考",
     "reply": "回复",
     "toolUsed": "使用工具"

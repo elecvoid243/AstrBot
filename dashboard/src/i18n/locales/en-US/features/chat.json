@@ -120,6 +120,10 @@
       "error": "error"
     }
   },
+  "fileChange": {
+    "lines": "{count} lines",
+    "editing": "Editing…"
+  },
   "shellSession": {
     "headers": {
       "list": "Shell sessions ({count})",
@@ -232,6 +236,7 @@
     "summarySeparator": ", ",
     "thinkSummary": "Thought {count} times",
     "toolSummary": "used {count} tools",
+    "fileChangeSummary": "changed files {count} times",
     "think": "Thinking",
     "reply": "Reply",
     "toolUsed": "Using Tool"

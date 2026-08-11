@@ -120,6 +120,10 @@
       "error": "ошибка"
     }
   },
+  "fileChange": {
+    "lines": "{count} строк",
+    "editing": "Редактирование…"
+  },
   "shellSession": {
     "headers": {
       "list": "Shell-сессии ({count})",
@@ -232,6 +236,7 @@
     "summarySeparator": ", ",
     "thinkSummary": "Размышлений: {count}",
     "toolSummary": "использований инструментов: {count}",
+    "fileChangeSummary": "файлов изменено: {count} раз",
     "think": "Размышление",
     "reply": "Ответ",
     "toolUsed": "Использование инструмента"

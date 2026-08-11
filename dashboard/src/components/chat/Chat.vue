@@ -816,6 +816,7 @@
       v-model="reasoningPanelOpen"
       :parts="activeReasoningParts"
       :is-dark="isDark"
+      :focus-call-id="activeReasoningTarget?.callId ?? null"
     />
     <RefsSidebar
       v-model="refsSidebarOpen"
@@ -1058,6 +1059,7 @@ const reasoningPanelOpen = ref(false);
 const activeReasoningTarget = ref<{
   message: ChatRecord;
   blockIndex: number;
+  callId?: string;
 } | null>(null);
 const deletingThread = ref(false);
 const refsSidebarOpen = ref(false);
@@ -2886,6 +2888,9 @@ function openRefsSidebar(refs: unknown) {
 function openReasoningPanel(payload: {
   message: ChatRecord;
   blockIndex: number;
+  // 2026-08-11 file-change visibility: optional locate target when the
+  // user clicked a file-change chip on the reasoning bar.
+  callId?: string;
 }) {
   chatHeader.SET_WORKSPACE_FILES_OPEN(false);
   threadPanelOpen.value = false;

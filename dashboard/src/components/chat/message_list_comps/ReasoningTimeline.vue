@@ -1,5 +1,17 @@
 <template>
-  <div v-if="timelineEntries.length" class="reasoning-timeline">
+  <div v-if="timelineEntries.length" ref="rootRef" class="reasoning-timeline">
+    <!-- 2026-08-11 file-change visibility: pinned per-file change cards
+         above the timeline so users see edits/writes at a glance. The
+         timeline entries below stay unchanged (full process record). -->
+    <div v-if="fileChanges.length" class="file-change-pinned">
+      <FileChangeCard
+        v-for="change in fileChanges"
+        :key="change.callId"
+        :entry="change"
+        :is-dark="isDark"
+      />
+    </div>
+
     <div
       v-for="(entry, entryIndex) in timelineEntries"
       :key="entry.key"
@@ -56,12 +68,14 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, nextTick, ref } from "vue";
 import { MarkdownRender } from "markstream-vue";
 import { MARKDOWN_RENDER_MAX_LIVE_NODES } from "@/components/chat/markdownRenderConfig";
 import IPythonToolBlock from "@/components/chat/message_list_comps/IPythonToolBlock.vue";
 import ToolCallCard from "@/components/chat/message_list_comps/ToolCallCard.vue";
 import ToolCallItem from "@/components/chat/message_list_comps/ToolCallItem.vue";
+import FileChangeCard from "@/components/chat/message_list_comps/FileChangeCard.vue";
+import { collectFileChanges } from "@/utils/fileChangeTool";
 import type { MessagePart } from "@/composables/useMessages";
 import { useModuleI18n } from "@/i18n/composables";
 
@@ -73,6 +87,28 @@ const props = defineProps<{
 }>();
 
 const { tm } = useModuleI18n("features/chat");
+
+// 2026-08-11 file-change visibility: distilled per-file changes for the
+// pinned card section, and the scroll-to-locate entry point used by the
+// ReasoningBlock chips (and the ReasoningSidebar focus hand-off).
+const rootRef = ref<HTMLElement | null>(null);
+const fileChanges = computed(() => collectFileChanges(renderParts.value));
+
+/** Scroll the pinned card for `callId` into view and flash it. */
+async function scrollToFile(callId: string): Promise<void> {
+  await nextTick();
+  const root = rootRef.value;
+  if (!root) return;
+  const escaped =
+    typeof CSS !== "undefined" && CSS.escape ? CSS.escape(callId) : callId;
+  const el = root.querySelector<HTMLElement>(`[data-call-id="${escaped}"]`);
+  if (!el) return;
+  el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  el.classList.add("file-change-flash");
+  setTimeout(() => el.classList.remove("file-change-flash"), 1200);
+}
+
+defineExpose({ scrollToFile });
 
 type NormalizedToolCall = Record<string, unknown>;
 
@@ -174,6 +210,33 @@ function parseJsonSafe(value: unknown) {
   flex-direction: column;
   gap: 0;
   padding-top: 4px;
+}
+
+/* 2026-08-11 file-change visibility: pinned cards + locate flash */
+.file-change-pinned {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px dashed rgba(var(--v-theme-on-surface), 0.12);
+}
+
+:deep(.file-change-card.file-change-flash) {
+  animation: fileChangeFlash 1.2s ease-out;
+}
+
+@keyframes fileChangeFlash {
+  0%,
+  40% {
+    border-color: rgb(var(--v-theme-primary));
+    box-shadow: 0 0 0 2px rgba(var(--v-theme-primary), 0.35);
+  }
+
+  100% {
+    border-color: rgba(var(--v-theme-on-surface), 0.1);
+    box-shadow: none;
+  }
 }
 
 .reasoning-timeline-item {

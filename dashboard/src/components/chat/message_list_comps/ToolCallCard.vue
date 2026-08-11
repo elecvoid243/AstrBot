@@ -102,7 +102,7 @@
 <script setup>
 import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
 import { useModuleI18n } from "@/i18n/composables";
-import { findSystemNoticeIndex } from "@/utils/systemNotice";
+import { parseFileEditResult } from "@/utils/fileChangeTool";
 import DiffPreview from "./DiffPreview.vue";
 import ToolResultView from "./ToolResultView.vue";
 import CopyableText from "./__shared__/CopyableText.vue";
@@ -226,58 +226,26 @@ const isEditTool = computed(
   () => props.toolCall.name === "astrbot_file_edit_tool",
 );
 
-// Strip [SYSTEM NOTICE] suffix from the raw result for all edit tool computed properties.
-// Uses the shared findSystemNoticeIndex() to correctly distinguish genuine system
-// notices from "[SYSTEM NOTICE]" text that may appear inside the edited file's diff content.
-const editToolCleanResult = computed(() => {
-  const raw = props.toolCall.result ?? "";
-  const idx = findSystemNoticeIndex(raw);
-  return idx < 0 ? raw : raw.slice(0, idx).trim();
-});
+// 2026-08-11 file-change visibility: parsing delegated to the shared
+// parseFileEditResult (utils/fileChangeTool.ts) so FileChangeCard can
+// reuse it. The [SYSTEM NOTICE] suffix handling (cleanResult vs notice)
+// lives there too, using findSystemNoticeIndex() to avoid stripping
+// notice-like text inside the edited file's diff content.
+const editToolParsed = computed(() =>
+  isEditTool.value
+    ? parseFileEditResult(props.toolCall.result ?? "")
+    : null,
+);
 
-const editToolNotice = computed(() => {
-  const raw = props.toolCall.result ?? "";
-  const idx = findSystemNoticeIndex(raw);
-  return idx < 0 ? null : raw.slice(idx).trim();
-});
+const editToolNotice = computed(() => editToolParsed.value?.notice ?? null);
 
-const editToolDiff = computed(() => {
-  if (!isEditTool.value) return "";
-  const raw = editToolCleanResult.value;
-  const match = raw.match(/```diff\s*\n?([\s\S]*?)```/);
-  return match ? match[1] : raw;
-});
+const editToolDiff = computed(() => editToolParsed.value?.diff ?? "");
 
-const editToolFilePath = computed(() => {
-  if (!isEditTool.value) return "";
-  const raw = editToolCleanResult.value;
-  // Success: "Edited {path}." followed by "Replaced {N} occurrence(s)...".
-  // Anchoring on "Replaced" prevents the regex from being truncated by a
-  // period that appears inside the path itself (e.g. ".py" on a path like
-  // "D:\AstrbotWorkSpace\test.py" — a naive `(.+?)\.` would stop at the
-  // first ".", giving "D:\AstrbotWorkSpace\test").
-  const successMatch = raw.match(/^Edited\s+(.+?)\.\s+Replaced/m);
-  if (successMatch) return successMatch[1];
-  // Error (e.g. AST validation rejection): "Error editing file: [{path}]: ...".
-  // The path is wrapped in square brackets by the backend so the regex
-  // can safely extract it even when the path itself contains colons (such
-  // as Windows drive letters like "D:\..."), which a naive `(.+?):` would
-  // also match, truncating the captured group to "D".
-  const errorMatch = raw.match(/^Error editing file:\s*\[(.+?)\]:/);
-  return errorMatch ? errorMatch[1] : "";
-});
+const editToolFilePath = computed(
+  () => editToolParsed.value?.filePath ?? "",
+);
 
-const editToolSummary = computed(() => {
-  if (!isEditTool.value) return "";
-  const raw = editToolCleanResult.value;
-  const lines = raw.split("\n");
-  const statusParts = [];
-  for (const line of lines) {
-    if (line.startsWith("Diff:") || line.startsWith("```")) break;
-    if (line.trim()) statusParts.push(line.trim());
-  }
-  return statusParts.join("\n");
-});
+const editToolSummary = computed(() => editToolParsed.value?.summary ?? "");
 
 // ── Duration ──────────────────────────────────────────────────
 

@@ -1,4 +1,4 @@
-/* Auto-generated MDI subset – 355 icons */
+/* Auto-generated MDI subset – 358 icons */
 /* Do not edit manually. Run: pnpm run subset-icons */
 
 @font-face {
@@ -824,6 +824,10 @@
   content: "\F097B";
 }
 
+.mdi-keyboard-return::before {
+  content: "\F0311";
+}
+
 .mdi-label::before {
   content: "\F0315";
 }
@@ -1042,6 +1046,10 @@
 
 .mdi-pause::before {
   content: "\F03E4";
+}
+
+.mdi-pause-circle-outline::before {
+  content: "\F03E6";
 }
 
 .mdi-pencil::before {
@@ -1326,6 +1334,10 @@
 
 .mdi-timeline-text-outline::before {
   content: "\F0BD4";
+}
+
+.mdi-timer-off-outline::before {
+  content: "\F051E";
 }
 
 .mdi-timer-outline::before {

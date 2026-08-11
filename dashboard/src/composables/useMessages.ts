@@ -1,6 +1,7 @@
 import { computed, onBeforeUnmount, reactive, ref, watch, type Ref } from "vue";
 import { chatApi, fileApi } from "@/api/v1";
 import { fetchWithAuth } from "@/api/http";
+import { collectFileChanges } from "@/utils/fileChangeTool";
 import { useInteractiveChoiceStore } from "@/stores/interactiveChoice";
 import {
   createSystemStreamState,
@@ -1794,7 +1795,11 @@ export function reasoningActivityCounts(
     }
   }
 
-  return { thinkCount, toolCount };
+  // 2026-08-11 file-change visibility: count edit/write/remove calls so
+  // the collapsed reasoning bar can say "changed N files".
+  const fileChangeCount = collectFileChanges(normalizedParts).length;
+
+  return { thinkCount, toolCount, fileChangeCount };
 }
 
 export function reasoningActivityTitle(
@@ -1808,6 +1813,9 @@ export function reasoningActivityTitle(
         : "",
       counts.toolCount > 0
         ? tm("reasoning.toolSummary", { count: counts.toolCount })
+        : "",
+      counts.fileChangeCount > 0
+        ? tm("reasoning.fileChangeSummary", { count: counts.fileChangeCount })
         : "",
     ]
       .filter(Boolean)

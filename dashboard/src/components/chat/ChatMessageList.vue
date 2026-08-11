@@ -171,7 +171,14 @@
                       hasFollowingContentBlock(msg, blockIndex)
                     "
                     :open-in-sidebar="variant === 'main'"
-                    @open="emit('openReasoning', { message: msg, blockIndex })"
+                    @open="
+                      (openPayload) =>
+                        emit('openReasoning', {
+                          message: msg,
+                          blockIndex,
+                          callId: openPayload?.callId,
+                        })
+                    "
                   />
 
                   <template v-else>
@@ -605,7 +612,7 @@ const emit = defineEmits<{
   branchToggle: [];
   selectBotText: [event: MouseEvent, message: ChatRecord];
   openThread: [thread: ChatThread];
-  openReasoning: [payload: { message: ChatRecord; blockIndex: number }];
+  openReasoning: [payload: { message: ChatRecord; blockIndex: number; callId?: string }];
   openRefs: [refs: unknown];
   submitChoice: [
     requestId: string,

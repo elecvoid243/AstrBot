@@ -20,6 +20,7 @@
       <div class="reasoning-sidebar-body">
         <ReasoningTimeline
           v-if="parts.length || reasoning"
+          ref="timelineRef"
           :parts="parts"
           :reasoning="reasoning"
           :is-dark="isDark"
@@ -33,7 +34,7 @@
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, ref, computed } from "vue";
+import { nextTick, onBeforeUnmount, ref, computed, watch } from "vue";
 import {
   reasoningActivityCounts,
   reasoningActivityTitle,
@@ -47,6 +48,12 @@ const props = defineProps<{
   parts: MessagePart[];
   reasoning?: string;
   isDark?: boolean;
+  /**
+   * 2026-08-11 file-change visibility: when set, the sidebar scrolls
+   * to the pinned FileChangeCard of this tool call after opening
+   * (the user clicked a file-change chip on the reasoning bar).
+   */
+  focusCallId?: string | null;
 }>();
 
 const emit = defineEmits<{
@@ -66,6 +73,21 @@ const reasoningTitle = computed(() =>
 function close() {
   emit("update:modelValue", false);
 }
+
+// 2026-08-11 file-change visibility: after the sidebar opens with a
+// focus target, scroll the matching pinned card into view.
+const timelineRef = ref<{
+  scrollToFile: (id: string) => Promise<void>;
+} | null>(null);
+
+watch(
+  [() => props.modelValue, () => props.focusCallId],
+  async ([open, callId]) => {
+    if (!open || !callId) return;
+    await nextTick();
+    await timelineRef.value?.scrollToFile(callId);
+  },
+);
 
 // ── Drag resize ────────────────────────────────────────────────────
 

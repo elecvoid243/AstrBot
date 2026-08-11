@@ -1,28 +1,74 @@
 <template>
   <div class="reasoning-block" :class="{ 'reasoning-block--dark': isDark }">
-    <button
-      class="reasoning-header"
-      :class="{ 'reasoning-header--trigger': openInSidebar }"
-      type="button"
-      @click="handlePrimaryAction"
-    >
-      <span class="reasoning-title">
-        {{ reasoningTitle }}
-      </span>
-      <v-icon
-        size="22"
-        class="reasoning-icon"
-        :class="{ 'rotate-90': !openInSidebar && isExpanded }"
+    <div class="reasoning-header-row">
+      <button
+        class="reasoning-header"
+        :class="{ 'reasoning-header--trigger': openInSidebar }"
+        type="button"
+        @click="handlePrimaryAction"
       >
-        mdi-chevron-right
-      </v-icon>
-    </button>
+        <span class="reasoning-title">
+          {{ reasoningTitle }}
+        </span>
+        <v-icon
+          size="22"
+          class="reasoning-icon"
+          :class="{ 'rotate-90': !openInSidebar && isExpanded }"
+        >
+          mdi-chevron-right
+        </v-icon>
+      </button>
+
+      <!-- 2026-08-11 file-change visibility: per-file chips on the
+           collapsed bar. Clicking a chip expands (or opens the
+           sidebar) and scrolls to that file's pinned card. -->
+      <span v-if="fileChanges.length" class="file-change-chips">
+        <span
+          v-for="chip in visibleChips"
+          :key="chip.callId"
+          class="file-change-chip"
+          :class="`file-change-chip--${fileChangeTone(chip)}`"
+          role="button"
+          tabindex="0"
+          :title="chip.filePath"
+          @click.stop="onChipClick(chip.callId)"
+          @keydown.enter.stop="onChipClick(chip.callId)"
+        >
+          <v-icon size="11" class="file-change-chip-icon">{{ chipIcon(chip) }}</v-icon>
+          <span class="file-change-chip-name">{{ fileBasename(chip.filePath) }}</span>
+          <v-progress-circular
+            v-if="chip.status === 'running'"
+            indeterminate
+            size="10"
+            width="2"
+            class="file-change-chip-spinner"
+          />
+          <span
+            v-else-if="chip.kind === 'edit' && chip.diffStat"
+            class="file-change-chip-stat"
+          >
+            <span class="stat-adds">+{{ chip.diffStat.adds }}</span>
+            <span class="stat-dels">−{{ chip.diffStat.dels }}</span>
+          </span>
+          <span
+            v-else-if="chip.kind === 'write' && chip.lineCount !== null"
+            class="file-change-chip-stat"
+          >
+            {{ tm("fileChange.lines", { count: chip.lineCount }) }}
+          </span>
+        </span>
+        <span v-if="overflowCount > 0" class="file-change-chip file-change-chip--more">
+          +{{ overflowCount }}
+        </span>
+      </span>
+    </div>
 
     <div
       v-if="!openInSidebar && isExpanded"
       class="reasoning-content animate-fade-in"
     >
       <ReasoningTimeline
+        ref="timelineRef"
         :parts="renderParts"
         :reasoning="reasoning"
         :is-dark="isDark"
@@ -39,7 +85,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import {
   reasoningActivityCounts,
   reasoningActivityTitle,
@@ -47,6 +93,12 @@ import {
 } from "@/composables/useMessages";
 import { useModuleI18n } from "@/i18n/composables";
 import ReasoningTimeline from "@/components/chat/message_list_comps/ReasoningTimeline.vue";
+import {
+  collectFileChanges,
+  fileBasename,
+  fileChangeTone,
+  type FileChangeEntry,
+} from "@/utils/fileChangeTool";
 
 const props = defineProps<{
   parts?: MessagePart[];
@@ -59,11 +111,43 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  open: [];
+  open: [payload?: { callId?: string }];
 }>();
 
 const { tm } = useModuleI18n("features/chat");
 const isExpanded = ref(Boolean(props.initialExpanded));
+const timelineRef = ref<{ scrollToFile: (id: string) => Promise<void> } | null>(
+  null,
+);
+
+// 2026-08-11 file-change visibility: chips on the collapsed bar.
+// Capped at 3 visible chips + a "+N" overflow indicator.
+const MAX_VISIBLE_CHIPS = 3;
+const fileChanges = computed(() => collectFileChanges(renderParts.value));
+const visibleChips = computed(() =>
+  fileChanges.value.slice(0, MAX_VISIBLE_CHIPS),
+);
+const overflowCount = computed(() =>
+  Math.max(0, fileChanges.value.length - MAX_VISIBLE_CHIPS),
+);
+
+function chipIcon(change: FileChangeEntry): string {
+  if (change.kind === "edit") return "mdi-file-document-edit-outline";
+  if (change.kind === "remove") return "mdi-delete-outline";
+  return "mdi-content-save-outline";
+}
+
+/** Chip click: expand inline (then scroll to the card) or hand the
+ *  callId off to the sidebar via the open event. */
+async function onChipClick(callId: string): Promise<void> {
+  if (openInSidebar.value) {
+    emit("open", { callId });
+    return;
+  }
+  isExpanded.value = true;
+  await nextTick();
+  await timelineRef.value?.scrollToFile(callId);
+}
 const previewText = ref("");
 const previewKey = ref(0);
 let previewTimer: ReturnType<typeof setInterval> | null = null;
@@ -220,6 +304,117 @@ onBeforeUnmount(() => {
   gap: 8px;
   font: inherit;
   text-align: left;
+}
+
+/* 2026-08-11 file-change visibility: header row + chips */
+.reasoning-header-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.file-change-chips {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.file-change-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  border-radius: 9px;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.14);
+  background: rgba(var(--v-theme-on-surface), 0.03);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: rgba(var(--v-theme-on-surface), 0.65);
+  cursor: pointer;
+  user-select: none;
+  max-width: 200px;
+  transition: background 0.15s ease;
+}
+
+.file-change-chip:hover {
+  background: rgba(var(--v-theme-on-surface), 0.08);
+  color: rgba(var(--v-theme-on-surface), 0.85);
+}
+
+/* 2026-08-11: chip tint by change kind (matches FileChangeCard) */
+.file-change-chip--green {
+  border-color: rgba(45, 164, 78, 0.4);
+  background: rgba(45, 164, 78, 0.08);
+}
+
+.file-change-chip--green:hover {
+  background: rgba(45, 164, 78, 0.16);
+}
+
+.file-change-chip--yellow {
+  border-color: rgba(191, 135, 0, 0.4);
+  background: rgba(191, 135, 0, 0.08);
+}
+
+.file-change-chip--yellow:hover {
+  background: rgba(191, 135, 0, 0.16);
+}
+
+.file-change-chip--red {
+  border-color: rgba(207, 34, 46, 0.4);
+  background: rgba(207, 34, 46, 0.08);
+}
+
+.file-change-chip--red:hover {
+  background: rgba(207, 34, 46, 0.16);
+}
+
+/* split-color diffstat (shared with FileChangeCard) */
+.stat-adds {
+  color: #2da44e;
+  font-weight: 600;
+}
+
+.stat-dels {
+  color: #cf222e;
+  font-weight: 600;
+  margin-left: 3px;
+}
+
+.file-change-chip-icon {
+  color: rgba(var(--v-theme-on-surface), 0.45);
+  flex-shrink: 0;
+}
+
+.file-change-chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.file-change-chip-stat {
+  color: rgba(var(--v-theme-on-surface), 0.45);
+  flex-shrink: 0;
+}
+
+.file-change-chip-spinner {
+  flex-shrink: 0;
+}
+
+.file-change-chip--more {
+  cursor: default;
+  color: rgba(var(--v-theme-on-surface), 0.45);
+}
+
+.file-change-chip--more:hover {
+  background: rgba(var(--v-theme-on-surface), 0.03);
+  color: rgba(var(--v-theme-on-surface), 0.45);
 }
 
 .reasoning-header:hover {
