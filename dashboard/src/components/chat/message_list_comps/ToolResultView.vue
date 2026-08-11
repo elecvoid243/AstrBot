@@ -155,6 +155,16 @@
       />
     </template>
 
+    <!-- ── 托管 Shell 会话管理(shell_session)────────────────── -->
+    <!-- 传 rawResult:该组件的解析器自行切分 [SYSTEM NOTICE] 后缀 -->
+    <template v-else-if="isShellSessionTool">
+      <ShellSessionToolResultView
+        :tool-name="toolName"
+        :result="rawResult"
+        :args="toolArgs"
+      />
+    </template>
+
     <!-- ── fallback ────────────────────────────────────────────── -->
         <template v-else>
         <CopyableText
@@ -179,7 +189,7 @@
     <!-- ── shared system suffix ([SYSTEM NOTICE] + overflow notice; exclude shell which handles it separately) ── -->
     <CopyableText
 
-      v-if="resultSuffix && toolName !== 'astrbot_execute_shell' && !isIntaShellTool"
+      v-if="resultSuffix && toolName !== 'astrbot_execute_shell' && !isIntaShellTool && !isShellSessionTool"
 
       :value="resultSuffix"
 
@@ -209,6 +219,8 @@ import SpcodeToolResultView from "./SpcodeToolResultView.vue";
 import { SPCODE_TOOL_NAMES } from "./spcode_tools/icons";
 import { INTA_SHELL_TOOL_NAMES } from "./inta_shell_tools/icons";
 import IntaShellToolResultView from "./IntaShellToolResultView.vue";
+import { SHELL_SESSION_TOOL_NAME } from "./shell_session_tools/icons";
+import ShellSessionToolResultView from "./ShellSessionToolResultView.vue";
 import CopyableText from "./__shared__/CopyableText.vue";
 
 const props = defineProps<{
@@ -327,6 +339,12 @@ const isSpcodeTool = computed(() => SPCODE_TOOL_NAMES.has(props.toolName));
 // ── inta_shell 交互式 Shell 工具分发 ────────────────────────────
 
 const isIntaShellTool = computed(() => INTA_SHELL_TOOL_NAMES.has(props.toolName));
+
+// ── shell_session 托管会话管理工具分发 ──────────────────────────
+
+const isShellSessionTool = computed(
+  () => props.toolName === SHELL_SESSION_TOOL_NAME,
+);
 
 // ── file_read_tool ──────────────────────────────────────────────
 

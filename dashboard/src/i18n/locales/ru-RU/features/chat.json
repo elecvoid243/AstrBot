@@ -120,6 +120,35 @@
       "error": "ошибка"
     }
   },
+  "shellSession": {
+    "headers": {
+      "list": "Shell-сессии ({count})",
+      "poll": "Опрос вывода",
+      "write": "Ввод записан",
+      "writeLine": "Строка записана",
+      "interrupt": "Прерывание отправлено",
+      "terminate": "Сессия завершена"
+    },
+    "labels": {
+      "stdout": "Стд. вывод",
+      "stderr": "Стд. ошибка",
+      "exitCode": "Код выхода",
+      "writtenChars": "Записано символов",
+      "unread": "Непрочитано",
+      "sandboxed": "Песочница",
+      "noOutput": "Нового вывода нет",
+      "noSessions": "Shell-сессий нет",
+      "moreOutput": "Есть ещё вывод",
+      "sessionClosed": "Сессия закрыта"
+    },
+    "stateLabels": {
+      "running": "выполняется",
+      "completed": "завершена",
+      "failed": "ошибка",
+      "timedOut": "тайм-аут",
+      "terminated": "прервана"
+    }
+  },
   "subagentStatus": {
     "running": "Выполняется",
     "completed": "Завершено",

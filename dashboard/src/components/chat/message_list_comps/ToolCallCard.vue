@@ -108,6 +108,10 @@ import ToolResultView from "./ToolResultView.vue";
 import CopyableText from "./__shared__/CopyableText.vue";
 import { SPCODE_ICONS } from "./spcode_tools/icons";
 import { getVivadoIcon, VIVADO_TOOL_TITLES } from "./spcode_tools/vivado/vivadoIcons";
+import {
+  SHELL_SESSION_TOOL_NAME,
+  getShellSessionActionIcon,
+} from "./shell_session_tools/icons";
 
 const props = defineProps({
   toolCall: {
@@ -145,6 +149,10 @@ const toolCallIcon = computed(() => {
   if (name === "astrbot_file_edit_tool") return "mdi-file-document-edit-outline";
   if (name === "astrbot_grep_tool") return "mdi-magnify";
   if (name === "astrbot_execute_shell") return "mdi-console-line";
+  // 2026-08-11 shell_session: action-aware icon (poll/write/list/…)
+  if (name === SHELL_SESSION_TOOL_NAME) {
+    return getShellSessionActionIcon(props.toolCall.args?.action);
+  }
   if (name === "astrbot_execute_python" || name === "astrbot_execute_ipython") return "mdi-language-python";
   if (name === "astrbot_inta_shell_start") return "mdi-play-circle-outline";
   if (name === "astrbot_inta_shell_send") return "mdi-keyboard-outline";

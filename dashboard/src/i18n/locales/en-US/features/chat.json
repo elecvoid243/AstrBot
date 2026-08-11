@@ -120,6 +120,35 @@
       "error": "error"
     }
   },
+  "shellSession": {
+    "headers": {
+      "list": "Shell sessions ({count})",
+      "poll": "Poll output",
+      "write": "Input written",
+      "writeLine": "Line written",
+      "interrupt": "Interrupt sent",
+      "terminate": "Session terminated"
+    },
+    "labels": {
+      "stdout": "Stdout",
+      "stderr": "Stderr",
+      "exitCode": "Exit code",
+      "writtenChars": "Chars written",
+      "unread": "Unread",
+      "sandboxed": "Sandboxed",
+      "noOutput": "No new output",
+      "noSessions": "No shell sessions",
+      "moreOutput": "More output available",
+      "sessionClosed": "Session closed"
+    },
+    "stateLabels": {
+      "running": "running",
+      "completed": "completed",
+      "failed": "failed",
+      "timedOut": "timed out",
+      "terminated": "terminated"
+    }
+  },
   "subagentStatus": {
     "running": "Running",
     "completed": "Completed",

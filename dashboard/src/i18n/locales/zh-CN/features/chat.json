@@ -120,6 +120,35 @@
       "error": "错误"
     }
   },
+  "shellSession": {
+    "headers": {
+      "list": "Shell 会话（{count}）",
+      "poll": "轮询输出",
+      "write": "写入输入",
+      "writeLine": "写入行",
+      "interrupt": "已发送中断",
+      "terminate": "会话已终止"
+    },
+    "labels": {
+      "stdout": "标准输出",
+      "stderr": "标准错误",
+      "exitCode": "退出码",
+      "writtenChars": "已写入字符",
+      "unread": "未读",
+      "sandboxed": "沙箱",
+      "noOutput": "无新输出",
+      "noSessions": "暂无 Shell 会话",
+      "moreOutput": "还有更多输出",
+      "sessionClosed": "会话已关闭"
+    },
+    "stateLabels": {
+      "running": "运行中",
+      "completed": "已完成",
+      "failed": "失败",
+      "timedOut": "超时",
+      "terminated": "已终止"
+    }
+  },
   "subagentStatus": {
     "running": "运行中",
     "completed": "已完成",
