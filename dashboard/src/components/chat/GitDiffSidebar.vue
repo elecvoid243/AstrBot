@@ -72,6 +72,14 @@ import {
   classifyMergeReason,
   classifyCherryPickReason,
 } from "@/composables/parseSpcodeGitMerge";
+import { useSpcodeGitRemoteSync } from "@/composables/useSpcodeGitRemoteSync";
+import {
+  classifyPullReason,
+  classifyPushReason,
+  classifyRemoteReason,
+} from "@/composables/parseSpcodeGitRemoteSync";
+import GitPullDialog from "@/components/chat/GitPullDialog.vue";
+import GitRemoteUrlDialog from "@/components/chat/GitRemoteUrlDialog.vue";
 import { useSpcodeGitConflict } from "@/composables/useSpcodeGitConflict";
 import GitMergeDialog from "@/components/chat/GitMergeDialog.vue";
 import GitCherryPickDialog from "@/components/chat/GitCherryPickDialog.vue";
@@ -716,6 +724,7 @@ const gitSquash = useSpcodeGitSquash();
 // composables so the polling watchers (immediate:true) below can
 // safely reference them. Handler logic lives in the branch block.
 const gitMerge = useSpcodeGitMerge();
+const gitRemoteSync = useSpcodeGitRemoteSync();
 const gitConflict = useSpcodeGitConflict(selectedWorktree);
 
 // ── .gitignore editor overlay (2026-07-17, latency rework 2026-07-18) ─
@@ -2415,6 +2424,131 @@ async function onCherryPickSubmit(params: {
   );
 }
 
+// 2026-08-12 git-pull/push/remote-set-url: remote sync actions for the
+// branch-management row (docs/api/webapi-git-pull-push-remote-api.md).
+// Pull goes through a small options dialog (merge / --ff-only /
+// --rebase); push runs directly (the endpoint has no options — no
+// force push, no tags); the remote URL dialog upserts the origin URL.
+const pullDialogOpen = ref(false);
+const remoteUrlDialogOpen = ref(false);
+
+// ahead/behind lives in branchesComposable, so a remote sync must
+// refresh it on top of the standard post-branch-change fan-out.
+async function refreshAfterRemoteSync(): Promise<void> {
+  await Promise.allSettled([
+    branchesComposable.refresh(),
+    refreshAfterBranchChange(),
+  ]);
+}
+
+async function onPullSubmit(params: {
+  ffOnly: boolean;
+  rebase: boolean;
+}): Promise<void> {
+  const result = await gitRemoteSync.pull({
+    ffOnly: params.ffOnly,
+    rebase: params.rebase,
+    worktree: selectedWorktree.value,
+  });
+  if (result.ok) {
+    pullDialogOpen.value = false;
+    await refreshAfterRemoteSync();
+    if (!result.updated) {
+      showSnackbar(tm("spcodeProjectLoad.diffSidebar.pull.upToDate"), "info");
+      return;
+    }
+    showSnackbar(
+      tm("spcodeProjectLoad.diffSidebar.pull.success", {
+        count: result.filesTouched.length,
+        sha: result.afterSha.slice(0, 7) || "?",
+      }),
+      "success",
+    );
+    return;
+  }
+  const meta = classifyPullReason(result.reason);
+  if (result.conflict) {
+    // Conflict: close the dialog and light up the conflict banner
+    // immediately instead of waiting for the next 30 s poll.
+    pullDialogOpen.value = false;
+    void gitConflict.refresh();
+    showSnackbar(
+      tm(meta.i18nKey, { count: result.conflictedFiles.length }),
+      "warning",
+    );
+    return;
+  }
+  showSnackbar(
+    tm(meta.i18nKey, { reason: result.reason, stderr: result.stderr ?? "" }),
+    meta.color,
+    meta.withStderr ? result.stderr : undefined,
+  );
+}
+
+async function onPushClick(): Promise<void> {
+  const result = await gitRemoteSync.push({
+    worktree: selectedWorktree.value,
+  });
+  if (result.ok) {
+    await refreshAfterRemoteSync();
+    if (!result.pushed) {
+      showSnackbar(tm("spcodeProjectLoad.diffSidebar.push.upToDate"), "info");
+      return;
+    }
+    showSnackbar(
+      tm(
+        result.setUpstream
+          ? "spcodeProjectLoad.diffSidebar.push.successSetUpstream"
+          : "spcodeProjectLoad.diffSidebar.push.success",
+        {
+          remoteBranch: result.remoteBranch || result.upstream || result.branch,
+          upstream: result.upstream ?? "",
+        },
+      ),
+      "success",
+    );
+    return;
+  }
+  const meta = classifyPushReason(result.reason);
+  showSnackbar(
+    tm(meta.i18nKey, { reason: result.reason, stderr: result.stderr ?? "" }),
+    meta.color,
+    meta.withStderr ? result.stderr : undefined,
+  );
+}
+
+async function onRemoteUrlSubmit(params: {
+  remote: string;
+  url: string;
+}): Promise<void> {
+  const result = await gitRemoteSync.setRemoteUrl({
+    remote: params.remote,
+    url: params.url,
+    worktree: selectedWorktree.value,
+  });
+  if (result.ok) {
+    remoteUrlDialogOpen.value = false;
+    showSnackbar(
+      tm(
+        result.action === "added"
+          ? "spcodeProjectLoad.diffSidebar.remote.successAdded"
+          : result.action === "unchanged"
+          ? "spcodeProjectLoad.diffSidebar.remote.successUnchanged"
+          : "spcodeProjectLoad.diffSidebar.remote.successUpdated",
+        { remote: result.remote },
+      ),
+      "success",
+    );
+    return;
+  }
+  const meta = classifyRemoteReason(result.reason);
+  showSnackbar(
+    tm(meta.i18nKey, { reason: result.reason, stderr: result.stderr ?? "" }),
+    meta.color,
+    meta.withStderr ? result.stderr : undefined,
+  );
+}
+
 // 2026-08-01 git-conflict: panel event fan-out (spec §4.5 refresh matrix).
 function onConflictFailed(payload: {
   reason: string;
@@ -3643,6 +3777,7 @@ onBeforeUnmount(() => {
   worktreesComposable.dispose();
   branchesComposable.dispose();
   gitMerge.dispose();
+  gitRemoteSync.dispose();
   gitConflict.dispose();
   // Spec 2026-07-16: abort in-flight probe + init + clear polling
   // interval. Mirrors the worktree composable's dispose pattern.
@@ -4272,6 +4407,67 @@ watch(
                 }}</span>
               </span>
             </span>
+            <!-- 2026-08-12 git-pull/push/remote: remote-sync actions,
+                 anchored next to the ahead/behind badge (the counts
+                 tell the user WHY they would pull/push; these buttons
+                 are the HOW). Busy state swaps the icon for a spinner,
+                 mirroring the bw-refresh button; the remote-URL gear
+                 is the escape hatch for remote_not_found /
+                 auth_required failures. -->
+            <span class="git-diff-sidebar-sync">
+              <button
+                type="button"
+                class="git-diff-sidebar-sync-btn"
+                :title="tm('spcodeProjectLoad.diffSidebar.pull.button')"
+                :aria-label="
+                  tm('spcodeProjectLoad.diffSidebar.pull.buttonAria')
+                "
+                :disabled="
+                  gitRemoteSync.isPulling.value || gitRemoteSync.isPushing.value
+                "
+                @click="pullDialogOpen = true"
+              >
+                <v-progress-circular
+                  v-if="gitRemoteSync.isPulling.value"
+                  indeterminate
+                  :size="12"
+                  :width="2"
+                />
+                <v-icon v-else size="14">mdi-cloud-download-outline</v-icon>
+              </button>
+              <button
+                type="button"
+                class="git-diff-sidebar-sync-btn"
+                :title="tm('spcodeProjectLoad.diffSidebar.push.button')"
+                :aria-label="
+                  tm('spcodeProjectLoad.diffSidebar.push.buttonAria')
+                "
+                :disabled="
+                  gitRemoteSync.isPulling.value || gitRemoteSync.isPushing.value
+                "
+                @click="onPushClick"
+              >
+                <v-progress-circular
+                  v-if="gitRemoteSync.isPushing.value"
+                  indeterminate
+                  :size="12"
+                  :width="2"
+                />
+                <v-icon v-else size="14">mdi-cloud-upload-outline</v-icon>
+              </button>
+              <button
+                type="button"
+                class="git-diff-sidebar-sync-btn"
+                :title="tm('spcodeProjectLoad.diffSidebar.remote.button')"
+                :aria-label="
+                  tm('spcodeProjectLoad.diffSidebar.remote.buttonAria')
+                "
+                :disabled="gitRemoteSync.isSettingRemote.value"
+                @click="remoteUrlDialogOpen = true"
+              >
+                <v-icon size="14">mdi-cog-outline</v-icon>
+              </button>
+            </span>
             <!-- Spec 2026-07-23 §4.2.1: branch/worktree row manual
                refresh. Expanded state: anchored to the right end of
                the branch row. Loading state replaces the icon with
@@ -4888,6 +5084,20 @@ watch(
           :source="mergeSource"
           :loading="gitMerge.isMerging.value"
           @submit="onMergeSubmit"
+        />
+
+        <!-- 2026-08-12 git-pull/push/remote: pull options + remote URL
+             dialogs (push itself needs no dialog — it has no
+             options). -->
+        <GitPullDialog
+          v-model="pullDialogOpen"
+          :loading="gitRemoteSync.isPulling.value"
+          @submit="onPullSubmit"
+        />
+        <GitRemoteUrlDialog
+          v-model="remoteUrlDialogOpen"
+          :loading="gitRemoteSync.isSettingRemote.value"
+          @submit="onRemoteUrlSubmit"
         />
 
         <!-- 2026-08-01 git-cherry-pick: dialog for log-row + toolbar
@@ -5816,6 +6026,43 @@ watch(
    and the implicit gap-based spacing. */
 .git-diff-sidebar-branch-mgmt > .git-diff-sidebar-bw-refresh {
   margin-left: auto;
+}
+
+/* ── Remote-sync buttons (pull / push / remote URL) ─────────────
+   2026-08-12 git-pull-push-remote. A tight cluster of 22×22
+   icon-only ghost buttons sitting between the ahead/behind badge
+   and the refresh chip. Same palette + interaction states as
+   .git-diff-sidebar-bw-refresh so the row reads as one family. */
+.git-diff-sidebar-sync {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin: 0 2px 0 4px;
+}
+.git-diff-sidebar-sync-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: rgba(var(--v-theme-on-surface), 0.6);
+  cursor: pointer;
+  transition:
+    background-color 0.12s ease,
+    color 0.12s ease;
+}
+.git-diff-sidebar-sync-btn:hover:not(:disabled) {
+  background: rgba(var(--v-theme-on-surface), 0.08);
+  color: rgba(var(--v-theme-on-surface), 0.9);
+}
+.git-diff-sidebar-sync-btn:disabled {
+  cursor: default;
+  opacity: 0.5;
 }
 
 /* ── Worktree tabs (spec 2026-06-18 §3.4) ──────────────────── */

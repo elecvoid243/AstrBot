@@ -643,6 +643,76 @@
           "unknown": "Слияние не удалось ({reason})"
         }
       },
+      "pull": {
+        "button": "Получить",
+        "buttonAria": "Получить изменения с удалённого репозитория",
+        "dialogTitle": "Получение изменений",
+        "mode": {
+          "label": "Режим получения",
+          "merge": "По умолчанию (merge)",
+          "ffOnly": "--ff-only (только fast-forward)",
+          "rebase": "--rebase (перебазирование)"
+        },
+        "submit": "Получить",
+        "cancel": "Отмена",
+        "success": "Изменения получены ({count} файл(ов), {sha})",
+        "upToDate": "Уже актуально",
+        "conflictWarning": "Получение вызвало конфликты в {count} файл(ах) — разрешите их в панели конфликтов",
+        "error": {
+          "worktree_dirty": "Есть незакоммиченные изменения — сначала commit или stash",
+          "operation_in_progress": "Уже выполняется merge / cherry-pick / revert — завершите или прервите его",
+          "no_upstream": "У текущей ветки нет upstream — сначала отправьте или задайте URL remote",
+          "detached_head": "Detached HEAD — сначала переключитесь на ветку",
+          "remote_not_found": "Remote не существует — сначала задайте URL remote",
+          "invalid_remote": "Некорректное имя remote",
+          "invalid_branch": "Некорректное имя ветки",
+          "auth_required": "Требуется аутентификация или недостаточно прав — настройте учётные данные в системе",
+          "network_error": "Ошибка сети или таймаут — повторите попытку",
+          "git_error": "Получение не удалось: {stderr}",
+          "network": "Ошибка сети",
+          "unknown": "Получение не удалось ({reason})"
+        }
+      },
+      "push": {
+        "button": "Отправить",
+        "buttonAria": "Отправить текущую ветку на удалённый репозиторий",
+        "success": "Отправлено в {remoteBranch}",
+        "successSetUpstream": "Отправлено, upstream задан: {upstream}",
+        "upToDate": "Удалённый репозиторий уже актуален",
+        "error": {
+          "non_fast_forward": "Удалённая ветка содержит коммиты, которых нет локально — сначала получите изменения",
+          "push_rejected": "Отправка отклонена: {stderr}",
+          "auth_required": "Требуется аутентификация или недостаточно прав — настройте учётные данные в системе",
+          "network_error": "Ошибка сети или таймаут — повторите попытку",
+          "remote_not_found": "Remote не существует — сначала задайте URL remote",
+          "detached_head": "Detached HEAD — сначала переключитесь на ветку",
+          "invalid_remote": "Некорректное имя remote",
+          "invalid_branch": "Некорректное имя ветки",
+          "git_error": "Отправка не удалась: {stderr}",
+          "network": "Ошибка сети",
+          "unknown": "Отправка не удалась ({reason})"
+        }
+      },
+      "remote": {
+        "button": "URL remote",
+        "buttonAria": "Задать URL remote",
+        "dialogTitle": "URL remote",
+        "remoteLabel": "Имя remote",
+        "urlLabel": "URL remote",
+        "urlRequired": "Введите URL remote",
+        "submit": "Сохранить",
+        "cancel": "Отмена",
+        "successAdded": "Remote {remote} добавлен",
+        "successUpdated": "URL remote {remote} обновлён",
+        "successUnchanged": "URL remote {remote} не изменился",
+        "error": {
+          "invalid_url": "Некорректный URL remote",
+          "invalid_remote": "Некорректное имя remote",
+          "git_error": "Не удалось задать remote: {stderr}",
+          "network": "Ошибка сети",
+          "unknown": "Не удалось задать remote ({reason})"
+        }
+      },
       "moreActions": {
         "toolbar": "Ещё",
         "toolbarAria": "Дополнительные действия с историей"

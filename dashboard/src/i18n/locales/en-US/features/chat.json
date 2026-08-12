@@ -766,6 +766,76 @@
           "unknown": "Merge failed ({reason})"
         }
       },
+      "pull": {
+        "button": "Pull",
+        "buttonAria": "Pull updates from remote",
+        "dialogTitle": "Pull updates",
+        "mode": {
+          "label": "Pull mode",
+          "merge": "Default (merge)",
+          "ffOnly": "--ff-only (fast-forward only)",
+          "rebase": "--rebase (rebase)"
+        },
+        "submit": "Pull",
+        "cancel": "Cancel",
+        "success": "Pulled updates ({count} file(s), {sha})",
+        "upToDate": "Already up to date",
+        "conflictWarning": "Pull produced {count} conflicted file(s) — resolve them in the conflict panel",
+        "error": {
+          "worktree_dirty": "Working tree has uncommitted changes — commit or stash first",
+          "operation_in_progress": "A merge / cherry-pick / revert is already in progress — finish or abort it first",
+          "no_upstream": "Current branch has no upstream — push first or set a remote URL",
+          "detached_head": "Detached HEAD — switch to a branch first",
+          "remote_not_found": "Remote does not exist — set the remote URL first",
+          "invalid_remote": "Invalid remote name",
+          "invalid_branch": "Invalid branch name",
+          "auth_required": "Authentication required or permission denied — configure credentials in the system credential manager",
+          "network_error": "Network connection failed or timed out — retry",
+          "git_error": "Pull failed: {stderr}",
+          "network": "Network error",
+          "unknown": "Pull failed ({reason})"
+        }
+      },
+      "push": {
+        "button": "Push",
+        "buttonAria": "Push current branch to remote",
+        "success": "Pushed to {remoteBranch}",
+        "successSetUpstream": "Pushed and set upstream: {upstream}",
+        "upToDate": "Remote already up to date",
+        "error": {
+          "non_fast_forward": "Remote has commits you don't have locally — pull first",
+          "push_rejected": "Push rejected: {stderr}",
+          "auth_required": "Authentication required or permission denied — configure credentials in the system credential manager",
+          "network_error": "Network connection failed or timed out — retry",
+          "remote_not_found": "Remote does not exist — set the remote URL first",
+          "detached_head": "Detached HEAD — switch to a branch first",
+          "invalid_remote": "Invalid remote name",
+          "invalid_branch": "Invalid branch name",
+          "git_error": "Push failed: {stderr}",
+          "network": "Network error",
+          "unknown": "Push failed ({reason})"
+        }
+      },
+      "remote": {
+        "button": "Remote URL",
+        "buttonAria": "Set remote URL",
+        "dialogTitle": "Set remote URL",
+        "remoteLabel": "Remote name",
+        "urlLabel": "Remote URL",
+        "urlRequired": "Please enter a remote URL",
+        "submit": "Save",
+        "cancel": "Cancel",
+        "successAdded": "Remote {remote} added",
+        "successUpdated": "URL of {remote} updated",
+        "successUnchanged": "URL of {remote} unchanged",
+        "error": {
+          "invalid_url": "Invalid remote URL",
+          "invalid_remote": "Invalid remote name",
+          "git_error": "Failed to set remote: {stderr}",
+          "network": "Network error",
+          "unknown": "Failed to set remote ({reason})"
+        }
+      },
       "moreActions": {
         "toolbar": "More",
         "toolbarAria": "More history actions"

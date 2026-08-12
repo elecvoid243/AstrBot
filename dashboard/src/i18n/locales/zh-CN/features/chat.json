@@ -766,6 +766,76 @@
           "unknown": "合并失败（{reason}）"
         }
       },
+      "pull": {
+        "button": "拉取",
+        "buttonAria": "从远端拉取更新",
+        "dialogTitle": "拉取更新",
+        "mode": {
+          "label": "拉取方式",
+          "merge": "默认（merge）",
+          "ffOnly": "--ff-only（仅 fast-forward）",
+          "rebase": "--rebase（变基）"
+        },
+        "submit": "拉取",
+        "cancel": "取消",
+        "success": "已拉取更新（{count} 个文件，{sha}）",
+        "upToDate": "已是最新",
+        "conflictWarning": "拉取产生 {count} 个冲突文件，请在冲突面板中解决",
+        "error": {
+          "worktree_dirty": "工作区有未提交改动，请先 commit 或 stash",
+          "operation_in_progress": "已有合并 / cherry-pick / revert 冲突正在进行，请先处理",
+          "no_upstream": "当前分支未设置 upstream，请先 push 或设置 remote URL",
+          "detached_head": "当前处于 detached HEAD，请先切换分支",
+          "remote_not_found": "remote 不存在，请先设置 remote URL",
+          "invalid_remote": "remote 名称不合法",
+          "invalid_branch": "分支名不合法",
+          "auth_required": "需要认证或权限不足，请在系统凭据管理器中配置",
+          "network_error": "网络连接或超时失败，请重试",
+          "git_error": "拉取失败：{stderr}",
+          "network": "网络连接失败",
+          "unknown": "拉取失败（{reason}）"
+        }
+      },
+      "push": {
+        "button": "推送",
+        "buttonAria": "推送当前分支到远端",
+        "success": "已推送到 {remoteBranch}",
+        "successSetUpstream": "已推送并设置 upstream：{upstream}",
+        "upToDate": "远端已是最新",
+        "error": {
+          "non_fast_forward": "远端包含本地没有的提交，请先拉取",
+          "push_rejected": "推送被拒绝：{stderr}",
+          "auth_required": "需要认证或权限不足，请在系统凭据管理器中配置",
+          "network_error": "网络连接或超时失败，请重试",
+          "remote_not_found": "remote 不存在，请先设置 remote URL",
+          "detached_head": "当前处于 detached HEAD，请先切换分支",
+          "invalid_remote": "remote 名称不合法",
+          "invalid_branch": "分支名不合法",
+          "git_error": "推送失败：{stderr}",
+          "network": "网络连接失败",
+          "unknown": "推送失败（{reason}）"
+        }
+      },
+      "remote": {
+        "button": "remote URL",
+        "buttonAria": "设置 remote URL",
+        "dialogTitle": "设置 remote URL",
+        "remoteLabel": "remote 名称",
+        "urlLabel": "remote URL",
+        "urlRequired": "请输入 remote URL",
+        "submit": "保存",
+        "cancel": "取消",
+        "successAdded": "已添加 remote {remote}",
+        "successUpdated": "已更新 {remote} 的 URL",
+        "successUnchanged": "{remote} 的 URL 未变化",
+        "error": {
+          "invalid_url": "remote URL 不合法",
+          "invalid_remote": "remote 名称不合法",
+          "git_error": "设置 remote 失败：{stderr}",
+          "network": "网络连接失败",
+          "unknown": "设置 remote 失败（{reason}）"
+        }
+      },
       "moreActions": {
         "toolbar": "更多功能",
         "toolbarAria": "更多历史操作"
