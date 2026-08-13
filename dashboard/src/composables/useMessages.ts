@@ -241,6 +241,18 @@ interface UseMessagesOptions {
    *   sessionId: The session whose stream just ended.
    */
   onStreamEnd?: (sessionId: string) => void;
+  /**
+   * Fired when a new `ask_user_choice` prompt is pushed into a session
+   * via the live stream. Lets the host (ChatUI) raise an attention
+   * signal (sidebar highlight, title flash, notification) only for
+   * genuinely new choices — the dispatcher returns `true` only when a
+   * valid part was parsed.
+   *
+   * Args:
+   *   sessionId: The bare conversation id (`session.session_id`) that
+   *     just received the choice.
+   */
+  onInteractiveChoice?: (sessionId: string) => void;
 }
 
 export function useMessages(options: UseMessagesOptions) {
@@ -1505,7 +1517,9 @@ export function useMessages(options: UseMessagesOptions) {
         );
         return;
       }
-      applyInteractiveChoiceSse(sessionId, botRecord, normalized);
+      if (applyInteractiveChoiceSse(sessionId, botRecord, normalized)) {
+        options.onInteractiveChoice?.(sessionId);
+      }
       return;
     } else if (msgType === "interactive_choice_resolved") {
       // Bug Y1 fix (mirrors the branch above): scope the store
@@ -1579,10 +1593,14 @@ export function useMessages(options: UseMessagesOptions) {
           );
           return;
         }
-        applyInteractiveChoiceSse(sessionId, botRecord, {
-          type: "interactive_choice",
-          data: inner,
-        });
+        if (
+          applyInteractiveChoiceSse(sessionId, botRecord, {
+            type: "interactive_choice",
+            data: inner,
+          })
+        ) {
+          options.onInteractiveChoice?.(sessionId);
+        }
         return;
       }
       if (chainType === "tool_call_result") {

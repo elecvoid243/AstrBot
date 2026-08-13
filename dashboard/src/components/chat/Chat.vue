@@ -160,6 +160,8 @@
           :is-session-running="isSessionRunning"
           :selection-mode="selectionMode"
           :checked-session-ids="checkedSessionIds"
+          :dragging-session-id="draggingSessionId"
+          :drag-over-project-id="dragOverProjectId"
           @create-project="openCreateProjectDialog"
           @edit-project="openEditProjectDialog"
           @delete-project="handleDeleteProject"
@@ -169,9 +171,20 @@
           @edit-session-title="editProjectSessionTitle"
           @delete-session="deleteProjectSession"
           @toggle-session-checked="toggleSessionChecked"
+          @drag-session-start="onSessionDragStart"
+          @drag-session-end="onSessionDragEnd"
+          @drag-over-project="onProjectDragOver"
+          @drag-leave-project="onProjectDragLeave"
+          @drop-on-project="onProjectDrop"
         />
 
-        <section class="sidebar-section session-list">
+        <section
+          class="sidebar-section session-list"
+          :class="{ 'drop-unsorted': dragOverUnsorted }"
+          @dragover.prevent="onUnsortedDragOver"
+          @dragleave="onUnsortedDragLeave"
+          @drop.prevent="onUnsortedDrop"
+        >
           <div class="sidebar-section-header">
             <span>{{ tm("conversation.title") }}</span>
             <div class="sidebar-section-header-actions">
@@ -194,6 +207,15 @@
               </button>
             </div>
           </div>
+          <Transition name="drag-hint">
+            <div
+              v-if="dragOverUnsorted && draggingSessionId"
+              class="session-list-drop-hint"
+            >
+              <v-icon size="14">mdi-tray-arrow-up</v-icon>
+              <span>{{ tm("project.dropToRemoveHint") }}</span>
+            </div>
+          </Transition>
           <div
             v-for="session in sessions"
             :key="session.session_id"
@@ -203,6 +225,7 @@
                 !isProviderWorkspace && currSessionId === session.session_id,
               selection: selectionMode,
               checked: selectionMode && checkedSessionIds.has(session.session_id),
+              'needs-choice': choiceAttention.hasAttention(session.session_id),
               'has-branch-meta':
                 !selectionMode &&
                 (Boolean(session.branches?.length) ||
@@ -210,7 +233,10 @@
             }"
             role="button"
             tabindex="0"
+            :draggable="!selectionMode"
             @click="handleSidebarSessionClick(session.session_id)"
+            @dragstart="onSidebarSessionDragStart(session.session_id, $event)"
+            @dragend="onSessionDragEnd"
             @keydown.enter="handleSidebarSessionClick(session.session_id)"
             @keydown.space.prevent="handleSidebarSessionClick(session.session_id)"
           >
@@ -221,6 +247,11 @@
               class="session-select-checkbox"
               @click.stop
               @update:model-value="toggleSessionChecked(session.session_id)"
+            />
+            <span
+              v-if="choiceAttention.hasAttention(session.session_id)"
+              class="session-choice-dot"
+              aria-hidden="true"
             />
             <span class="session-title">{{ sessionTitle(session) }}</span>
             <div
@@ -937,6 +968,11 @@ import {
   type ProviderMetadataSource,
 } from "@/utils/providerMetadata";
 import { useToast } from "@/utils/toast";
+import { useInteractiveChoiceAttentionStore } from "@/stores/interactiveChoiceAttention";
+import {
+  clearChoiceAttention,
+  markChoiceAttention,
+} from "@/composables/useChoiceReminder";
 
 const props = withDefaults(
   defineProps<{ chatboxMode?: boolean; active?: boolean }>(),
@@ -970,6 +1006,9 @@ const vivadoStatus = useSpcodeVivadoStatus();
 const spcodePlanMode = useSpcodePlanMode();
 const confirmDialog = useConfirmDialog();
 const toast = useToast();
+// Sessions with an unanswered ask_user_choice prompt — drives the sidebar
+// highlight and the browser attention signals.
+const choiceAttention = useInteractiveChoiceAttentionStore();
 const { languageOptions, currentLanguage, switchLanguage, locale } =
   useLanguageSwitcher();
 const {
@@ -990,6 +1029,7 @@ const {
   updateProject,
   deleteProject: deleteProjectById,
   addSessionToProject,
+  removeSessionFromProject,
   getProjectSessions,
 } = useProjects();
 
@@ -1384,6 +1424,16 @@ const {
 } = useMessages({
   currentSessionId: currSessionId,
   onSessionsChanged: getSessions,
+  onInteractiveChoice: (sessionId) => {
+    markChoiceAttention(
+      sessionId,
+      {
+        title: tm("interactiveChoice.attentionTitle"),
+        body: tm("interactiveChoice.attentionBody"),
+      },
+      sessionId === currSessionId.value,
+    );
+  },
   onStreamUpdate: (sessionId) => {
     if (sessionId === currSessionId.value && shouldStickToBottom.value) {
       scrollToBottom();
@@ -2082,6 +2132,130 @@ async function handleDeleteProject(projectId: string) {
   }
 }
 
+// 2026-08-13 session drag to/from projects (HTML5 DnD). Drag state lives
+// here (owner of sessions/projects); ProjectList and the unsorted session
+// list bubble drag events up, and moveSessionToProject performs the move.
+const draggingSessionId = ref<string | null>(null);
+const dragOverProjectId = ref<string | null>(null);
+const dragOverUnsorted = ref(false);
+const movingSession = ref(false);
+
+function sessionProjectIdOf(sessionId: string): string | null {
+  return sessionProjects[sessionId]?.project_id ?? null;
+}
+
+function onSessionDragStart(sessionId: string): void {
+  draggingSessionId.value = sessionId;
+}
+
+/** Sidebar (unsorted) session rows set the dataTransfer themselves — the
+ * ProjectList rows do it in their own component, so this is only needed
+ * here. */
+function onSidebarSessionDragStart(sessionId: string, event: DragEvent): void {
+  onSessionDragStart(sessionId);
+  if (event.dataTransfer) {
+    event.dataTransfer.setData("text/plain", sessionId);
+    event.dataTransfer.effectAllowed = "move";
+  }
+}
+
+function onSessionDragEnd(): void {
+  draggingSessionId.value = null;
+  dragOverProjectId.value = null;
+  dragOverUnsorted.value = false;
+}
+
+function onProjectDragOver(projectId: string): void {
+  dragOverProjectId.value = projectId;
+}
+
+function onProjectDragLeave(projectId: string): void {
+  if (dragOverProjectId.value === projectId) dragOverProjectId.value = null;
+}
+
+function onProjectDrop(projectId: string): void {
+  void moveSessionToProject(draggingSessionId.value, projectId);
+}
+
+function onUnsortedDragOver(event: DragEvent): void {
+  if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+  dragOverUnsorted.value = true;
+}
+
+function onUnsortedDragLeave(event: DragEvent): void {
+  const related = event.relatedTarget as Node | null;
+  const el = event.currentTarget as HTMLElement | null;
+  if (el && related && el.contains(related)) return;
+  dragOverUnsorted.value = false;
+}
+
+function onUnsortedDrop(): void {
+  void moveSessionToProject(draggingSessionId.value, null);
+}
+
+/** Move a session into (targetProjectId) or out of (null) a project. */
+async function moveSessionToProject(
+  sessionId: string | null,
+  targetProjectId: string | null,
+): Promise<void> {
+  if (!sessionId || movingSession.value) return;
+  const currentProjectId = sessionProjectIdOf(sessionId);
+  if (currentProjectId === targetProjectId) return; // no-op
+
+  movingSession.value = true;
+  try {
+    const ok = targetProjectId
+      ? await addSessionToProject(sessionId, targetProjectId)
+      : await removeSessionFromProject(sessionId);
+    if (!ok) {
+      toast.error(tm("project.moveFailed"));
+      return;
+    }
+
+    // Keep the reverse map (used for project resolution + spcode
+    // auto-load) in sync with the new relation.
+    if (targetProjectId) {
+      const targetProject =
+        projects.value.find((p) => p.project_id === targetProjectId) ?? null;
+      sessionProjects[sessionId] = targetProject
+        ? {
+            project_id: targetProject.project_id,
+            title: targetProject.title,
+            emoji: targetProject.emoji,
+          }
+        : { project_id: targetProjectId, title: "", emoji: "" };
+    } else {
+      delete sessionProjects[sessionId];
+    }
+
+    // Refresh the flat session list (project_id field) and the affected
+    // project session lists.
+    await Promise.allSettled([
+      getSessions(),
+      ...(targetProjectId ? [loadProjectSessions(targetProjectId)] : []),
+      ...(currentProjectId ? [loadProjectSessions(currentProjectId)] : []),
+    ]);
+
+    toast.success(
+      targetProjectId
+        ? tm("project.sessionAdded", {
+            title:
+              projects.value.find(
+                (p) => p.project_id === targetProjectId,
+              )?.title || targetProjectId,
+          })
+        : tm("project.sessionRemoved"),
+    );
+  } catch {
+    toast.error(tm("project.moveFailed"));
+  } finally {
+    movingSession.value = false;
+    draggingSessionId.value = null;
+    dragOverProjectId.value = null;
+    dragOverUnsorted.value = false;
+  }
+}
+
 function openSessionTitleDialog(
   sessionId: string,
   title: string,
@@ -2324,6 +2498,7 @@ watch(projectDialogOpen, (open) => {
 
 async function selectSession(sessionId: string, pushRoute = true) {
   showChatWorkspace();
+  clearChoiceAttention(sessionId);
   selectedProjectId.value = null;
   currSessionId.value = sessionId;
   replyTarget.value = null;
@@ -2783,6 +2958,19 @@ async function handleBranch(message: ChatRecord) {
     }
     toast.success(tm("branch.success"));
     await getSessions();
+    // 2026-08-13 fix: the flat session list excludes project sessions
+    // (exclude_project_sessions=True), so a branch created inside a
+    // project must refresh that project's session list — otherwise the
+    // new branch only exists server-side and never shows in the sidebar.
+    const sourceProjectId =
+      sessionProjects[sessionId]?.project_id ??
+      Object.entries(projectSessionsById.value).find(([, list]) =>
+        list.some((s) => s.session_id === sessionId),
+      )?.[0] ??
+      null;
+    if (sourceProjectId) {
+      await loadProjectSessions(sourceProjectId);
+    }
     await selectSession(newSessionId);
   } catch (error) {
     toast.error(
@@ -3565,6 +3753,35 @@ function toggleTheme() {
   gap: 2px;
 }
 
+/* 2026-08-13 session drag: the unsorted session list is the drop target
+   for moving sessions out of projects. */
+.session-list.drop-unsorted {
+  outline: 1.5px dashed rgba(var(--v-theme-primary), 0.55);
+  outline-offset: -2px;
+  border-radius: 8px;
+}
+
+.session-list-drop-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 10px 6px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: rgba(var(--v-theme-primary), 0.1);
+  color: rgb(var(--v-theme-primary));
+  font-size: 12px;
+}
+
+.drag-hint-enter-active,
+.drag-hint-leave-active {
+  transition: opacity 0.12s ease;
+}
+.drag-hint-enter-from,
+.drag-hint-leave-to {
+  opacity: 0;
+}
+
 .session-item {
   width: 100%;
   min-height: 30px;
@@ -3585,6 +3802,32 @@ function toggleTheme() {
 .session-item:hover,
 .session-item.active {
   background: var(--chat-session-active-bg);
+}
+
+/* 2026-08-13 (elecvoid243): highlight sessions with an unanswered
+   ask_user_choice prompt. A subtle amber tint + pulsing dot keeps the
+   signal visible without clashing with the `active` background. */
+.session-item.needs-choice {
+  background: rgba(245, 158, 11, 0.14);
+}
+
+.session-choice-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #f59e0b;
+  flex-shrink: 0;
+  animation: session-choice-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes session-choice-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
 }
 
 .session-title {

@@ -1,4 +1,4 @@
-/* Auto-generated MDI subset – 360 icons */
+/* Auto-generated MDI subset – 361 icons */
 /* Do not edit manually. Run: pnpm run subset-icons */
 
 @font-face {
@@ -1366,6 +1366,10 @@
 
 .mdi-trash-can-outline::before {
   content: "\F0A7A";
+}
+
+.mdi-tray-arrow-up::before {
+  content: "\F011D";
 }
 
 .mdi-tune-variant::before {

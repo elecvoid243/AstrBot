@@ -262,6 +262,10 @@
     "loadingSessions": "Loading conversations...",
     "noSessions": "No conversations in this project",
     "noProjects": "No projects",
+    "dropToRemoveHint": "Drag a session here to move it out of the project",
+    "sessionAdded": "Session added to project \"{title}\"",
+    "sessionRemoved": "Session removed from project",
+    "moveFailed": "Failed to move session",
     "confirmDelete": "Are you sure you want to delete project \"{title}\"? Conversations in this project will not be deleted.",
     "spcode": {
       "sectionTitle": "Code project integration (spcode)",
@@ -1556,7 +1560,9 @@
     "extraContentLabel": "Supplementary information (AI generated)",
     "cancelled": "Cancelled",
     "cancel": "Cancel",
-    "cancelAria": "Cancel this choice box"
+    "cancelAria": "Cancel this choice box",
+    "attentionTitle": "Your choice is needed",
+    "attentionBody": "The AI is waiting for you to choose"
   },
   "search": {
     "title": "Search messages",

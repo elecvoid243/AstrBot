@@ -535,6 +535,7 @@ import {
   type InteractiveChoicePart,
 } from "@/composables/parseInteractiveChoice";
 import { useInteractiveChoiceStore } from "@/stores/interactiveChoice";
+import { useInteractiveChoiceAttentionStore } from "@/stores/interactiveChoiceAttention";
 import StyledMenu from "@/components/shared/StyledMenu.vue";
 import {
   CHAT_MARKDOWN_CUSTOM_TAGS,
@@ -639,6 +640,8 @@ const avatarSize = computed(() => (props.variant === "thread" ? 36 : 56));
 // parent no longer needs to receive a bubbled submit event — the store
 // action does the actual POST to /api/chat/interactive-choice/{request_id}.
 const interactiveChoiceStore = useInteractiveChoiceStore();
+// Clears the sidebar highlight once a pending choice is resolved locally.
+const choiceAttention = useInteractiveChoiceAttentionStore();
 
 function isUserMessage(message: ChatRecord) {
   return messageContent(message).type === "user";
@@ -662,6 +665,9 @@ async function onInteractiveChoiceSubmit(
       requestId,
       payload,
     );
+    // Only on success — a failed submit keeps the choice pending, so
+    // the sidebar highlight stays until it is retried or cancelled.
+    choiceAttention.clearByUmo(props.currentUmo);
   } catch (e) {
     console.error("[interactiveChoice] submit failed:", e);
   }
@@ -678,6 +684,10 @@ async function onInteractiveChoiceCancel(requestId: string): Promise<void> {
     await interactiveChoiceStore.cancelChoice(props.currentUmo, requestId);
   } catch (e) {
     console.error("[interactiveChoice] cancel failed:", e);
+  } finally {
+    // The cancel is optimistic — the local box already flipped to
+    // "cancelled" even on network failure, so drop the highlight too.
+    choiceAttention.clearByUmo(props.currentUmo);
   }
 }
 

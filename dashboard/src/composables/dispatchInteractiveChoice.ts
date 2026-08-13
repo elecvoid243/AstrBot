@@ -52,9 +52,9 @@ export interface BotMessageLike {
  * Apply a backend-emitted SSE `interactive_choice` payload to the client.
  *
  * Behaviour:
- *   - Returns silently when the payload fails validation.
- *   - On a valid part, appends it to `botRecord.content.message` and
- *     clears `isLoading`.
+ *   - Returns `false` silently when the payload fails validation.
+ *   - On a valid part, appends it to `botRecord.content.message`, clears
+ *     `isLoading`, and returns `true`.
  *   - Mirrors the part into `useInteractiveChoiceStore().activeChoices`
  *     keyed by `request_id` (store dedups by id internally).
  *
@@ -63,22 +63,27 @@ export interface BotMessageLike {
  * header). Callers must have the live UMO handy; the SSE pipeline in
  * `useMessages.ts` already passes `sessionId`, which is the same
  * value as `props.currentUmo` on the message list side.
+ *
+ * Returns:
+ *   `true` when a part was parsed and pushed, `false` otherwise so the
+ *   caller can distinguish a genuine new choice from a dropped payload.
  */
 export function applyInteractiveChoiceSse(
   umo: string,
   botRecord: BotMessageLike,
   payload: unknown,
-): void {
+): boolean {
   if (!umo) {
     throw new Error(
       "applyInteractiveChoiceSse: missing required 'umo' (Bug Y1 fix)",
     );
   }
   const part = interactiveChoicePartFromSsePayload(payload);
-  if (!part) return;
+  if (!part) return false;
   botRecord.content.message.push(part);
   botRecord.content.isLoading = false;
   useInteractiveChoiceStore().addChoice(umo, part);
+  return true;
 }
 
 /**

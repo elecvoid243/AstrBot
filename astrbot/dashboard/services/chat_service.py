@@ -1015,36 +1015,18 @@ class ChatService:
         self.running_convs: dict[str, bool] = {}
         self.chat_runs: dict[str, ChatRunState] = {}
         self.chat_runs_by_session: dict[str, set[str]] = {}
-        # In-memory cache of branch relations derived from `branch_info`
-        # history records: child session_id -> {source_session_id, message_id}.
-        # None means "not scanned yet"; the full-table scan runs once lazily
-        # because it costs ~1s on large history tables (no content index).
-        self._branch_relations: dict[str, dict] | None = None
+        # 2026-08-13: branch-relation cache moved to the db layer
+        # (`BaseDatabase.get_branch_relations`) so every dashboard service
+        # sharing the db instance sees the same relations — the project
+        # session list (ChatUIProjectService) needs them too.
 
     async def get_branch_relations(self) -> dict[str, dict]:
-        """Return cached branch relations, scanning history once on first use.
+        """Return cached branch relations (see ``BaseDatabase``).
 
         The cache is updated incrementally by `branch_session`; stale entries
         (e.g. deleted sessions) are filtered out by callers at read time.
         """
-        if self._branch_relations is None:
-            relations: dict[str, dict] = {}
-            for record in await self.db.get_webchat_branch_infos():
-                content = record.content
-                if (
-                    not isinstance(content, dict)
-                    or content.get("type") != "branch_info"
-                ):
-                    continue
-                source_id = content.get("source_session_id")
-                if not source_id:
-                    continue
-                relations[record.user_id] = {
-                    "source_session_id": source_id,
-                    "source_message_id": content.get("source_message_id"),
-                }
-            self._branch_relations = relations
-        return self._branch_relations
+        return await self.db.get_branch_relations()
 
     async def build_user_message_parts(self, message: str | list) -> list[dict]:
         return await build_webchat_message_parts(
@@ -2603,6 +2585,15 @@ class ChatService:
             display_name=f"分支 · {source_title}",
         )
 
+        # 2026-08-13 fix: 分支会话继承源会话的项目归属。源会话属于
+        # ChatUI 项目时，为新会话建立相同的 SessionProjectRelation，
+        # 否则前端项目视图会把新分支会话渲染到项目外。
+        source_project = await self.db.get_project_by_session(session_id, username)
+        if source_project is not None:
+            await self.db.add_session_to_project(
+                new_session.session_id, source_project.project_id
+            )
+
         await self.conv_mgr.new_conversation(
             build_webchat_unified_msg_origin(new_session),
             platform_id=session.platform_id,
@@ -2641,11 +2632,9 @@ class ChatService:
 
         # Keep the lazily-built relations cache in sync so the next session
         # list reflects this branch without a rescan.
-        if self._branch_relations is not None:
-            self._branch_relations[new_session.session_id] = {
-                "source_session_id": session_id,
-                "source_message_id": message_id,
-            }
+        self.db.update_branch_relation(
+            new_session.session_id, session_id, message_id
+        )
 
         return {
             "session_id": new_session.session_id,

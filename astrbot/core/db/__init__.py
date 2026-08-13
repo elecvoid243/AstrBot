@@ -55,6 +55,11 @@ class BaseDatabase(abc.ABC):
             class_=AsyncSession,
             expire_on_commit=False,
         )
+        # 2026-08-13: cached branch relations (child session -> source).
+        # Lives here (not on a service) so every dashboard service sharing
+        # this db instance sees the same cache; `branch_session` updates it
+        # incrementally to avoid the expensive full-table scan.
+        self._branch_relations: dict[str, dict] | None = None
 
     async def initialize(self) -> None:
         """初始化数据库连接"""
@@ -281,6 +286,59 @@ class BaseDatabase(abc.ABC):
             History records whose JSON content mentions ``branch_info``.
         """
         ...
+
+    async def get_branch_relations(self) -> dict[str, dict]:
+        """Return cached session branch relations (child -> source).
+
+        Scans platform history once on first use and caches the result on
+        this db instance, so all services sharing the database see the
+        same relations. ``update_branch_relation`` keeps the cache in sync
+        after a new branch is created without a rescan.
+
+        Returns:
+            Mapping of child session id to ``{"source_session_id": ...,
+            "source_message_id": ...}``.
+        """
+        if self._branch_relations is None:
+            relations: dict[str, dict] = {}
+            for record in await self.get_webchat_branch_infos():
+                content = record.content
+                if (
+                    not isinstance(content, dict)
+                    or content.get("type") != "branch_info"
+                ):
+                    continue
+                source_id = content.get("source_session_id")
+                if not source_id:
+                    continue
+                relations[record.user_id] = {
+                    "source_session_id": source_id,
+                    "source_message_id": content.get("source_message_id"),
+                }
+            self._branch_relations = relations
+        return self._branch_relations
+
+    def update_branch_relation(
+        self,
+        child_session_id: str,
+        source_session_id: str,
+        source_message_id: int | str,
+    ) -> None:
+        """Incrementally update the cached branch relations.
+
+        No-op while the cache is cold; the next ``get_branch_relations``
+        scan picks the relation up anyway.
+
+        Args:
+            child_session_id: Newly created branch session id.
+            source_session_id: Session the branch was created from.
+            source_message_id: Bot message id the branch was created at.
+        """
+        if self._branch_relations is not None:
+            self._branch_relations[child_session_id] = {
+                "source_session_id": source_session_id,
+                "source_message_id": source_message_id,
+            }
 
     @abc.abstractmethod
     async def create_webchat_thread(

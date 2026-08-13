@@ -54,6 +54,7 @@ def _make_service(
     session_creator: str = "alice",
     target_record=None,
     llm_history: list[dict] | None = None,
+    source_project=None,
 ) -> ChatService:
     """Build a ChatService with mocked persistence for branch tests."""
     session = SimpleNamespace(
@@ -83,6 +84,13 @@ def _make_service(
     db.get_platform_session_by_id = AsyncMock(return_value=session)
     db.get_platform_message_history_by_id = AsyncMock(return_value=target_record)
     db.create_platform_session = AsyncMock(return_value=new_session)
+    db.get_project_by_session = AsyncMock(return_value=source_project)
+    db.add_session_to_project = AsyncMock(
+        return_value=SimpleNamespace(session_id=NEW_SESSION_ID, project_id="proj-1")
+    )
+    # 2026-08-13: branch-relation cache lives on the db layer now.
+    db.get_branch_relations = AsyncMock(return_value={})
+    db.update_branch_relation = Mock()
 
     conversation = SimpleNamespace(
         cid="conv-1",
@@ -213,17 +221,13 @@ async def test_get_sessions_includes_branch_relations():
     service.db.get_platform_sessions_by_creator_paginated = AsyncMock(
         return_value=([src_item, child_item], 2)
     )
-    service.db.get_webchat_branch_infos = AsyncMock(
-        return_value=[
-            SimpleNamespace(
-                user_id=NEW_SESSION_ID,
-                content={
-                    "type": "branch_info",
-                    "source_session_id": SRC_SESSION_ID,
-                    "source_message_id": 2,
-                },
-            )
-        ]
+    service.db.get_branch_relations = AsyncMock(
+        return_value={
+            NEW_SESSION_ID: {
+                "source_session_id": SRC_SESSION_ID,
+                "source_message_id": 2,
+            }
+        }
     )
 
     result = await service.get_sessions("alice", "webchat")
@@ -257,17 +261,13 @@ async def test_get_sessions_filters_relations_to_listed_sessions():
     service.db.get_platform_sessions_by_creator_paginated = AsyncMock(
         return_value=([child_item], 1)
     )
-    service.db.get_webchat_branch_infos = AsyncMock(
-        return_value=[
-            SimpleNamespace(
-                user_id=NEW_SESSION_ID,
-                content={
-                    "type": "branch_info",
-                    "source_session_id": "deleted-source",
-                    "source_message_id": 2,
-                },
-            )
-        ]
+    service.db.get_branch_relations = AsyncMock(
+        return_value={
+            NEW_SESSION_ID: {
+                "source_session_id": "deleted-source",
+                "source_message_id": 2,
+            }
+        }
     )
 
     result = await service.get_sessions("alice", "webchat")
@@ -284,17 +284,169 @@ async def test_get_sessions_filters_relations_to_listed_sessions():
 @pytest.mark.asyncio
 async def test_branch_session_updates_relations_cache_without_rescan():
     service = _make_service()
-    service.db.get_webchat_branch_infos = AsyncMock(return_value=[])
 
-    await service.get_branch_relations()  # warm the cache
     await service.branch_session("alice", SRC_SESSION_ID, 2)
-    relations = await service.get_branch_relations()
 
+    # The db-level cache is updated incrementally; the expensive full-table
+    # scan (get_webchat_branch_infos) is never touched by branch_session.
+    service.db.update_branch_relation.assert_called_once_with(
+        NEW_SESSION_ID, SRC_SESSION_ID, 2
+    )
+    service.db.get_webchat_branch_infos.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_db_branch_relations_scan_once_and_update_incrementally():
+    """BaseDatabase caches relations: one scan, then incremental updates."""
+    from astrbot.core.db.sqlite import SQLiteDatabase
+
+    db = SQLiteDatabase(":memory:")
+    db._branch_relations = None
+    db.get_webchat_branch_infos = AsyncMock(
+        return_value=[
+            SimpleNamespace(
+                user_id=NEW_SESSION_ID,
+                content={
+                    "type": "branch_info",
+                    "source_session_id": SRC_SESSION_ID,
+                    "source_message_id": 2,
+                },
+            )
+        ]
+    )
+
+    relations = await db.get_branch_relations()
     assert relations[NEW_SESSION_ID] == {
         "source_session_id": SRC_SESSION_ID,
         "source_message_id": 2,
     }
-    service.db.get_webchat_branch_infos.assert_awaited_once()  # no rescan
+    db.get_webchat_branch_infos.assert_awaited_once()
+
+    db.update_branch_relation("branch-2", "src-2", 5)
+    relations = await db.get_branch_relations()
+    assert relations["branch-2"] == {"source_session_id": "src-2", "source_message_id": 5}
+    db.get_webchat_branch_infos.assert_awaited_once()  # no rescan
+
+
+@pytest.mark.asyncio
+async def test_branch_session_inherits_project_relation():
+    """源会话属于项目时，分支会话继承相同的项目归属。"""
+    project = SimpleNamespace(project_id="proj-1")
+    service = _make_service(source_project=project)
+
+    result = await service.branch_session("alice", SRC_SESSION_ID, 2)
+
+    assert result["session_id"] == NEW_SESSION_ID
+    service.db.get_project_by_session.assert_awaited_once_with(
+        SRC_SESSION_ID, "alice"
+    )
+    service.db.add_session_to_project.assert_awaited_once_with(
+        NEW_SESSION_ID, "proj-1"
+    )
+
+
+@pytest.mark.asyncio
+async def test_branch_session_without_project_skips_relation():
+    """源会话不属于任何项目时，不建立项目关联。"""
+    service = _make_service(source_project=None)
+
+    await service.branch_session("alice", SRC_SESSION_ID, 2)
+
+    service.db.get_project_by_session.assert_awaited_once_with(
+        SRC_SESSION_ID, "alice"
+    )
+    service.db.add_session_to_project.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_project_session_list_includes_branch_relations():
+    """项目会话列表接口附带分支字段，供侧边栏渲染分支徽章。"""
+    from unittest.mock import Mock
+
+    from astrbot.dashboard.services.chatui_project_service import (
+        ChatUIProjectService,
+    )
+
+    def _project_session(session_id: str, display_name: str):
+        return SimpleNamespace(
+            session_id=session_id,
+            platform_id="webchat",
+            creator="alice",
+            display_name=display_name,
+            is_group=0,
+            created_at=datetime(2026, 7, 24, tzinfo=UTC),
+            updated_at=datetime(2026, 7, 24, tzinfo=UTC),
+        )
+
+    service = ChatUIProjectService(Mock())
+    service.db.get_project_sessions = AsyncMock(
+        return_value=[
+            _project_session(SRC_SESSION_ID, "源会话"),
+            _project_session(NEW_SESSION_ID, "分支 · 源会话"),
+        ]
+    )
+    service.db.get_branch_relations = AsyncMock(
+        return_value={
+            NEW_SESSION_ID: {
+                "source_session_id": SRC_SESSION_ID,
+                "source_message_id": 2,
+            }
+        }
+    )
+    service._get_owned_project = AsyncMock()
+
+    result = await service.get_project_sessions("alice", "proj-1")
+
+    src = next(s for s in result if s["session_id"] == SRC_SESSION_ID)
+    child = next(s for s in result if s["session_id"] == NEW_SESSION_ID)
+    assert src["branches"] == [
+        {"session_id": NEW_SESSION_ID, "display_name": "分支 · 源会话"}
+    ]
+    assert src["branch_source"] is None
+    assert child["branch_source"] == {"session_id": SRC_SESSION_ID, "message_id": 2}
+    assert child["branches"] == []
+
+
+@pytest.mark.asyncio
+async def test_project_session_list_filters_relations_to_project_members():
+    """分支指向项目外的会话时，徽章被过滤但跳转源仍保留。"""
+    from unittest.mock import Mock
+
+    from astrbot.dashboard.services.chatui_project_service import (
+        ChatUIProjectService,
+    )
+
+    service = ChatUIProjectService(Mock())
+    service.db.get_project_sessions = AsyncMock(
+        return_value=[
+            SimpleNamespace(
+                session_id=NEW_SESSION_ID,
+                platform_id="webchat",
+                creator="alice",
+                display_name="分支 · 源会话",
+                is_group=0,
+                created_at=datetime(2026, 7, 24, tzinfo=UTC),
+                updated_at=datetime(2026, 7, 24, tzinfo=UTC),
+            )
+        ]
+    )
+    service.db.get_branch_relations = AsyncMock(
+        return_value={
+            NEW_SESSION_ID: {
+                "source_session_id": "outside-project-src",
+                "source_message_id": 2,
+            }
+        }
+    )
+    service._get_owned_project = AsyncMock()
+
+    result = await service.get_project_sessions("alice", "proj-1")
+
+    assert result[0]["branches"] == []
+    assert result[0]["branch_source"] == {
+        "session_id": "outside-project-src",
+        "message_id": 2,
+    }
 
 
 @pytest.mark.asyncio

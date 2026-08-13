@@ -173,7 +173,41 @@ class ChatUIProjectService:
 
         await self._get_owned_project(username, project_id)
         sessions = await self.db.get_project_sessions(project_id)
-        return [self._serialize_session(session) for session in sessions]
+        sessions_data = [self._serialize_session(session) for session in sessions]
+
+        # 2026-08-13: attach branch relations (same derivation as the flat
+        # session list in ChatService.get_sessions) so project rows can
+        # render branch badges / jump-to-source. Relations are filtered to
+        # pairs that both belong to this project.
+        session_ids = {item["session_id"] for item in sessions_data}
+        name_by_id = {
+            item["session_id"]: item["display_name"] for item in sessions_data
+        }
+        relations = await self.db.get_branch_relations()
+        children: dict[str, list[str]] = {}
+        for child_id, relation in relations.items():
+            if child_id not in session_ids:
+                continue
+            source_id = relation["source_session_id"]
+            if source_id in session_ids:
+                children.setdefault(source_id, []).append(child_id)
+
+        for item in sessions_data:
+            sid = item["session_id"]
+            relation = relations.get(sid)
+            item["branch_source"] = (
+                {
+                    "session_id": relation["source_session_id"],
+                    "message_id": relation["source_message_id"],
+                }
+                if relation
+                else None
+            )
+            item["branches"] = [
+                {"session_id": child_id, "display_name": name_by_id.get(child_id)}
+                for child_id in children.get(sid, [])
+            ]
+        return sessions_data
 
     async def get_project_sessions_from_query(
         self,

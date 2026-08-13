@@ -262,6 +262,10 @@
     "loadingSessions": "加载对话中...",
     "noSessions": "该项目暂无对话",
     "noProjects": "暂无项目",
+    "dropToRemoveHint": "拖拽会话到此处，将其移出项目",
+    "sessionAdded": "已将会话添加到项目「{title}」",
+    "sessionRemoved": "已将会话移出项目",
+    "moveFailed": "移动会话失败",
     "confirmDelete": "确定要删除项目 \"{title}\" 吗？项目中的对话不会被删除。",
     "spcode": {
       "sectionTitle": "代码项目集成（spcode）",
@@ -1589,7 +1593,9 @@
     "extraContentLabel": "补充说明(由 AI 生成)",
     "cancelled": "已取消",
     "cancel": "取消",
-    "cancelAria": "取消此候选框"
+    "cancelAria": "取消此候选框",
+    "attentionTitle": "需要您的选择",
+    "attentionBody": "AI 正在等待您做出选择"
   },
   "search": {
     "title": "搜索消息",

@@ -18,12 +18,18 @@
       <div v-for="project in projects" :key="project.project_id">
         <div
           class="project-row project-item"
-          :class="{ active: selectedProjectId === project.project_id }"
+          :class="{
+            active: selectedProjectId === project.project_id,
+            'drag-over': dragOverProjectId === project.project_id,
+          }"
           role="button"
           tabindex="0"
           @click="handleProjectClick(project)"
           @keydown.enter="handleProjectClick(project)"
           @keydown.space.prevent="handleProjectClick(project)"
+          @dragover.prevent="emit('dragOverProject', project.project_id)"
+          @dragleave="onProjectRowDragLeave(project.project_id, $event)"
+          @drop.prevent="emit('dropOnProject', project.project_id)"
         >
           <span class="project-emoji">{{ project.emoji || "📁" }}</span>
           <span class="project-title-wrap">
@@ -81,14 +87,21 @@
                   checked:
                     selectionMode &&
                     checkedSessionIds.has(session.session_id),
+                  'has-branch-meta':
+                    !selectionMode &&
+                    (Boolean(session.branches?.length) ||
+                      Boolean(session.branch_source)),
                 }"
                 role="button"
                 tabindex="0"
+                :draggable="!selectionMode"
                 @click="handleSessionRowClick(session.session_id)"
                 @keydown.enter="handleSessionRowClick(session.session_id)"
                 @keydown.space.prevent="
                   handleSessionRowClick(session.session_id)
                 "
+                @dragstart="onProjectSessionDragStart(session.session_id, $event)"
+                @dragend="emit('dragSessionEnd')"
               >
                 <v-checkbox-btn
                   v-if="selectionMode"
@@ -103,6 +116,63 @@
                 <span class="project-session-title">
                   {{ sessionTitle(session) }}
                 </span>
+                <div
+                  v-if="
+                    !selectionMode &&
+                    (session.branches?.length || session.branch_source)
+                  "
+                  class="project-session-branch-meta"
+                  @click.stop
+                >
+                  <StyledMenu
+                    v-if="session.branches?.length"
+                    location="bottom start"
+                    transition="none"
+                    no-border
+                  >
+                    <template #activator="{ props: branchMenuProps }">
+                      <button
+                        v-bind="branchMenuProps"
+                        class="project-session-branch-badge"
+                        type="button"
+                        :title="tm('branch.branches')"
+                      >
+                        <GitBranch :size="12" />
+                        <span>{{ session.branches.length }}</span>
+                      </button>
+                    </template>
+                    <v-list-item
+                      v-for="branch in session.branches"
+                      :key="branch.session_id"
+                      class="styled-menu-item"
+                      rounded="md"
+                      @click="$emit('selectSession', branch.session_id)"
+                    >
+                      <template #prepend>
+                        <GitBranch :size="14" />
+                      </template>
+                      <v-list-item-title>
+                        {{
+                          branch.display_name?.trim() ||
+                          tm("conversation.newConversation")
+                        }}
+                      </v-list-item-title>
+                    </v-list-item>
+                  </StyledMenu>
+                  <v-btn
+                    v-if="session.branch_source"
+                    icon
+                    size="x-small"
+                    variant="text"
+                    class="project-session-action-btn"
+                    :title="tm('branch.jumpToSource')"
+                    @click="
+                      $emit('selectSession', session.branch_source!.session_id)
+                    "
+                  >
+                    <CornerUpLeft :size="14" />
+                  </v-btn>
+                </div>
                 <span
                   v-if="!selectionMode"
                   class="project-session-actions"
@@ -159,12 +229,15 @@ import { ref, watch } from "vue";
 import {
   ChevronDown,
   ChevronRight,
+  CornerUpLeft,
+  GitBranch,
   Pencil,
   Plus,
   Trash2,
 } from "@lucide/vue";
 import { useModuleI18n } from "@/i18n/composables";
 import { askForConfirmation, useConfirmDialog } from "@/utils/confirmDialog";
+import StyledMenu from "@/components/shared/StyledMenu.vue";
 
 export interface Project {
   project_id: string;
@@ -184,6 +257,10 @@ export interface ProjectSession {
   session_id: string;
   display_name?: string | null;
   updated_at: string;
+  /** 2026-08-13: branch relations mirroring the flat Session type, so
+   * project rows can render the branch badge / jump-to-source. */
+  branch_source?: { session_id: string; message_id: number } | null;
+  branches?: Array<{ session_id: string; display_name: string | null }>;
 }
 
 interface Props {
@@ -197,6 +274,12 @@ interface Props {
    * rows render checkboxes and toggle selection instead of opening. */
   selectionMode?: boolean;
   checkedSessionIds?: Set<string>;
+  /** 2026-08-13 session drag: id of the session currently being dragged
+   * (used to keep drop affordances visible), or null. */
+  draggingSessionId?: string | null;
+  /** 2026-08-13 session drag: id of the project row currently hovered
+   * by a session drag (highlight), or null. */
+  dragOverProjectId?: string | null;
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -204,6 +287,8 @@ const props = withDefaults(defineProps<Props>(), {
   activeSessionId: null,
   selectionMode: false,
   checkedSessionIds: () => new Set<string>(),
+  draggingSessionId: null,
+  dragOverProjectId: null,
 });
 
 const emit = defineEmits<{
@@ -216,6 +301,13 @@ const emit = defineEmits<{
   editSessionTitle: [sessionId: string, title: string];
   deleteSession: [sessionId: string, projectId: string];
   toggleSessionChecked: [sessionId: string];
+  /** 2026-08-13 session drag events (bubbled to Chat.vue, the owner of
+   * sessions/projects and the move logic). */
+  dragSessionStart: [sessionId: string];
+  dragSessionEnd: [];
+  dragOverProject: [projectId: string];
+  dragLeaveProject: [projectId: string];
+  dropOnProject: [projectId: string];
 }>();
 
 const { tm } = useModuleI18n("features/chat");
@@ -324,6 +416,26 @@ async function handleDeleteSession(projectId: string, session: ProjectSession) {
   }
 }
 
+/** 2026-08-13 session drag: only clear the row highlight once the pointer
+ * actually left the row — dragleave fires when moving between child
+ * elements, which would flicker the highlight. */
+function onProjectRowDragLeave(projectId: string, event: DragEvent) {
+  const related = event.relatedTarget as Node | null;
+  const el = event.currentTarget as HTMLElement | null;
+  if (el && related && el.contains(related)) return;
+  emit("dragLeaveProject", projectId);
+}
+
+/** 2026-08-13 session drag: set the dataTransfer here (Firefox refuses to
+ * start a drag without setData) and bubble the session id to Chat.vue. */
+function onProjectSessionDragStart(sessionId: string, event: DragEvent) {
+  if (event.dataTransfer) {
+    event.dataTransfer.setData("text/plain", sessionId);
+    event.dataTransfer.effectAllowed = "move";
+  }
+  emit("dragSessionStart", sessionId);
+}
+
 </script>
 
 <style scoped>
@@ -397,6 +509,13 @@ async function handleDeleteSession(projectId: string, session: ProjectSession) {
   background: var(--chat-session-active-bg);
 }
 
+/* 2026-08-13 session drag: project row as a drop target for sessions. */
+.project-row.drag-over {
+  background: rgba(var(--v-theme-primary), 0.12);
+  outline: 1.5px dashed rgba(var(--v-theme-primary), 0.6);
+  outline-offset: -1px;
+}
+
 .project-emoji {
   width: 18px;
   flex: 0 0 18px;
@@ -463,6 +582,40 @@ async function handleDeleteSession(projectId: string, session: ProjectSession) {
 
 .project-session-list {
   padding: 2px 0 4px 26px;
+}
+
+/* 2026-08-13: branch badge / jump-to-source on project session rows,
+   mirroring the flat session list styles in Chat.vue. */
+.project-session-row.has-branch-meta {
+  padding-right: 108px;
+}
+
+.project-session-branch-meta {
+  position: absolute;
+  right: 52px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.project-session-branch-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--chat-muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.project-session-branch-badge:hover {
+  background: rgba(var(--v-theme-on-surface), 0.06);
+  color: rgb(var(--v-theme-on-surface));
 }
 
 /* 2026-08-09 sidebar batch delete (elecvoid243): selection mode styles. */
