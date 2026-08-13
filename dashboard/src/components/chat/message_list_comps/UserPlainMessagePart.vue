@@ -1,10 +1,13 @@
 <!-- Author: elecvoid243, 2026-07-30
-     Updated 2026-08-09 (elecvoid243): also parse the trailing
-     "[Referenced files]" block (useFileReferences.formatForLLM) and
-     render it as a FileReferencesCard. Parse order mirrors the send-time
-     concat in Chat.vue ([userText, commentText, referenceText]): the
-     comments block comes first, so its parser's `userText` may still
-     carry the references block — which is parsed out of it here.
+     Updated 2026-08-13 (elecvoid243): fixed combined-block rendering.
+     Message text layout is [userText][comments block][references block]
+     (send-time concat in Chat.vue). parseFileReviewComments only
+     returns the text BEFORE the comments marker — which can never
+     contain the trailing references block — so references must be
+     parsed from the FULL text (its own marker is found anywhere).
+     When both blocks exist, display uses the comments parser's
+     userText; the references parser's userText would still contain the
+     raw comments block and is ignored.
      Historical messages get the rich rendering automatically because
      both blocks are parsed back out of the stored message text. -->
 <template>
@@ -32,15 +35,21 @@ const props = defineProps<{ text: string }>();
 // computeds cache on props.text, so each parse runs once per text change
 // rather than on every re-render of the (potentially long) message list.
 const review = computed(() => parseFileReviewComments(props.text));
-const references = computed(() =>
-  parseFileReferences(review.value ? review.value.userText : props.text),
-);
-// The free-form text above the cards: when a references block was found
-// it owns the trimming; otherwise the comments parser's userText (or ""
-// when only a comments block exists) is what remains.
-const displayText = computed(() =>
-  references.value ? references.value.userText : (review.value?.userText ?? ""),
-);
+// 2026-08-13 fix: parse references from the FULL text, not
+// review.userText. userText is only the part BEFORE the comments marker,
+// so it can never contain the trailing "[Referenced files]" block —
+// feeding it here made the card silently vanish whenever comments and
+// references coexisted in one message.
+const references = computed(() => parseFileReferences(props.text));
+// The free-form text above the cards: when both blocks exist, the
+// references parser's userText still contains the raw comments block
+// (the comments card renders it richly, so we must not duplicate it);
+// the comments parser's userText is the true prefix. When only a
+// references block exists, its own userText is the prefix.
+const displayText = computed(() => {
+  if (review.value) return review.value.userText;
+  return references.value?.userText ?? "";
+});
 </script>
 
 <style scoped>

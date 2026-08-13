@@ -46,4 +46,26 @@ describe("parseFileReferences", () => {
     );
     expect(r!.paths).toEqual(["C:\\weird dir\\my file (v2).ts"]);
   });
+
+  it("parses references when a comments block precedes them", () => {
+    // Combined message layout mirrors the send-time concat in Chat.vue:
+    // [userText][comments block][references block]. The references
+    // marker sits AFTER the comments block, so a parser that only
+    // looked at the comments parser's userText would miss it — this
+    // locks in that parseFileReferences scans the FULL text.
+    const commentsBlock = [
+      "[File review comments]",
+      "`F:\\a\\main.py` line 25:",
+      "````",
+      "  >   25 │     x = 1",
+      "         │ Comment: hello",
+      "````",
+    ].join("\n");
+    const r = parseFileReferences(`${commentsBlock}\n\n${BLOCK}`);
+    expect(r).not.toBeNull();
+    expect(r!.paths).toEqual([
+      "D:\\AstrbotWorkSpace\\foo.py",
+      "/home/user/notes.md",
+    ]);
+  });
 });
