@@ -58,6 +58,10 @@ export type BranchMgmtResult =
 export interface UseSpcodeGitBranches {
   state: Ref<BranchesFetchState>;
   refresh: () => Promise<void>;
+  /** 2026-08-13: schedule a deferred refresh (~500ms) for the initial
+   *  load and project-switch triggers, instead of firing immediately.
+   *  Coalescing: a new call cancels the pending timer. */
+  refreshDelayed: (delayMs?: number) => void;
   startPolling: (intervalMs?: number) => void;
   stopPolling: () => void;
   switch: (params: BranchSwitchParams) => Promise<BranchMgmtResult>;
@@ -77,6 +81,7 @@ export function useSpcodeGitBranches(): UseSpcodeGitBranches {
   let abortController: AbortController | null = null;
   let mutationAbort: AbortController | null = null;
   let pollTimer: ReturnType<typeof setInterval> | null = null;
+  let refreshDelayTimer: ReturnType<typeof setTimeout> | null = null;
   let isMounted = true;
   const etagMap = new Map<string, string>();
   const prevSnapshotMap = new Map<string, SpcodeGitBranchesSnapshot>();
@@ -152,9 +157,27 @@ export function useSpcodeGitBranches(): UseSpcodeGitBranches {
     () => spcodeStatus.status.value.umo,
     (newUmo, oldUmo) => {
       if (!isMounted) return;
-      if (newUmo && newUmo !== oldUmo) void refresh();
+      // 2026-08-13: project switches defer the fetch ~500ms instead of
+      // firing the instant the umo flips (rapid switches coalesce).
+      if (newUmo && newUmo !== oldUmo) refreshDelayed();
     },
   );
+
+  /**
+   * 2026-08-13: defer the initial / project-switch fetch by ~500ms so
+   * the sidebar doesn't send a request the moment it mounts or the
+   * moment the project flips. Coalescing: a newer call cancels the
+   * pending timer, so rapid triggers produce a single fetch. Only the
+   * load/switch triggers use this — the manual refresh button and
+   * polling still call refresh() directly.
+   */
+  function refreshDelayed(delayMs = 500): void {
+    if (refreshDelayTimer) clearTimeout(refreshDelayTimer);
+    refreshDelayTimer = setTimeout(() => {
+      refreshDelayTimer = null;
+      void refresh();
+    }, delayMs);
+  }
 
   function startPolling(intervalMs: number = DEFAULT_POLL_MS): void {
     if (pollTimer) return;
@@ -287,6 +310,8 @@ export function useSpcodeGitBranches(): UseSpcodeGitBranches {
   function dispose(): void {
     isMounted = false;
     stopPolling();
+    if (refreshDelayTimer) clearTimeout(refreshDelayTimer);
+    refreshDelayTimer = null;
     abortController?.abort();
     abortController = null;
     mutationAbort?.abort();
@@ -296,6 +321,7 @@ export function useSpcodeGitBranches(): UseSpcodeGitBranches {
   return {
     state,
     refresh,
+    refreshDelayed,
     startPolling,
     stopPolling,
     switch: doSwitch,

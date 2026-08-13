@@ -1813,7 +1813,11 @@ async function onManualRefresh(): Promise<void> {
 // Spec §3.3: useSpcodeWorktrees does NOT depend on umo.
 onMounted(() => {
   void worktreesComposable.refresh();
-  void branchesComposable.refresh();
+  // 2026-08-13: defer the initial branch fetch ~500ms instead of firing
+  // the instant the sidebar mounts (see refreshDelayed in the
+  // composable). The umo watch already routes project switches through
+  // the same delayed path.
+  branchesComposable.refreshDelayed();
   // Spec 2026-07-16: initial probe on mount. The composable internally
   // watches `umo`/`directory` and re-probes on project switch, so a
   // single refresh() on mount is enough.

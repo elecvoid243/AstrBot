@@ -190,6 +190,83 @@ describe("useSpcodeGitBranches — shell", () => {
     vi.useRealTimers();
   });
 
+  // ── refreshDelayed (2026-08-13): initial / project-switch fetch ────
+  it("refreshDelayed() defers the fetch by ~500ms", async () => {
+    vi.useFakeTimers();
+    mockGet.mockResolvedValue(
+      okEnvelope({
+        loaded: true,
+        directory: "D:/repo",
+        umo: "umo-test",
+        branches: [],
+        total: 0,
+        current: null,
+        detached: false,
+        reason: null,
+        stderr: "",
+        elapsed_ms: 0,
+      }),
+    );
+    const { refreshDelayed } = withSetup(() => useSpcodeGitBranches());
+    refreshDelayed();
+    expect(mockGet).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(499);
+    expect(mockGet).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(mockGet).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+  });
+
+  it("refreshDelayed() coalesces rapid calls into a single fetch", async () => {
+    vi.useFakeTimers();
+    mockGet.mockResolvedValue(
+      okEnvelope({
+        loaded: true,
+        directory: "D:/repo",
+        umo: "umo-test",
+        branches: [],
+        total: 0,
+        current: null,
+        detached: false,
+        reason: null,
+        stderr: "",
+        elapsed_ms: 0,
+      }),
+    );
+    const { refreshDelayed } = withSetup(() => useSpcodeGitBranches());
+    refreshDelayed();
+    refreshDelayed(); // second call cancels the first pending timer
+    await vi.advanceTimersByTimeAsync(500);
+    expect(mockGet).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+  });
+
+  it("dispose() clears a pending refreshDelayed timer", async () => {
+    vi.useFakeTimers();
+    mockGet.mockResolvedValue(
+      okEnvelope({
+        loaded: true,
+        directory: "D:/repo",
+        umo: "umo-test",
+        branches: [],
+        total: 0,
+        current: null,
+        detached: false,
+        reason: null,
+        stderr: "",
+        elapsed_ms: 0,
+      }),
+    );
+    const { refreshDelayed, dispose } = withSetup(() =>
+      useSpcodeGitBranches(),
+    );
+    refreshDelayed();
+    dispose();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(mockGet).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
   // ── Mutation tests ──────────────────────────────────────
   it("switch() success: state updated with refreshed snapshot", async () => {
     mockGet.mockResolvedValueOnce(
