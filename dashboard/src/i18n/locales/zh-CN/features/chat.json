@@ -201,7 +201,18 @@
     "displayNameUpdated": "会话名称已更新",
     "displayNameUpdateFailed": "更新会话名称失败",
     "confirmDelete": "确定要删除“{name}”吗？此操作无法撤销。",
-    "resizeSidebar": "拖动以调整侧边栏宽度"
+    "resizeSidebar": "拖动以调整侧边栏宽度",
+    "archive": "归档会话",
+    "unarchive": "恢复会话",
+    "archived": "查看归档",
+    "archivedDialogTitle": "归档的对话",
+    "archivedSearchPlaceholder": "搜索归档对话标题…",
+    "archivedPagination": "{page}/{totalPages} 页 · 共 {total} 个",
+    "archivedEmpty": "暂无归档会话",
+    "archivedToast": "会话已归档",
+    "unarchiveToast": "会话已恢复",
+    "archiveFailed": "归档会话失败",
+    "unarchiveFailed": "恢复会话失败"
   },
   "modes": {
     "darkMode": "切换到夜间模式",
@@ -371,7 +382,10 @@
     "partialFailure": "{total} 个对话中有 {failed} 个删除失败",
     "requestFailed": "删除对话失败，请重试。",
     "manage": "批量管理",
-    "deleteSuccess": "已删除 {count} 个对话"
+    "deleteSuccess": "已删除 {count} 个对话",
+    "archive": "归档",
+    "confirmArchive": "确定要归档 {count} 个对话吗？此操作无法撤销。",
+    "archiveSuccess": "已归档 {count} 个对话"
   },
   "diffPreview": {
     "viewMode": {

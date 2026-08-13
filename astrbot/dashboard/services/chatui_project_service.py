@@ -172,7 +172,9 @@ class ChatUIProjectService:
             raise ChatUIProjectServiceError("Missing key: project_id")
 
         await self._get_owned_project(username, project_id)
-        sessions = await self.db.get_project_sessions(project_id)
+        # 2026-08-13 session archive: archived sessions leave the project
+        # list; they live in the archived section until restored.
+        sessions = await self.db.get_project_sessions(project_id, exclude_archived=True)
         sessions_data = [self._serialize_session(session) for session in sessions]
 
         # 2026-08-13: attach branch relations (same derivation as the flat

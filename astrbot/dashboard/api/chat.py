@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 from astrbot.dashboard.async_utils import run_maybe_async
@@ -131,6 +131,62 @@ async def batch_delete_chat_sessions(
             auth.username,
             _model_dict(payload),
         )
+    )
+
+
+@router.post("/chat/sessions/batch-archive")
+async def batch_archive_chat_sessions(
+    payload: ChatSessionBatchDeleteRequest,
+    auth: AuthContext = Depends(require_chat_scope),
+    service: ChatService = Depends(get_service),
+):
+    return await _run(
+        lambda: service.batch_archive_sessions_from_dashboard_payload(
+            auth.username,
+            _model_dict(payload),
+        )
+    )
+
+
+@router.get("/chat/sessions/archived")
+async def get_archived_chat_sessions(
+    request: Request,
+    page: int = Query(default=1),
+    page_size: int = Query(default=20),
+    search: str = Query(default=""),
+    auth: AuthContext = Depends(require_chat_scope),
+    service: ChatService = Depends(get_service),
+):
+    return await _run(
+        lambda: service.get_archived_sessions(
+            auth.username,
+            request.query_params.get("platform_id"),
+            page,
+            page_size,
+            search,
+        )
+    )
+
+
+@router.post("/chat/sessions/{session_id}/archive")
+async def archive_chat_session(
+    session_id: str,
+    auth: AuthContext = Depends(require_chat_scope),
+    service: ChatService = Depends(get_service),
+):
+    return await _run(
+        lambda: service.set_session_archived(auth.username, session_id, True)
+    )
+
+
+@router.post("/chat/sessions/{session_id}/unarchive")
+async def unarchive_chat_session(
+    session_id: str,
+    auth: AuthContext = Depends(require_chat_scope),
+    service: ChatService = Depends(get_service),
+):
+    return await _run(
+        lambda: service.set_session_archived(auth.username, session_id, False)
     )
 
 

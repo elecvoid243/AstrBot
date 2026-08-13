@@ -113,6 +113,30 @@
           <SquarePen :size="18" class="sidebar-action-icon mr-2" />
           <span>{{ tm("actions.newChat") }}</span>
         </v-btn>
+
+        <!-- 2026-08-13 (elecvoid243): batch-manage and message-search moved
+             to the top of the sidebar (above the project section). -->
+        <div v-if="!isSidebarCollapsed" class="sidebar-top-actions">
+          <button
+            type="button"
+            class="sidebar-top-action-btn"
+            :class="{ active: selectionMode }"
+            :title="tm('batch.manage')"
+            @click="toggleSelectionMode"
+          >
+            <ListChecks :size="16" />
+            <span>{{ tm("batch.manage") }}</span>
+          </button>
+          <button
+            type="button"
+            class="sidebar-top-action-btn"
+            :title="tm('search.title')"
+            @click="searchDialogOpen = true"
+          >
+            <Search :size="16" />
+            <span>{{ tm("search.title") }}</span>
+          </button>
+        </div>
       </div>
 
       <div v-if="!isSidebarCollapsed" class="sidebar-content">
@@ -130,6 +154,16 @@
           <span class="batch-select-count">
             {{ tm("batch.selected", { count: checkedSessionIds.size }) }}
           </span>
+          <v-btn
+            size="x-small"
+            variant="text"
+            class="batch-select-archive"
+            :disabled="checkedSessionIds.size === 0"
+            :loading="archivingCheckedSessions"
+            @click="archiveCheckedSessions"
+          >
+            {{ tm("batch.archive") }}
+          </v-btn>
           <v-btn
             size="x-small"
             variant="text"
@@ -171,6 +205,7 @@
           @edit-session-title="editProjectSessionTitle"
           @delete-session="deleteProjectSession"
           @toggle-session-checked="toggleSessionChecked"
+          @archive-session="archiveProjectSession"
           @drag-session-start="onSessionDragStart"
           @drag-session-end="onSessionDragEnd"
           @drag-over-project="onProjectDragOver"
@@ -187,25 +222,6 @@
         >
           <div class="sidebar-section-header">
             <span>{{ tm("conversation.title") }}</span>
-            <div class="sidebar-section-header-actions">
-              <button
-                class="search-btn"
-                :class="{ active: selectionMode }"
-                type="button"
-                :title="tm('batch.manage')"
-                @click="toggleSelectionMode"
-              >
-                <ListChecks :size="14" />
-              </button>
-              <button
-                class="search-btn"
-                type="button"
-                :title="tm('search.title')"
-                @click="searchDialogOpen = true"
-              >
-                <Search :size="14" />
-              </button>
-            </div>
           </div>
           <Transition name="drag-hint">
             <div
@@ -312,6 +328,16 @@
                 size="x-small"
                 variant="text"
                 class="session-action-btn"
+                :title="tm('conversation.archive')"
+                @click="archiveSidebarSession(session)"
+              >
+                <Archive :size="15" />
+              </v-btn>
+              <v-btn
+                icon
+                size="x-small"
+                variant="text"
+                class="session-action-btn"
                 :title="tm('conversation.editDisplayName')"
                 @click="editSidebarSessionTitle(session)"
               >
@@ -343,6 +369,31 @@
       </div>
 
       <div class="sidebar-footer">
+        <button
+          type="button"
+          class="archive-toggle-btn"
+          :class="{ active: archivedDialogOpen, 'icon-only': isSidebarCollapsed }"
+          :title="tm('conversation.archived')"
+          @click="archivedDialogOpen = true"
+        >
+          <Archive
+            :size="20"
+            :class="[
+              'sidebar-action-icon',
+              { 'mr-2': !isSidebarCollapsed },
+            ]"
+          />
+          <span v-if="!isSidebarCollapsed">
+            {{ tm("conversation.archived") }}
+          </span>
+          <span
+            v-if="!isSidebarCollapsed && archivedCount"
+            class="archive-count-badge"
+          >
+            {{ archivedCount }}
+          </span>
+        </button>
+
         <StyledMenu
           location="top start"
           offset="10"
@@ -874,6 +925,12 @@
   </div>
 
 <ChatMessageSearchDialog v-model="searchDialogOpen" />
+<ArchivedSessionsDialog
+  v-model="archivedDialogOpen"
+  @restore="onArchivedRestored"
+  @delete="onArchivedDeleted"
+  @count="archivedCount = $event"
+/>
 </template>
 
 <script setup lang="ts">
@@ -891,6 +948,7 @@ import { useRoute, useRouter } from "vue-router";
 import { useDisplay } from "vuetify";
 import { isAxiosError } from "axios";
 import {
+  Archive,
   Box,
   Cable,
   Check,
@@ -935,7 +993,12 @@ import RefsSidebar from "@/components/chat/message_list_comps/RefsSidebar.vue";
 import TodoSidebar from "@/components/chat/message_list_comps/TodoSidebar.vue";
 import GitDiffSidebar from "@/components/chat/GitDiffSidebar.vue";
 import ChatMessageSearchDialog from "@/components/chat/ChatMessageSearchDialog.vue";
-import { useSessions, type Session } from "@/composables/useSessions";
+import ArchivedSessionsDialog from "@/components/chat/ArchivedSessionsDialog.vue";
+import {
+  useSessions,
+  type ArchivedSession,
+  type Session,
+} from "@/composables/useSessions";
 import { useFileComments } from "@/composables/useFileComments";
 import { useFileReferences } from "@/composables/useFileReferences";
 import { useInlineAnnotations } from "@/composables/useInlineAnnotations";
@@ -1013,12 +1076,15 @@ const { languageOptions, currentLanguage, switchLanguage, locale } =
   useLanguageSwitcher();
 const {
   sessions,
+  archivedPagination,
   currSessionId,
   getSessions,
   newSession,
   newChat,
   deleteSession,
   batchDeleteSessions,
+  getArchivedSessions,
+  setSessionArchived,
   updateSessionTitle,
 } = useSessions(props.chatboxMode);
 const {
@@ -1707,7 +1773,12 @@ onMounted(async () => {
 
   loadingSessions.value = true;
   try {
-    await Promise.all([getSessions(), getProjects(), loadTokenProviders()]);
+    await Promise.all([
+      getSessions(),
+      getArchivedSessions(),
+      getProjects(),
+      loadTokenProviders(),
+    ]);
     const routeSessionId = getRouteSessionId();
     if (routeSessionId === "models") {
       activeWorkspace.value = "providers";
@@ -2307,10 +2378,11 @@ function editSidebarSessionTitle(session: Session) {
 
 // 2026-08-09 sidebar batch delete (elecvoid243): selection mode lets the
 // user check multiple conversations (sidebar list + project sessions) and
-// delete them via the batch-delete endpoint in one request.
+// delete or archive them via the batch endpoints in one request.
 const selectionMode = ref(false);
 const checkedSessionIds = ref<Set<string>>(new Set());
 const deletingCheckedSessions = ref(false);
+const archivingCheckedSessions = ref(false);
 
 /** All session ids the batch bar can act on: sidebar list plus every
  * project session list that has been loaded so far. */
@@ -2417,6 +2489,131 @@ async function deleteCheckedSessions() {
   } finally {
     deletingCheckedSessions.value = false;
   }
+}
+
+/** 2026-08-13 batch archive: moves the checked sessions into the archive
+ * via the batch endpoint, then refreshes the lists and badge. */
+async function archiveCheckedSessions() {
+  const ids = [...checkedSessionIds.value];
+  if (!ids.length) return;
+  const message = tm("batch.confirmArchive", { count: ids.length });
+  if (!(await askForConfirmation(message, confirmDialog))) return;
+
+  archivingCheckedSessions.value = true;
+  try {
+    const response = await chatApi.batchArchiveSessions({ session_ids: ids });
+    if (response.data?.status !== "ok") {
+      throw new Error(
+        response.data?.message || "Failed to batch archive sessions",
+      );
+    }
+    const data = response.data?.data || {};
+    const failedIds = new Set(
+      (data.failed_items || []).map(
+        (item: { session_id: string }) => item.session_id,
+      ),
+    );
+    const archivedIds = new Set(ids.filter((id) => !failedIds.has(id)));
+
+    // Refresh the flat list, the archive badge and any affected project
+    // session lists.
+    await Promise.all([
+      getSessions(),
+      getArchivedSessions(),
+      ...Object.keys(projectSessionsById.value)
+        .filter((projectId) =>
+          (projectSessionsById.value[projectId] || []).some((session) =>
+            archivedIds.has(session.session_id),
+          ),
+        )
+        .map((projectId) => loadProjectSessions(projectId)),
+    ]);
+
+    // Archiving the active session leaves the chat view.
+    if (currSessionId.value && archivedIds.has(currSessionId.value)) {
+      selectedProjectId.value = null;
+      await router.push(basePath());
+    }
+
+    if ((data.failed_count || 0) > 0) {
+      toast.error(
+        tm("batch.partialFailure", {
+          failed: data.failed_count,
+          total: ids.length,
+        }),
+      );
+    } else {
+      toast.success(tm("batch.archiveSuccess", { count: data.archived_count }));
+    }
+
+    selectionMode.value = false;
+    checkedSessionIds.value = new Set();
+  } catch (error) {
+    console.error("Failed to batch archive sessions:", error);
+    toast.error(tm("batch.requestFailed"));
+  } finally {
+    archivingCheckedSessions.value = false;
+  }
+}
+
+// 2026-08-13 session archive (elecvoid243): the footer button opens the
+// archived-conversations dialog; archivedCount mirrors the server total for
+// the badge.
+const archivedDialogOpen = ref(false);
+const archivedCount = computed(() => archivedPagination.value.total);
+
+async function archiveSidebarSession(session: Session | ArchivedSession) {
+  const ok = await setSessionArchived(session.session_id, true);
+  if (!ok) {
+    toast.error(tm("conversation.archiveFailed"));
+    return;
+  }
+  // Refresh the project list when the archived session lived in a project.
+  const projectId =
+    sessionProjects[session.session_id]?.project_id ??
+    (session as ArchivedSession).project_id ??
+    null;
+  if (projectId) {
+    await loadProjectSessions(projectId);
+  }
+  // Archiving the active session leaves the chat view.
+  if (currSessionId.value === session.session_id) {
+    selectedProjectId.value = null;
+    await router.push(basePath());
+  }
+  toast.success(tm("conversation.archivedToast"));
+}
+
+/** Dialog restored a session: refresh sidebar/project lists (dialog toasts). */
+async function onArchivedRestored(session: ArchivedSession) {
+  await getSessions();
+  if (session.project_id) {
+    await loadProjectSessions(session.project_id);
+  }
+}
+
+/** Dialog deleted an archived session: refresh sidebar/project lists. */
+async function onArchivedDeleted(session: ArchivedSession) {
+  await getSessions();
+  if (session.project_id) {
+    await loadProjectSessions(session.project_id);
+  }
+}
+
+/** Archive a project session row (from ProjectList). */
+async function archiveProjectSession(sessionId: string, projectId: string) {
+  const ok = await setSessionArchived(sessionId, true);
+  if (!ok) {
+    toast.error(tm("conversation.archiveFailed"));
+    return;
+  }
+  await loadProjectSessions(projectId);
+  // Archiving the active session leaves the chat view.
+  if (currSessionId.value === sessionId) {
+    selectedProjectId.value = null;
+    await router.push(basePath());
+  }
+  toast.success(tm("conversation.archivedToast"));
 }
 
 async function deleteSidebarSession(session: Session) {
@@ -3701,6 +3898,60 @@ function toggleTheme() {
   justify-content: center;
 }
 
+/* 2026-08-13 session archive (elecvoid243): footer toggle + archive
+   section styles. */
+.archive-toggle-btn {
+  width: 100%;
+  min-height: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  padding-inline: 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: rgb(var(--v-theme-on-surface));
+  font-size: 14px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.archive-toggle-btn .sidebar-action-icon {
+  margin-right: 12px;
+}
+
+.archive-toggle-btn.icon-only {
+  width: 36px;
+  min-width: 36px;
+  padding: 0;
+  justify-content: center;
+  margin-inline: auto;
+}
+
+.archive-toggle-btn.icon-only .sidebar-action-icon {
+  margin-right: 0;
+}
+
+.archive-toggle-btn:hover,
+.archive-toggle-btn.active {
+  background: var(--chat-session-active-bg);
+}
+
+.archive-count-badge {
+  margin-left: auto;
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: rgba(var(--v-theme-primary), 0.15);
+  color: rgb(var(--v-theme-primary));
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+}
+
 .new-chat-btn :deep(.v-btn__content),
 .settings-btn :deep(.v-btn__content) {
   min-width: 0;
@@ -3792,7 +4043,7 @@ function toggleTheme() {
   display: flex;
   align-items: center;
   gap: 7px;
-  padding: 4px 56px 4px 10px;
+  padding: 4px 88px 4px 10px;
   position: relative;
   box-sizing: border-box;
   cursor: pointer;
@@ -3875,12 +4126,12 @@ function toggleTheme() {
 /* Branch meta (badge + jump-to-source) sits left of the hover actions and
    stays visible without hover. */
 .session-item.has-branch-meta {
-  padding-right: 108px;
+  padding-right: 132px;
 }
 
 .session-branch-meta {
   position: absolute;
-  right: 52px;
+  right: 92px;
   top: 50%;
   transform: translateY(-50%);
   display: flex;
@@ -3920,21 +4171,35 @@ function toggleTheme() {
   color: rgb(var(--v-theme-on-surface));
 }
 
-/* 2026-08-09 sidebar batch delete (elecvoid243): selection mode styles. */
-.sidebar-section-header-actions {
+/* 2026-08-13 (elecvoid243): batch-manage / search buttons live at the top
+   of the sidebar (above the project section). */
+.sidebar-top-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.sidebar-top-action-btn {
+  flex: 1;
+  min-width: 0;
+  min-height: 30px;
   display: flex;
   align-items: center;
-  gap: 2px;
-  margin-left: auto;
+  justify-content: center;
+  gap: 6px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(var(--v-theme-on-surface), 0.55);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
 }
 
-.sidebar-section-header-actions .search-btn {
-  margin-left: 0;
-}
-
-.sidebar-section-header .search-btn.active {
+.sidebar-top-action-btn:hover,
+.sidebar-top-action-btn.active {
   color: rgb(var(--v-theme-on-surface));
-  background: rgba(var(--v-theme-on-surface), 0.08);
+  background: rgba(var(--v-theme-on-surface), 0.07);
 }
 
 .batch-select-bar {
@@ -3969,6 +4234,7 @@ function toggleTheme() {
 
 /* 2026-08-09 (elecvoid243): larger batch-bar action labels, smaller
    per-row checkboxes. */
+.batch-select-archive,
 .batch-select-delete,
 .batch-select-exit {
   font-size: 13px;
@@ -4401,22 +4667,6 @@ kbd {
 }
 .is-dark .scroll-marker-strip .scroll-marker-dot {
   border-color: rgba(255, 255, 255, 0.15);
-}
-
-.sidebar-section-header .search-btn {
-  margin-left: auto;
-  border: none;
-  background: none;
-  cursor: pointer;
-  color: rgba(var(--v-theme-on-surface), 0.45);
-  display: flex;
-  align-items: center;
-  padding: 3px 6px;
-  border-radius: 4px;
-}
-.sidebar-section-header .search-btn:hover {
-  background: rgba(var(--v-theme-on-surface), 0.06);
-  color: var(--v-theme-on-surface);
 }
 </style>
 

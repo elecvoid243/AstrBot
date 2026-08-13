@@ -201,7 +201,18 @@
     "displayNameUpdated": "Имя чата обновлено",
     "displayNameUpdateFailed": "Не удалось обновить имя чата",
     "confirmDelete": "Вы уверены, что хотите удалить «{name}»? Это действие необратимо.",
-    "resizeSidebar": "Перетащите, чтобы изменить ширину боковой панели"
+    "resizeSidebar": "Перетащите, чтобы изменить ширину боковой панели",
+    "archive": "Архивировать диалог",
+    "unarchive": "Восстановить диалог",
+    "archived": "Просмотр архива",
+    "archivedDialogTitle": "Архивные диалоги",
+    "archivedSearchPlaceholder": "Поиск по названиям архивных диалогов…",
+    "archivedPagination": "Стр. {page}/{totalPages} · всего {total}",
+    "archivedEmpty": "Нет архивных диалогов",
+    "archivedToast": "Диалог архивирован",
+    "unarchiveToast": "Диалог восстановлен",
+    "archiveFailed": "Не удалось архивировать диалог",
+    "unarchiveFailed": "Не удалось восстановить диалог"
   },
   "modes": {
     "darkMode": "Темная тема",
@@ -371,7 +382,10 @@
     "partialFailure": "Не удалось удалить {failed} из {total} диалогов",
     "requestFailed": "Не удалось удалить диалоги. Повторите попытку.",
     "manage": "Выбрать диалоги",
-    "deleteSuccess": "Удалено диалогов: {count}"
+    "deleteSuccess": "Удалено диалогов: {count}",
+    "archive": "Архивировать",
+    "confirmArchive": "Архивировать выбранные диалоги ({count})? Это действие необратимо.",
+    "archiveSuccess": "Архивировано диалогов: {count}"
   },
   "diffPreview": {
     "viewMode": {

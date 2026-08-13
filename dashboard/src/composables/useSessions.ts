@@ -17,9 +17,37 @@ export interface Session {
     branches: Array<{ session_id: string; display_name: string | null }>;
 }
 
+/** Archived session: same shape as Session plus project membership, so the
+ * archive section can label project members and restore into the right
+ * project. */
+export interface ArchivedSession extends Session {
+    project_id: string | null;
+    project_title: string | null;
+    project_emoji: string | null;
+}
+
+export interface ArchivedPagination {
+    page: number;
+    page_size: number;
+    total: number;
+    total_pages: number;
+}
+
+export interface ArchivedSessionsPayload {
+    items: ArchivedSession[];
+    pagination: ArchivedPagination;
+}
+
 export function useSessions(chatboxMode: boolean = false) {
     const router = useRouter();
     const sessions = ref<Session[]>([]);
+    const archivedSessions = ref<ArchivedSession[]>([]);
+    const archivedPagination = ref<ArchivedPagination>({
+        page: 1,
+        page_size: 20,
+        total: 0,
+        total_pages: 1,
+    });
     const selectedSessions = ref<string[]>([]);
     const currSessionId = ref('');
     const pendingSessionId = ref<string | null>(null);
@@ -93,6 +121,61 @@ export function useSessions(chatboxMode: boolean = false) {
             selectedSessions.value = [];
         } catch (err) {
             console.error(err);
+        }
+    }
+
+    async function getArchivedSessions(params?: {
+        page?: number;
+        page_size?: number;
+        search?: string;
+    }): Promise<ArchivedSessionsPayload> {
+        try {
+            const response = await chatApi.listArchivedSessions(params);
+            const data = response.data.data || {};
+            const items: ArchivedSession[] = Array.isArray(data.items)
+                ? data.items
+                : [];
+            const pagination: ArchivedPagination = data.pagination || {
+                page: 1,
+                page_size: params?.page_size ?? 20,
+                total: 0,
+                total_pages: 1,
+            };
+            archivedSessions.value = items;
+            archivedPagination.value = pagination;
+            return { items, pagination };
+        } catch (err) {
+            console.error(err);
+            return {
+                items: [],
+                pagination: {
+                    page: 1,
+                    page_size: params?.page_size ?? 20,
+                    total: 0,
+                    total_pages: 1,
+                },
+            };
+        }
+    }
+
+    /** Archive or restore a session; refreshes both lists afterwards.
+     * Returns true on success so the caller can decide about navigation /
+     * project list refreshes. */
+    async function setSessionArchived(sessionId: string, archived: boolean): Promise<boolean> {
+        try {
+            const response = archived
+                ? await chatApi.archiveSession(sessionId)
+                : await chatApi.unarchiveSession(sessionId);
+            if (response.data?.status !== 'ok') {
+                console.error(response.data?.message || 'Failed to update archive state');
+                return false;
+            }
+            await getSessions();
+            await getArchivedSessions();
+            return true;
+        } catch (err) {
+            console.error(err);
+            return false;
         }
     }
 
@@ -210,6 +293,8 @@ export function useSessions(chatboxMode: boolean = false) {
 
     return {
         sessions,
+        archivedSessions,
+        archivedPagination,
         selectedSessions,
         currSessionId,
         pendingSessionId,
@@ -221,6 +306,8 @@ export function useSessions(chatboxMode: boolean = false) {
         newSession,
         deleteSession,
         batchDeleteSessions,
+        getArchivedSessions,
+        setSessionArchived,
         showEditTitleDialog,
         saveTitle,
         updateSessionTitle,

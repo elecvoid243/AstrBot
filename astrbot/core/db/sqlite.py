@@ -68,6 +68,7 @@ class SQLiteDatabase(BaseDatabase):
             await self._ensure_persona_skills_column(conn)
             await self._ensure_persona_custom_error_message_column(conn)
             await self._ensure_platform_message_history_checkpoint_column(conn)
+            await self._ensure_platform_session_archived_column(conn)
             await self._ensure_chatui_project_workspace_columns(conn)
             await self._ensure_chatui_project_spcode_columns(conn)
             await self._ensure_conversation_indexes(conn)
@@ -162,6 +163,23 @@ class SQLiteDatabase(BaseDatabase):
                 "ON platform_message_history (platform_id, user_id, id)"
             )
         )
+
+    async def _ensure_platform_session_archived_column(self, conn) -> None:
+        """Ensure platform_sessions has the archived column (forward compat).
+
+        Older databases created before the archive feature lack the column;
+        add it with the same default the model declares.
+        """
+        result = await conn.execute(text("PRAGMA table_info(platform_sessions)"))
+        columns = {row[1] for row in result.fetchall()}
+
+        if "archived" not in columns:
+            await conn.execute(
+                text(
+                    "ALTER TABLE platform_sessions "
+                    "ADD COLUMN archived INTEGER NOT NULL DEFAULT 0"
+                )
+            )
 
     async def _ensure_chatui_project_workspace_columns(self, conn) -> None:
         """Ensure chatui_projects has workspace configuration columns."""
@@ -1898,6 +1916,7 @@ class SQLiteDatabase(BaseDatabase):
         creator: str,
         platform_id: str | None = None,
         exclude_project_sessions: bool = False,
+        archived: bool | None = None,
     ):
         query = (
             select(
@@ -1922,6 +1941,9 @@ class SQLiteDatabase(BaseDatabase):
             query = query.where(PlatformSession.platform_id == platform_id)
         if exclude_project_sessions:
             query = query.where(col(ChatUIProject.project_id).is_(None))
+        if archived is not None:
+            # 2026-08-13 session archive: filter by the archived flag.
+            query = query.where(col(PlatformSession.archived) == (1 if archived else 0))
 
         return query
 
@@ -1951,8 +1973,23 @@ class SQLiteDatabase(BaseDatabase):
         page: int = 1,
         page_size: int = 20,
         exclude_project_sessions: bool = False,
+        archived: bool | None = None,
     ) -> tuple[list[dict], int]:
-        """Get paginated Platform sessions for a creator with total count."""
+        """Get paginated Platform sessions for a creator with total count.
+
+        Args:
+            creator: Username owning the sessions.
+            platform_id: Optional platform filter.
+            page: 1-based page number.
+            page_size: Number of sessions per page.
+            exclude_project_sessions: When True, hide sessions that belong
+                to a ChatUI project.
+            archived: When None keep both states; True returns only archived
+                sessions; False excludes archived sessions.
+
+        Returns:
+            tuple[list[dict], int]: (sessions_with_project_info, total_count)
+        """
         async with self.get_db() as session:
             session: AsyncSession
             offset = (page - 1) * page_size
@@ -1961,6 +1998,7 @@ class SQLiteDatabase(BaseDatabase):
                 creator=creator,
                 platform_id=platform_id,
                 exclude_project_sessions=exclude_project_sessions,
+                archived=archived,
             )
 
             total_result = await session.execute(
@@ -1982,14 +2020,23 @@ class SQLiteDatabase(BaseDatabase):
         self,
         session_id: str,
         display_name: str | None = None,
+        archived: int | None = None,
     ) -> None:
-        """Update a Platform session's updated_at timestamp and optionally display_name."""
+        """Update a Platform session's timestamp and optionally other fields.
+
+        Args:
+            session_id: Session to update.
+            display_name: New display name, or None to keep it.
+            archived: New archived flag (0/1), or None to keep it.
+        """
         async with self.get_db() as session:
             session: AsyncSession
             async with session.begin():
                 values: dict[str, T.Any] = {"updated_at": datetime.now(timezone.utc)}
                 if display_name is not None:
                     values["display_name"] = display_name
+                if archived is not None:
+                    values["archived"] = archived
 
                 await session.execute(
                     update(PlatformSession)
@@ -2260,12 +2307,21 @@ class SQLiteDatabase(BaseDatabase):
         project_id: str,
         page: int = 1,
         page_size: int = 100,
+        exclude_archived: bool = False,
     ) -> list[PlatformSession]:
-        """Get all sessions in a project."""
+        """Get all sessions in a project.
+
+        Args:
+            project_id: Target project.
+            page: 1-based page number.
+            page_size: Sessions per page.
+            exclude_archived: When True, hide archived sessions from the
+                project session list.
+        """
         async with self.get_db() as session:
             session: AsyncSession
             offset = (page - 1) * page_size
-            result = await session.execute(
+            query = (
                 select(PlatformSession)
                 .join(
                     SessionProjectRelation,
@@ -2273,7 +2329,11 @@ class SQLiteDatabase(BaseDatabase):
                     == col(SessionProjectRelation.session_id),
                 )
                 .where(col(SessionProjectRelation.project_id) == project_id)
-                .order_by(desc(PlatformSession.updated_at))
+            )
+            if exclude_archived:
+                query = query.where(col(PlatformSession.archived) == 0)
+            result = await session.execute(
+                query.order_by(desc(PlatformSession.updated_at))
                 .limit(page_size)
                 .offset(offset),
             )

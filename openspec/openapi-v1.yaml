@@ -1268,6 +1268,76 @@ paths:
         "200":
           $ref: "#/components/responses/Ok"
 
+  /api/v1/chat/sessions/batch-archive:
+    post:
+      tags: [Chat]
+      summary: Archive multiple webchat sessions
+      operationId: batchArchiveChatSessions
+      x-astrbot-scope: chat
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChatSessionBatchDeleteRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+
+  /api/v1/chat/sessions/archived:
+    get:
+      tags: [Chat]
+      summary: List archived webchat sessions
+      operationId: listArchivedChatSessions
+      x-astrbot-scope: chat
+      parameters:
+        - name: platform_id
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: search
+          in: query
+          schema:
+            type: string
+            default: ""
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+
+  /api/v1/chat/sessions/{session_id}/archive:
+    post:
+      tags: [Chat]
+      summary: Archive a webchat session
+      operationId: archiveChatSession
+      x-astrbot-scope: chat
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+
+  /api/v1/chat/sessions/{session_id}/unarchive:
+    post:
+      tags: [Chat]
+      summary: Restore an archived webchat session
+      operationId: unarchiveChatSession
+      x-astrbot-scope: chat
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+
   /api/v1/chat/sessions/{session_id}:
     get:
       tags: [Chat]

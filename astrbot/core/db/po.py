@@ -327,6 +327,9 @@ class PlatformSession(TimestampMixin, SQLModel, table=True):
     """Display name for the session"""
     is_group: int = Field(default=0, nullable=False)
     """0 for private chat, 1 for group chat (not implemented yet)"""
+    archived: int = Field(default=0, nullable=False)
+    """1 when the session is archived (hidden from the ChatUI sidebar
+    session lists and moved to the archive section); 0 otherwise."""
 
     __table_args__ = (
         UniqueConstraint(

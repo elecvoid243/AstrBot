@@ -839,8 +839,31 @@ export const chatApi = {
       openApiV1.deleteChatSession({ path: { session_id: sessionId } }),
     );
   },
+  listArchivedSessions(params?: {
+    platform_id?: string;
+    page?: number;
+    page_size?: number;
+    search?: string;
+  }) {
+    return typed<any>(
+      openApiV1.listArchivedChatSessions({ query: generatedQuery(params) }),
+    );
+  },
+  archiveSession(sessionId: string) {
+    return typed<any>(
+      openApiV1.archiveChatSession({ path: { session_id: sessionId } }),
+    );
+  },
+  unarchiveSession(sessionId: string) {
+    return typed<any>(
+      openApiV1.unarchiveChatSession({ path: { session_id: sessionId } }),
+    );
+  },
   batchDeleteSessions(payload: ChatSessionBatchDeleteRequest) {
     return typed<any>(openApiV1.batchDeleteChatSessions({ body: payload }));
+  },
+  batchArchiveSessions(payload: ChatSessionBatchDeleteRequest) {
+    return typed<any>(openApiV1.batchArchiveChatSessions({ body: payload }));
   },
   stopSession(sessionId: string) {
     return typed<any>(

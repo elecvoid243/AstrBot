@@ -1375,6 +1375,47 @@ export type BatchDeleteChatSessionsResponse = (SuccessEnvelope);
 
 export type BatchDeleteChatSessionsError = unknown;
 
+export type BatchArchiveChatSessionsData = {
+    body: ChatSessionBatchDeleteRequest;
+};
+
+export type BatchArchiveChatSessionsResponse = (SuccessEnvelope);
+
+export type BatchArchiveChatSessionsError = unknown;
+
+export type ListArchivedChatSessionsData = {
+    query?: {
+        page?: number;
+        page_size?: number;
+        platform_id?: string;
+        search?: string;
+    };
+};
+
+export type ListArchivedChatSessionsResponse = (SuccessEnvelope);
+
+export type ListArchivedChatSessionsError = unknown;
+
+export type ArchiveChatSessionData = {
+    path: {
+        session_id: string;
+    };
+};
+
+export type ArchiveChatSessionResponse = (SuccessEnvelope);
+
+export type ArchiveChatSessionError = unknown;
+
+export type UnarchiveChatSessionData = {
+    path: {
+        session_id: string;
+    };
+};
+
+export type UnarchiveChatSessionResponse = (SuccessEnvelope);
+
+export type UnarchiveChatSessionError = unknown;
+
 export type GetChatSessionData = {
     path: {
         session_id: string;

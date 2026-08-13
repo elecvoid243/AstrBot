@@ -170,6 +170,9 @@ class ConversationService:
                     creator=username,
                     page=scan_page,
                     page_size=200,
+                    # 2026-08-13: the sidebar search must only cover
+                    # non-archived sessions.
+                    archived=False,
                 )
             except Exception as exc:
                 logger.error(f"消息搜索查询会话出错: {exc!s}\n{traceback.format_exc()}")

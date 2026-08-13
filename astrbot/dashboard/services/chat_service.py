@@ -1950,6 +1950,46 @@ class ChatService:
             raise ChatServiceError("Missing or invalid key: session_ids")
         return await self.batch_delete_sessions(username, session_ids, delete_session)
 
+    async def batch_archive_sessions_from_dashboard_payload(
+        self,
+        username: str,
+        payload: object,
+    ) -> dict:
+        """Archive multiple sessions owned by the user in one request.
+
+        Mirrors ``batch_delete_sessions_from_dashboard_payload``: failures
+        are collected per session instead of aborting the whole batch.
+
+        Args:
+            username: Dashboard username; must own every session.
+            payload: Dict with ``session_ids`` (list of session ids).
+
+        Returns:
+            Dict with ``archived_count``, ``failed_count`` and
+            ``failed_items`` (``{"session_id", "reason"}``).
+        """
+        data = self._dashboard_payload(payload)
+        session_ids = data.get("session_ids")
+        if not session_ids or not isinstance(session_ids, list):
+            raise ChatServiceError("Missing or invalid key: session_ids")
+
+        archived_count = 0
+        failed_items: list[dict] = []
+        for session_id in session_ids:
+            try:
+                await self.set_session_archived(username, session_id, True)
+                archived_count += 1
+            except ChatServiceError as exc:
+                failed_items.append(
+                    {"session_id": session_id, "reason": str(exc)}
+                )
+
+        return {
+            "archived_count": archived_count,
+            "failed_count": len(failed_items),
+            "failed_items": failed_items,
+        }
+
     async def delete_attachments(self, attachment_ids: list[str]) -> None:
         try:
             attachments = await self.db.get_attachments(attachment_ids)
@@ -1995,6 +2035,7 @@ class ChatService:
             page=1,
             page_size=100,
             exclude_project_sessions=True,
+            archived=False,
         )
 
         sessions_data = []
@@ -2044,6 +2085,127 @@ class ChatService:
                 for child_id in children.get(sid, [])
             ]
         return sessions_data
+
+    async def get_archived_sessions(
+        self,
+        username: str,
+        platform_id: str | None,
+        page: int = 1,
+        page_size: int = 20,
+        search: str | None = None,
+    ) -> dict:
+        """List archived sessions with title search and pagination.
+
+        Mirrors ``get_sessions`` but returns only archived sessions; project
+        membership is kept so the frontend can show a project label and
+        restore into the right project. ``search`` filters by display name
+        (case-insensitive substring), and results are paginated for the
+        archived-conversations dialog.
+
+        Args:
+            username: Dashboard username owning the sessions.
+            platform_id: Optional platform filter.
+            page: 1-based page number.
+            page_size: Items per page (clamped to 1..100).
+            search: Optional display-name substring filter.
+
+        Returns:
+            Dict with ``items`` (session dicts with branch relations) and
+            ``pagination`` metadata.
+        """
+        page = max(page, 1)
+        page_size = max(1, min(page_size, 100))
+        search = (search or "").strip()
+
+        # Collect every archived session (the accessor is paginated; loop
+        # with a hard cap so a pathological history cannot run away).
+        raw_items: list[dict] = []
+        scan_page = 1
+        while True:
+            sessions, _ = await self.db.get_platform_sessions_by_creator_paginated(
+                creator=username,
+                platform_id=platform_id,
+                page=scan_page,
+                page_size=200,
+                exclude_project_sessions=False,
+                archived=True,
+            )
+            raw_items.extend(sessions)
+            if len(sessions) < 200 or len(raw_items) >= 1000:
+                break
+            scan_page += 1
+
+        sessions_data = []
+        for item in raw_items:
+            session = item["session"]
+            display_name = session.display_name or ""
+            if search and search.lower() not in display_name.lower():
+                continue
+            sessions_data.append(
+                {
+                    "session_id": session.session_id,
+                    "platform_id": session.platform_id,
+                    "creator": session.creator,
+                    "display_name": session.display_name,
+                    "is_group": session.is_group,
+                    "created_at": to_utc_isoformat(session.created_at),
+                    "updated_at": to_utc_isoformat(session.updated_at),
+                    "project_id": item["project_id"],
+                    "project_title": item["project_title"],
+                    "project_emoji": item["project_emoji"],
+                }
+            )
+
+        session_ids = {item["session_id"] for item in sessions_data}
+        relations = await self.get_branch_relations()
+        for item in sessions_data:
+            relation = relations.get(item["session_id"])
+            item["branch_source"] = (
+                {
+                    "session_id": relation["source_session_id"],
+                    "message_id": relation["source_message_id"],
+                }
+                if relation
+                else None
+            )
+            item["branches"] = [
+                {"session_id": child_id, "display_name": None}
+                for child_id, rel in relations.items()
+                if rel["source_session_id"] == item["session_id"]
+                and child_id in session_ids
+            ]
+
+        total = len(sessions_data)
+        total_pages = (total + page_size - 1) // page_size if total else 1
+        offset = (page - 1) * page_size
+        return {
+            "items": sessions_data[offset : offset + page_size],
+            "pagination": {
+                "page": page,
+                "page_size": page_size,
+                "total": total,
+                "total_pages": total_pages,
+            },
+        }
+
+    async def set_session_archived(
+        self, username: str, session_id: str, archived: bool
+    ) -> None:
+        """Archive or unarchive a webchat session owned by the user.
+
+        Args:
+            username: Dashboard username; must own the session.
+            session_id: Session to update.
+            archived: True to archive, False to restore.
+        """
+        session = await self.db.get_platform_session_by_id(session_id)
+        if not session:
+            raise ChatServiceError(f"Session {session_id} not found")
+        if session.creator != username:
+            raise ChatServiceError("Permission denied")
+        await self.db.update_platform_session(
+            session_id, archived=1 if archived else 0
+        )
 
     async def get_sessions_from_dashboard_query(
         self,

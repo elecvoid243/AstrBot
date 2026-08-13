@@ -201,7 +201,18 @@
     "displayNameUpdated": "Session name updated",
     "displayNameUpdateFailed": "Failed to update session name",
     "confirmDelete": "Are you sure you want to delete \"{name}\"? This action cannot be undone.",
-    "resizeSidebar": "Drag to resize sidebar"
+    "resizeSidebar": "Drag to resize sidebar",
+    "archive": "Archive Session",
+    "unarchive": "Restore Session",
+    "archived": "View Archive",
+    "archivedDialogTitle": "Archived Conversations",
+    "archivedSearchPlaceholder": "Search archived conversation titles…",
+    "archivedPagination": "Page {page}/{totalPages} · {total} total",
+    "archivedEmpty": "No archived conversations",
+    "archivedToast": "Conversation archived",
+    "unarchiveToast": "Conversation restored",
+    "archiveFailed": "Failed to archive conversation",
+    "unarchiveFailed": "Failed to restore conversation"
   },
   "modes": {
     "darkMode": "Switch to Dark Mode",
@@ -371,7 +382,10 @@
     "partialFailure": "{failed} of {total} conversations failed to delete",
     "requestFailed": "Failed to delete conversations. Please try again.",
     "manage": "Select conversations",
-    "deleteSuccess": "Deleted {count} conversation(s)"
+    "deleteSuccess": "Deleted {count} conversation(s)",
+    "archive": "Archive",
+    "confirmArchive": "Archive {count} conversation(s)? This action cannot be undone.",
+    "archiveSuccess": "Archived {count} conversation(s)"
   },
   "diffPreview": {
     "viewMode": {

@@ -877,8 +877,19 @@ class BaseDatabase(abc.ABC):
         page: int = 1,
         page_size: int = 20,
         exclude_project_sessions: bool = False,
+        archived: bool | None = None,
     ) -> tuple[list[dict], int]:
         """Get paginated platform sessions and total count for a creator.
+
+        Args:
+            creator: Username owning the sessions.
+            platform_id: Optional platform filter.
+            page: 1-based page number.
+            page_size: Number of sessions per page.
+            exclude_project_sessions: When True, hide sessions that belong
+                to a ChatUI project.
+            archived: When None keep both states; True returns only archived
+                sessions; False excludes archived sessions.
 
         Returns:
             tuple[list[dict], int]: (sessions_with_project_info, total_count)
@@ -890,8 +901,15 @@ class BaseDatabase(abc.ABC):
         self,
         session_id: str,
         display_name: str | None = None,
+        archived: int | None = None,
     ) -> None:
-        """Update a Platform session's updated_at timestamp and optionally display_name."""
+        """Update a Platform session's timestamp and optionally other fields.
+
+        Args:
+            session_id: Session to update.
+            display_name: New display name, or None to keep it.
+            archived: New archived flag (0/1), or None to keep it.
+        """
         ...
 
     @abc.abstractmethod
@@ -994,8 +1012,17 @@ class BaseDatabase(abc.ABC):
         project_id: str,
         page: int = 1,
         page_size: int = 100,
+        exclude_archived: bool = False,
     ) -> list[PlatformSession]:
-        """Get all sessions in a project."""
+        """Get all sessions in a project.
+
+        Args:
+            project_id: Target project.
+            page: 1-based page number.
+            page_size: Sessions per page.
+            exclude_archived: When True, hide archived sessions from the
+                project session list.
+        """
         ...
 
     @abc.abstractmethod

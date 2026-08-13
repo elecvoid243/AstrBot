@@ -183,6 +183,18 @@
                     size="x-small"
                     variant="text"
                     class="project-action-btn"
+                    :title="tm('conversation.archive')"
+                    @click="
+                      $emit('archiveSession', session.session_id, project.project_id)
+                    "
+                  >
+                    <Archive :size="15" />
+                  </v-btn>
+                  <v-btn
+                    icon
+                    size="x-small"
+                    variant="text"
+                    class="project-action-btn"
                     :title="tm('conversation.editDisplayName')"
                     @click="
                       $emit(
@@ -227,6 +239,7 @@
 <script setup lang="ts">
 import { ref, watch } from "vue";
 import {
+  Archive,
   ChevronDown,
   ChevronRight,
   CornerUpLeft,
@@ -301,6 +314,8 @@ const emit = defineEmits<{
   editSessionTitle: [sessionId: string, title: string];
   deleteSession: [sessionId: string, projectId: string];
   toggleSessionChecked: [sessionId: string];
+  /** 2026-08-13 session archive: a project session row asked to archive. */
+  archiveSession: [sessionId: string, projectId: string];
   /** 2026-08-13 session drag events (bubbled to Chat.vue, the owner of
    * sessions/projects and the move logic). */
   dragSessionStart: [sessionId: string];
@@ -502,6 +517,12 @@ function onProjectSessionDragStart(sessionId: string, event: DragEvent) {
   text-align: left;
 }
 
+/* 2026-08-13: project session rows gained an archive action (3 hover
+   buttons), so they need more right padding than project rows. */
+.project-session-row {
+  padding-right: 88px;
+}
+
 .project-row:hover,
 .project-row.active,
 .project-session-row:hover,
@@ -587,12 +608,12 @@ function onProjectSessionDragStart(sessionId: string, event: DragEvent) {
 /* 2026-08-13: branch badge / jump-to-source on project session rows,
    mirroring the flat session list styles in Chat.vue. */
 .project-session-row.has-branch-meta {
-  padding-right: 108px;
+  padding-right: 132px;
 }
 
 .project-session-branch-meta {
   position: absolute;
-  right: 52px;
+  right: 92px;
   top: 50%;
   transform: translateY(-50%);
   display: flex;

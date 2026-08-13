@@ -588,6 +588,7 @@ class OpenApiService:
             page=page,
             page_size=page_size,
             exclude_project_sessions=True,
+            archived=False,
         )
 
         sessions_data = []
