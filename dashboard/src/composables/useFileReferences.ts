@@ -64,12 +64,14 @@ function createFileReferences() {
   /** Render the LLM-facing block appended to the outgoing user message.
    *  Returns "" when there are no references. The output shape is the
    *  contract parsed back by utils/parseFileReferences.ts — keep the two
-   *  byte-for-byte aligned. */
+   *  byte-for-byte aligned. 2026-08-13: directories are referenceable
+   *  too; the prose tells the agent to read files or list directories
+   *  (the parser ignores the prose line, so old messages still parse). */
   function formatForLLM(): string {
     if (references.length === 0) return "";
     const lines = [
       "[Referenced files]",
-      "The user referenced the following file(s) by absolute path. Read them yourself with your file tools before answering.",
+      "The user referenced the following file(s) or directory(ies) by absolute path. Read each file or list each directory yourself with your file tools before answering.",
     ];
     for (const r of references) lines.push(`- \`${r.path}\``);
     return lines.join("\n");

@@ -228,9 +228,10 @@ onBeforeUnmount(() => {
 // Updated 2026-08-09 (elecvoid243): drops no longer upload — the chat
 // input registers the path as a file *reference* (useFileReferences)
 // whose absolute paths are appended to the outgoing message at send
-// time, so the agent reads the file itself.
-// Allows the user to drag a file entry directly onto the chat input
-// to reference it in the next message.
+// time, so the agent reads the file (or lists the directory, 2026-08-13)
+// itself.
+// Allows the user to drag a file or directory entry directly onto the
+// chat input to reference it in the next message.
 //
 // The payload is encoded with a CUSTOM MIME type
 // ("application/x-astrbot-file-path") so the chat input's drop
@@ -243,18 +244,22 @@ onBeforeUnmount(() => {
 // the custom type is missing. The chat input treats the custom
 // type as authoritative when both are present.
 //
-// Directories and dangling symlinks are NOT draggable: dropping a
-// directory into the chat input has no well-defined meaning and
-// the file-browser endpoint cannot read a directory's content.
-// Resolved symlinks (entry.type === "file" but the entry was a
-// symlink in the listing) are still draggable — the backend
-// returns the symlink's target as a regular file snapshot.
+// Directories are draggable too (2026-08-13): the reference carries the
+// directory's absolute path and the agent lists it with its own tools —
+// dropping a directory is no longer "meaningless", so it is allowed.
+// Dangling symlinks remain NOT draggable: the file-browser endpoint
+// cannot resolve a missing target. Resolved symlinks are draggable —
+// the backend returns the symlink's target as a regular file snapshot.
 
 const SIDEBAR_FILE_MIME = "application/x-astrbot-file-path";
 
 function canDragEntry(entry: SpcodeFileBrowserEntry): boolean {
+  // Files and directories are both referenceable: the chat input records
+  // the absolute path and the agent reads the file or lists the
+  // directory itself.
   if (entry.type === "file") return true;
-  // Symlink pointing to an existing file: backend returns
+  if (entry.type === "directory") return true;
+  // Symlink pointing to an existing target: backend returns
   // type="symlink" with target_exists=true, so we let those
   // through too — the file-browser endpoint resolves them.
   if (entry.type === "symlink" && entry.target_exists !== false) return true;

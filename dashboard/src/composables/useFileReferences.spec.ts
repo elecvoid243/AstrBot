@@ -40,13 +40,13 @@ describe("useFileReferences", () => {
     const store = useFileReferences();
     store.clearAll();
     store.addReference("D:\\a\\foo.py", "foo.py");
-    store.addReference("/home/user/notes.md", "notes.md");
+    store.addReference("D:\\a\\src\\components", "components");
     expect(store.formatForLLM()).toBe(
       [
         "[Referenced files]",
-        "The user referenced the following file(s) by absolute path. Read them yourself with your file tools before answering.",
+        "The user referenced the following file(s) or directory(ies) by absolute path. Read each file or list each directory yourself with your file tools before answering.",
         "- `D:\\a\\foo.py`",
-        "- `/home/user/notes.md`",
+        "- `D:\\a\\src\\components`",
       ].join("\n"),
     );
   });

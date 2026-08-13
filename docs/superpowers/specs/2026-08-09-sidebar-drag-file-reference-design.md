@@ -27,8 +27,11 @@ fetch 文件内容 → 包成 `File` → `uploadStagedFile`（见
 | D2 | 消息气泡渲染 | **解析为引用卡片**（同 `[File review comments]` 的处理方式） |
 | D3 | 发送后引用列表 | **发送后清空**（同 stagedFiles，不同于评论的发送后保留） |
 
-默认项（提出时未反对）：OS 原生文件拖入保持上传行为不变；目录仍不可拖
-（`canDragEntry` 判定不变）；`StandaloneChat.vue` 无 sidebar，不改动。
+默认项（提出时未反对）：OS 原生文件拖入保持上传行为不变；`StandaloneChat.vue` 无 sidebar，不改动。
+
+> **2026-08-13 扩展（elecvoid243）**：目录也可拖拽引用。目录引用记录目录绝对路径，
+> Agent 自行 list。LLM 说明行文案更新为同时涵盖文件与目录（parser 忽略 prose 行，
+> 格式契约不变，历史消息不受影响）。详见 §3、§4.6；原"目录不可拖"非目标移除。
 
 ## 3. 引用块格式（LLM-facing）
 
@@ -36,15 +39,16 @@ fetch 文件内容 → 包成 `File` → `uploadStagedFile`（见
 
 ```
 [Referenced files]
-The user referenced the following file(s) by absolute path. Read them yourself with your file tools before answering.
+The user referenced the following file(s) or directory(ies) by absolute path. Read each file or list each directory yourself with your file tools before answering.
 - `D:\AstrbotWorkSpace\foo.py`
-- `F:\github\Astrbot\README.md`
+- `F:\github\Astrbot\src\components`（目录）
 ```
 
 - 首行 `[Referenced files]` 为块标记（parser 据此识别，同
   `[File review comments]` 的角色）。
-- 第 2 行为给 LLM 的固定说明（parser 忽略）。
-- 之后每行一个 `- \`<绝对路径>\``。
+- 第 2 行为给 LLM 的固定说明（parser 忽略；2026-08-13 起涵盖目录——
+  "read each file or list each directory"）。
+- 之后每行一个 `- \`<绝对路径>\``，文件与目录同格式，不标注类型。
 - 该块只出现在消息**末尾**；`formatForLLM()` 保证此输出，
   `parseFileReferences.ts` 按此语法解析，二者 byte-for-byte 对齐
   （测试镜像 `parseFileReviewComments.spec.ts` 的做法）。
@@ -128,8 +132,11 @@ API：
 
 ### 4.6 拖拽源 `FileBrowserEntryList.vue`
 
-拖拽载荷（`{ path, name, size }` + `text/plain` 兜底）与 `canDragEntry`
-判定**不变**，仅更新指向"上传管线"的注释为"引用管线"。
+拖拽载荷（`{ path, name, size }` + `text/plain` 兜底）不变。
+`canDragEntry`（2026-08-13 起）放行三种条目：`file`、`directory`
+（目录引用由 Agent 自行 list）、已解析 symlink（`target_exists !== false`）；
+仅悬空 symlink 不可拖。`is-draggable` 光标类与判定共用同一函数，无需
+额外改动。
 
 ### 4.7 i18n
 
@@ -142,13 +149,14 @@ API：
 - `parseFileReferences.spec.ts`（新，见 §4.5）。
 - 现有 `parseFileReviewComments.spec.ts` 不受影响（评论块格式不变）。
 - 手测路径：工作区 tab 拖文件 → chip 出现 → 发送 → 气泡渲染卡片 →
-  chip 清空（D3）；文档管理 tab 同路径；原生文件拖入仍上传；重复拖同一
-  文件 chip 不增加；会话切换后引用清空。
+  chip 清空（D3）；拖目录 → chip 显示目录名，发送后块中为目录绝对路径，
+  Agent 可自行 list（2026-08-13）；文档管理 tab 同路径；原生文件拖入仍
+  上传；重复拖同一文件 chip 不增加；会话切换后引用清空。
 
 ## 6. 非目标（YAGNI）
 
-- 目录拖拽引用（`canDragEntry` 不变）。
 - 引用 chip 的"全部清除"按钮与预览弹窗（评论的 dialog 是因为评论有正文
   需要审阅，引用只有路径，chip 已完整展示）。
+- 在引用块中标注文件/目录类型（Agent 可自行 stat 路径；块保持极简）。
 - 后端改动：无（块原样进历史，前端解析渲染）。
 - `StandaloneChat.vue` 改动（无 sidebar 拖拽源）。
