@@ -118,6 +118,8 @@ export function parseSpcodeGitPull(raw: unknown): SpcodePullResult {
 export interface SpcodePushParams {
   remote?: string;
   branch?: string;
+  /** Remote target branch; defaults to `branch` (same-name push). */
+  remoteBranch?: string;
   worktree?: string | null;
 }
 
@@ -208,6 +210,7 @@ export function buildPushBody(p: SpcodePushParams): Record<string, unknown> {
   return {
     ...(p.remote ? { remote: p.remote } : {}),
     ...(p.branch ? { branch: p.branch } : {}),
+    ...(p.remoteBranch ? { remote_branch: p.remoteBranch } : {}),
   };
 }
 

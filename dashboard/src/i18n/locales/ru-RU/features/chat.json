@@ -697,6 +697,19 @@
         "success": "Отправлено в {remoteBranch}",
         "successSetUpstream": "Отправлено, upstream задан: {upstream}",
         "upToDate": "Удалённый репозиторий уже актуален",
+        "dialog": {
+          "title": "Отправить ветку",
+          "remoteLabel": "Удалённый репозиторий",
+          "localBranchLabel": "Локальная ветка",
+          "remoteBranchLabel": "Удалённая ветка назначения",
+          "remoteBranchPlaceholder": "Как локальная ветка",
+          "remoteBranchHint": "Оставьте пустым, чтобы отправить в ветку с тем же именем; укажите другое имя, чтобы отправить в ветку с другим названием",
+          "upstreamHint": "Upstream: {upstream}",
+          "noUpstreamHint": "Upstream не задан; будет использован -u",
+          "noRemoteHint": "Удалённый репозиторий не найден — сначала настройте его в Remote URL",
+          "cancel": "Отмена",
+          "submit": "Отправить"
+        },
         "error": {
           "non_fast_forward": "Удалённая ветка содержит коммиты, которых нет локально — сначала получите изменения",
           "push_rejected": "Отправка отклонена: {stderr}",

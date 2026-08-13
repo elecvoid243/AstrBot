@@ -80,6 +80,7 @@ import {
   classifyRemoteReason,
 } from "@/composables/parseSpcodeGitRemoteSync";
 import GitPullDialog from "@/components/chat/GitPullDialog.vue";
+import GitPushDialog from "@/components/chat/GitPushDialog.vue";
 import GitRemoteUrlDialog from "@/components/chat/GitRemoteUrlDialog.vue";
 import { useSpcodeGitConflict } from "@/composables/useSpcodeGitConflict";
 import GitMergeDialog from "@/components/chat/GitMergeDialog.vue";
@@ -499,6 +500,36 @@ const currentBranchTracking = computed(() => {
   if (!current) return null;
   return parseUpstreamTrack(current.upstreamTrack);
 });
+// 2026-08-13 git-push dialog: data sources for the confirmation dialog.
+// Remote names are derived from remote branch refs (origin/xxx → origin)
+// plus the current branch's upstream, so the dialog can prefill even
+// before any remote ref is fetched.
+const currentBranch = computed(() => {
+  const s = branchesComposable.state.value;
+  if (s.kind !== "ok") return null;
+  return s.snapshot.branches.find((b) => b.current) ?? null;
+});
+const currentBranchUpstream = computed(
+  () => currentBranch.value?.upstream || null,
+);
+const remoteNames = computed<string[]>(() => {
+  const names = new Set<string>();
+  for (const b of branchList.value) {
+    if (b.remote) {
+      const i = b.name.indexOf("/");
+      if (i > 0) names.add(b.name.slice(0, i));
+    }
+  }
+  const up = currentBranchUpstream.value;
+  if (up) {
+    const i = up.indexOf("/");
+    if (i > 0) names.add(up.slice(0, i));
+  }
+  return [...names].sort();
+});
+const localBranchNames = computed<string[]>(() =>
+  branchList.value.filter((b) => !b.remote).map((b) => b.name),
+);
 // Spec 2026-07-16: "is this a Git repo?" probe + init mutation. Used by
 // the GitRepoInitPrompt slot in the template to surface a one-click
 // `git init` flow when the loaded directory has no .git/.
@@ -2545,6 +2576,7 @@ async function onCherryPickSubmit(params: {
 // --rebase); push runs directly (the endpoint has no options — no
 // force push, no tags); the remote URL dialog upserts the origin URL.
 const pullDialogOpen = ref(false);
+const pushDialogOpen = ref(false);
 const remoteUrlDialogOpen = ref(false);
 
 // ahead/behind lives in branchesComposable, so a remote sync must
@@ -2600,11 +2632,25 @@ async function onPullSubmit(params: {
   );
 }
 
-async function onPushClick(): Promise<void> {
+// 2026-08-13: push 现在走确认对话框 (onPushSubmit)；原一键直推的
+// onPushClick 已移除，避免未使用的直推入口残留。
+
+// 2026-08-13 git-push dialog: confirmation dialog submit handler.
+// The dialog lets the user pick the remote, the local branch to push
+// and an optional remote target branch (different-name push).
+async function onPushSubmit(params: {
+  remote: string;
+  branch: string;
+  remoteBranch: string;
+}): Promise<void> {
   const result = await gitRemoteSync.push({
+    remote: params.remote,
+    branch: params.branch,
+    ...(params.remoteBranch ? { remoteBranch: params.remoteBranch } : {}),
     worktree: selectedWorktree.value,
   });
   if (result.ok) {
+    pushDialogOpen.value = false;
     await refreshAfterRemoteSync();
     if (!result.pushed) {
       showSnackbar(tm("spcodeProjectLoad.diffSidebar.push.upToDate"), "info");
@@ -4561,7 +4607,7 @@ watch(
                 :disabled="
                   gitRemoteSync.isPulling.value || gitRemoteSync.isPushing.value
                 "
-                @click="onPushClick"
+                @click="pushDialogOpen = true"
               >
                 <v-progress-circular
                   v-if="gitRemoteSync.isPushing.value"
@@ -5204,12 +5250,21 @@ watch(
         />
 
         <!-- 2026-08-12 git-pull/push/remote: pull options + remote URL
-             dialogs (push itself needs no dialog — it has no
-             options). -->
+             dialogs. 2026-08-13: push gained a confirmation dialog
+             (remote / local branch / remote target branch). -->
         <GitPullDialog
           v-model="pullDialogOpen"
           :loading="gitRemoteSync.isPulling.value"
           @submit="onPullSubmit"
+        />
+        <GitPushDialog
+          v-model="pushDialogOpen"
+          :loading="gitRemoteSync.isPushing.value"
+          :remotes="remoteNames"
+          :local-branches="localBranchNames"
+          :current-branch="currentBranchName"
+          :upstream="currentBranchUpstream"
+          @submit="onPushSubmit"
         />
         <GitRemoteUrlDialog
           v-model="remoteUrlDialogOpen"

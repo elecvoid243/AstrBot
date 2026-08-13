@@ -820,6 +820,19 @@
         "success": "已推送到 {remoteBranch}",
         "successSetUpstream": "已推送并设置 upstream：{upstream}",
         "upToDate": "远端已是最新",
+        "dialog": {
+          "title": "推送分支",
+          "remoteLabel": "远端",
+          "localBranchLabel": "本地分支",
+          "remoteBranchLabel": "远端目标分支",
+          "remoteBranchPlaceholder": "与本地分支同名",
+          "remoteBranchHint": "留空则推送到与本地分支同名的远端分支；填写其他名称可推送到远端不同名分支",
+          "upstreamHint": "upstream：{upstream}",
+          "noUpstreamHint": "未设置 upstream，推送时将自动设置（-u）",
+          "noRemoteHint": "未检测到 remote，请先通过「remote URL」配置",
+          "cancel": "取消",
+          "submit": "推送"
+        },
         "error": {
           "non_fast_forward": "远端包含本地没有的提交，请先拉取",
           "push_rejected": "推送被拒绝：{stderr}",

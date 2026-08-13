@@ -820,6 +820,19 @@
         "success": "Pushed to {remoteBranch}",
         "successSetUpstream": "Pushed and set upstream: {upstream}",
         "upToDate": "Remote already up to date",
+        "dialog": {
+          "title": "Push branch",
+          "remoteLabel": "Remote",
+          "localBranchLabel": "Local branch",
+          "remoteBranchLabel": "Remote target branch",
+          "remoteBranchPlaceholder": "Same as local branch",
+          "remoteBranchHint": "Leave empty to push to a same-name remote branch; enter another name to push to a differently-named remote branch",
+          "upstreamHint": "Upstream: {upstream}",
+          "noUpstreamHint": "No upstream set; will push with -u to set it",
+          "noRemoteHint": "No remote detected — configure one via Remote URL first",
+          "cancel": "Cancel",
+          "submit": "Push"
+        },
         "error": {
           "non_fast_forward": "Remote has commits you don't have locally — pull first",
           "push_rejected": "Push rejected: {stderr}",
