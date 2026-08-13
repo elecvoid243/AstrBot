@@ -31,6 +31,7 @@ import InlineAskEditor from "./InlineAskEditor.vue";
 import SelectionActionMenu from "./SelectionActionMenu.vue";
 import DiffPreview from "./DiffPreview.vue";
 import CodeMirrorEditor from "./CodeMirrorEditor.vue";
+import CodeCheckFormatBar from "./CodeCheckFormatBar.vue";
 import MarkdownView from "@/components/shared/MarkdownView.vue";
 import { useSpcodeFileWrite } from "@/composables/useSpcodeFileWrite";
 import { useSpcodeFileRename } from "@/composables/useSpcodeFileRename";
@@ -1286,6 +1287,17 @@ onBeforeUnmount(() => {
               {{ copyButtonText }}
             </v-btn>
           </div>
+
+          <!-- 2026-08-13 one-click code check / format toolbar. Rendered
+               only for the live working copy (not edit mode, not a
+               historical revision); the bar itself hides non-code files. -->
+          <CodeCheckFormatBar
+            v-if="!editMode && !props.selectedRevision"
+            :file-path="props.fileRelativePath ?? ''"
+            :worktree="props.worktree ?? null"
+            :is-dark="isDark"
+            @formatted="emit('saved')"
+          />
 
           <!--
         2026-07-15 workspace-history-inline: when a revision is
