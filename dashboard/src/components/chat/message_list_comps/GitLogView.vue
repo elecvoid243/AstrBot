@@ -124,6 +124,10 @@ const emit = defineEmits<{
   // 2026-08-01 git-cherry-pick: per-row affordance mirroring "revert";
   // the sidebar owns the dialog + the /spcode/git-cherry-pick call.
   (e: "cherry-pick", commit: { sha: string; subject: string }): void;
+  // 2026-08-13 git-commit-amend: edit the HEAD commit message. Only
+  // emitted for the current branch's HEAD row; the sidebar owns the
+  // dialog + the /spcode/git-commit-amend call.
+  (e: "amend", commit: { sha: string; subject: string; body: string | null }): void;
   // Toolbar-level entry: open the cherry-pick dialog with an empty ref.
   (e: "cherry-pick-blank"): void;
   // 2026-08-03 git-squash: toolbar entry. The sidebar owns the dialog
@@ -159,6 +163,11 @@ const viewingCurrent = computed(() => {
   const r = props.activeRef;
   return !r || r === "HEAD" || r === props.currentBranch;
 });
+
+/** True when the given commit is the displayed list's HEAD row. */
+function isHeadCommit(c: { sha: string }): boolean {
+  return commits.value.length > 0 && commits.value[0].sha === c.sha;
+}
 
 // Local filter form state. Emitted on Apply; reset on Reset.
 const localFilter = ref<LogFilter>({ ref: "HEAD", n: 20 });
@@ -1087,6 +1096,29 @@ function fileErrorMessage(state: GitShowFetchState): string | null {
               >−{{ c.shortstat.deletions }}</span
             >
           </span>
+          <!-- 2026-08-13 git-commit-amend: only the current branch's
+               HEAD row may have its message edited. -->
+          <button
+            v-if="viewingCurrent && isHeadCommit(c)"
+            type="button"
+            class="git-log-item-amend"
+            :title="
+              tm('spcodeProjectLoad.diffSidebar.amend.editAria', {
+                sha: c.sha.slice(0, 7),
+              })
+            "
+            :aria-label="
+              tm('spcodeProjectLoad.diffSidebar.amend.editAria', {
+                sha: c.sha.slice(0, 7),
+              })
+            "
+            @click="
+              emit('amend', { sha: c.sha, subject: c.subject, body: c.body })
+            "
+          >
+            <v-icon size="13">mdi-pencil-outline</v-icon>
+            {{ tm('spcodeProjectLoad.diffSidebar.amend.edit') }}
+          </button>
           <!-- 2026-07-17 git-revert: per-row revert action, revealed
                on row hover (focus-within keeps it reachable by
                keyboard). Lives in the meta line — NOT inside the
@@ -1517,6 +1549,35 @@ function fileErrorMessage(state: GitShowFetchState): string | null {
   opacity: 1;
 }
 .git-log-item-revert:hover {
+  color: rgb(var(--v-theme-primary));
+  border-color: rgba(var(--v-theme-primary), 0.4);
+}
+/* 2026-08-13 git-commit-amend: per-row action mirroring
+   .git-log-item-revert (hover-reveal). Rendered before the revert
+   button; no margin-left:auto (the revert button pushes the group). */
+.git-log-item-amend {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 7px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: rgb(var(--v-theme-on-surface-variant));
+  font-size: 11.5px;
+  line-height: 1.2;
+  opacity: 0;
+  cursor: pointer;
+  transition:
+    opacity 0.12s,
+    color 0.12s,
+    border-color 0.12s;
+}
+.git-log-item:hover .git-log-item-amend,
+.git-log-item-amend:focus-visible {
+  opacity: 1;
+}
+.git-log-item-amend:hover {
   color: rgb(var(--v-theme-primary));
   border-color: rgba(var(--v-theme-primary), 0.4);
 }

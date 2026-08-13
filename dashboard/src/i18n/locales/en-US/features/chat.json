@@ -538,6 +538,24 @@
         "deleteFailed": "Delete failed: {reason}",
         "unsavedActionConfirm": "You have unsaved changes. Continue and lose them?"
       },
+      "codeTools": {
+        "check": "Check",
+        "format": "Format",
+        "autoFix": "Auto-fix",
+        "close": "Close",
+        "noIssues": "No issues",
+        "issueCount": "{count} issues",
+        "fixedCount": "Auto-fixed {count} issue(s), {remaining} remaining",
+        "fixNoChange": "Nothing auto-fixable, {remaining} remaining",
+        "preview": "Preview",
+        "alreadyFormatted": "Already formatted",
+        "alreadyConforms": "Already conforms to {formatter} format",
+        "applyFormatting": "Apply formatting",
+        "checkFailed": "Check failed: {reason}",
+        "formatFailed": "Format failed: {reason}",
+        "fixFailed": "Auto-fix failed: {reason}",
+        "previewDiff": "Preview diff ({formatter})"
+      },
       "comment": {
         "addButton": "Add comment",
         "addButtonAria": "Add comment on line {line}",
@@ -895,6 +913,31 @@
           "identity_not_set": "git user.name / user.email is not configured",
           "nothing_to_commit": "Nothing to commit",
           "git_error": "Squash failed",
+          "network": "Network error — please retry",
+          "unknown": "Unknown error"
+        }
+      },
+      "amend": {
+        "editTitle": "Edit commit message",
+        "edit": "Edit message",
+        "editAria": "Edit the message of commit {sha}",
+        "messageLabel": "Commit message",
+        "messageRequired": "Please enter a commit message",
+        "historyRewriteWarning": "Amending rewrites the current HEAD commit; pushed commits will need a force push to sync the remote.",
+        "submit": "Amend",
+        "cancel": "Cancel",
+        "success": "Commit message amended ({sha})",
+        "error": {
+          "invalid_body": "Malformed request",
+          "invalid_message": "Commit message is empty or exceeds 8192 characters",
+          "empty_repository": "The repository has no commits yet",
+          "operation_in_progress": "A merge / cherry-pick / revert conflict is already in progress — resolve it first",
+          "staged_changes_present": "Staged changes present — commit or unstage them first",
+          "cannot_amend_merge_commit": "A merge commit's message cannot be amended",
+          "hook_rejected": "Commit rejected by a hook",
+          "identity_not_set": "git user.name / user.email is not configured",
+          "nothing_to_commit": "Nothing to commit",
+          "amend_failed": "Failed to amend the commit message",
           "network": "Network error — please retry",
           "unknown": "Unknown error"
         }

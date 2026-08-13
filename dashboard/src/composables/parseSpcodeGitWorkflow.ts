@@ -72,6 +72,31 @@ export interface SpcodeCommitSnapshot {
   stagedCount: number;
 }
 
+// ─── Commit amend snapshot ────────────────────────────────────────
+export interface SpcodeAmendRawData {
+  success: boolean;
+  reason: string | null;
+  stderr: string;
+  elapsed_ms: number;
+  amended: boolean;
+  before_sha: string;
+  after_sha: string;
+  subject: string;
+  message: string;
+}
+
+export interface SpcodeAmendSnapshot {
+  success: boolean;
+  reason: string | null;
+  stderr: string;
+  elapsedMs: number;
+  amended: boolean;
+  beforeSha: string;
+  afterSha: string;
+  subject: string;
+  message: string;
+}
+
 // ─── Log snapshot ─────────────────────────────────────────────────
 export interface SpcodeLogRawCommit {
   sha: string;
@@ -229,6 +254,27 @@ export function parseSpcodeGitCommit(raw: unknown): ParseResult<SpcodeCommitSnap
       files: asStringArray(d.files),
       committedCount: asNumber(d.committed_count),
       stagedCount: asNumber(d.staged_count),
+    },
+  };
+}
+
+/** Parse the envelope from POST /spcode/git-commit-amend. */
+export function parseSpcodeGitCommitAmend(
+  raw: unknown,
+): ParseResult<SpcodeAmendSnapshot> {
+  const d = unwrapEnvelope(raw) as Partial<SpcodeAmendRawData>;
+  return {
+    kind: "ok",
+    snapshot: {
+      success: deriveSuccess(d),
+      reason: d.reason ?? null,
+      stderr: asString(d.stderr),
+      elapsedMs: asNumber(d.elapsed_ms),
+      amended: asBoolean(d.amended),
+      beforeSha: asString(d.before_sha),
+      afterSha: asString(d.after_sha),
+      subject: asString(d.subject),
+      message: asString(d.message),
     },
   };
 }

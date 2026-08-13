@@ -536,6 +536,24 @@
         "deleteFailed": "Ошибка удаления: {reason}",
         "unsavedActionConfirm": "Есть несохранённые изменения. Продолжить и потерять их?"
       },
+      "codeTools": {
+        "check": "Проверить",
+        "format": "Форматировать",
+        "autoFix": "Автоисправление",
+        "close": "Закрыть",
+        "noIssues": "Проблем нет",
+        "issueCount": "{count} проблем",
+        "fixedCount": "Исправлено {count}, осталось {remaining}",
+        "fixNoChange": "Нечего исправлять, осталось {remaining}",
+        "preview": "Предпросмотр",
+        "alreadyFormatted": "Уже отформатировано",
+        "alreadyConforms": "Уже соответствует формату {formatter}",
+        "applyFormatting": "Применить форматирование",
+        "checkFailed": "Проверка не удалась: {reason}",
+        "formatFailed": "Форматирование не удалось: {reason}",
+        "fixFailed": "Автоисправление не удалось: {reason}",
+        "previewDiff": "Предпросмотр изменений ({formatter})"
+      },
       "comment": {
         "addButton": "Добавить комментарий",
         "addButtonAria": "Добавить комментарий к строке {line}",
@@ -772,6 +790,31 @@
           "identity_not_set": "Не настроены git user.name / user.email",
           "nothing_to_commit": "Нечего коммитить",
           "git_error": "Сжатие не удалось",
+          "network": "Ошибка сети — повторите попытку",
+          "unknown": "Неизвестная ошибка"
+        }
+      },
+      "amend": {
+        "editTitle": "Изменить сообщение коммита",
+        "edit": "Изменить",
+        "editAria": "Изменить сообщение коммита {sha}",
+        "messageLabel": "Сообщение коммита",
+        "messageRequired": "Введите сообщение коммита",
+        "historyRewriteWarning": "Amend переписывает текущий HEAD-коммит; уже отправленные коммиты потребуют force push для синхронизации.",
+        "submit": "Изменить",
+        "cancel": "Отмена",
+        "success": "Сообщение коммита изменено ({sha})",
+        "error": {
+          "invalid_body": "Некорректный запрос",
+          "invalid_message": "Сообщение пустое или длиннее 8192 символов",
+          "empty_repository": "В репозитории ещё нет коммитов",
+          "operation_in_progress": "Уже идёт merge / cherry-pick / revert — сначала завершите его",
+          "staged_changes_present": "Есть изменения в индексе — сначала закоммитьте или снимите их",
+          "cannot_amend_merge_commit": "Нельзя изменить сообщение merge-коммита",
+          "hook_rejected": "Коммит отклонён хуком",
+          "identity_not_set": "Не настроены git user.name / user.email",
+          "nothing_to_commit": "Нечего коммитить",
+          "amend_failed": "Не удалось изменить сообщение коммита",
           "network": "Ошибка сети — повторите попытку",
           "unknown": "Неизвестная ошибка"
         }

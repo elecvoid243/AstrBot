@@ -49,6 +49,7 @@ import {
 import { useSpcodeGitStage } from "@/composables/useSpcodeGitStage";
 import { useSpcodeGitUnstage } from "@/composables/useSpcodeGitUnstage";
 import { useSpcodeGitCommit } from "@/composables/useSpcodeGitCommit";
+import { useSpcodeGitCommitAmend } from "@/composables/useSpcodeGitCommitAmend";
 import { useSpcodeGitRevert } from "@/composables/useSpcodeGitRevert";
 import { useSpcodeFileWrite } from "@/composables/useSpcodeFileWrite";
 import GitIgnoreEditor from "@/components/chat/message_list_comps/GitIgnoreEditor.vue";
@@ -96,6 +97,7 @@ import FileBrowserView from "@/components/chat/message_list_comps/FileBrowserVie
 import { useRecentFiles } from "@/composables/useRecentFiles";
 import GitCommitBar from "@/components/chat/message_list_comps/GitCommitBar.vue";
 import GitCommitDialog from "@/components/chat/message_list_comps/GitCommitDialog.vue";
+import GitCommitAmendDialog from "@/components/chat/message_list_comps/GitCommitAmendDialog.vue";
 import WorktreeCreateDialog from "@/components/chat/message_list_comps/WorktreeCreateDialog.vue";
 import LockReasonDialogBody from "@/components/chat/message_list_comps/LockReasonDialogBody.vue";
 import GitLogView from "@/components/chat/message_list_comps/GitLogView.vue";
@@ -713,6 +715,7 @@ const expandedSet = ref<Set<string>>(new Set());
 const gitStage = useSpcodeGitStage();
 const gitUnstage = useSpcodeGitUnstage();
 const gitCommit = useSpcodeGitCommit();
+const gitCommitAmend = useSpcodeGitCommitAmend();
 const gitLog = useSpcodeGitLog(selectedWorktree);
 // 2026-07-17 git-revert: History-view per-commit revert. The sidebar
 // owns the confirm dialog + the write call (mirroring stage/commit).
@@ -933,6 +936,14 @@ const pendingStageAllCount = ref(0);
 // per-commit revert action.
 const revertDialogOpen = ref(false);
 const pendingRevert = ref<{ sha: string; subject: string } | null>(null);
+// 2026-08-13 git-commit-amend: dialog state for editing the HEAD commit
+// message. pendingAmend carries subject + body so the dialog can prefill.
+const amendDialogOpen = ref(false);
+const pendingAmend = ref<{
+  sha: string;
+  subject: string;
+  body: string | null;
+} | null>(null);
 // 2026-08-03 git-squash: dialog state + the token that clears
 // GitLogView's selection after a successful squash. pendingSquash
 // carries the full SquashPayloadCommit (body included) so the
@@ -1469,6 +1480,110 @@ async function onConfirmRevert(): Promise<void> {
     REVERT_REASON_I18N_KEYS[reason] ?? REVERT_REASON_I18N_KEYS.unknown;
   revertDialogOpen.value = false;
   pendingRevert.value = null;
+  showSnackbar(
+    tm(meta.key),
+    meta.color,
+    meta.withStderr ? result.stderr : undefined,
+  );
+}
+
+// ── Amend commit message (History view, 2026-08-13) ────────────────
+const AMEND_REASON_I18N_KEYS: Record<
+  string,
+  { key: string; color: "warning" | "error"; withStderr?: boolean }
+> = {
+  invalid_body: {
+    key: "spcodeProjectLoad.diffSidebar.amend.error.invalid_body",
+    color: "error",
+  },
+  invalid_message: {
+    key: "spcodeProjectLoad.diffSidebar.amend.error.invalid_message",
+    color: "error",
+  },
+  empty_repository: {
+    key: "spcodeProjectLoad.diffSidebar.amend.error.empty_repository",
+    color: "error",
+  },
+  operation_in_progress: {
+    key: "spcodeProjectLoad.diffSidebar.amend.error.operation_in_progress",
+    color: "warning",
+  },
+  staged_changes_present: {
+    key: "spcodeProjectLoad.diffSidebar.amend.error.staged_changes_present",
+    color: "warning",
+  },
+  cannot_amend_merge_commit: {
+    key: "spcodeProjectLoad.diffSidebar.amend.error.cannot_amend_merge_commit",
+    color: "warning",
+  },
+  hook_rejected: {
+    key: "spcodeProjectLoad.diffSidebar.amend.error.hook_rejected",
+    color: "warning",
+    withStderr: true,
+  },
+  identity_not_set: {
+    key: "spcodeProjectLoad.diffSidebar.amend.error.identity_not_set",
+    color: "error",
+  },
+  nothing_to_commit: {
+    key: "spcodeProjectLoad.diffSidebar.amend.error.nothing_to_commit",
+    color: "error",
+  },
+  amend_failed: {
+    key: "spcodeProjectLoad.diffSidebar.amend.error.amend_failed",
+    color: "error",
+    withStderr: true,
+  },
+  network: {
+    key: "spcodeProjectLoad.diffSidebar.amend.error.network",
+    color: "error",
+  },
+  unknown: {
+    key: "spcodeProjectLoad.diffSidebar.amend.error.unknown",
+    color: "error",
+  },
+};
+
+function onLogAmendRequest(commit: {
+  sha: string;
+  subject: string;
+  body: string | null;
+}): void {
+  pendingAmend.value = commit;
+  amendDialogOpen.value = true;
+}
+
+async function onAmendSubmit(p: { sha: string; message: string }): Promise<void> {
+  const target = pendingAmend.value;
+  if (!target) return;
+  const result = await gitCommitAmend.amend({
+    message: p.message,
+    worktree: selectedWorktree.value,
+    umo: spcodeStatus.status.value.umo,
+  });
+  if (result.ok) {
+    amendDialogOpen.value = false;
+    pendingAmend.value = null;
+    showSnackbar(
+      tm("spcodeProjectLoad.diffSidebar.amend.success", {
+        sha: result.snapshot.afterSha.slice(0, 7),
+      }),
+      "success",
+    );
+    // amend rewrote HEAD — log / status / diff / stats are stale.
+    void Promise.all([
+      gitLog.refresh(),
+      gitStatus.refresh(),
+      gitStats.refresh(),
+      composable.refresh(),
+    ]);
+    return;
+  }
+  if (result.reason === "aborted") return;
+  const meta =
+    AMEND_REASON_I18N_KEYS[result.reason] ?? AMEND_REASON_I18N_KEYS.unknown;
+  amendDialogOpen.value = false;
+  pendingAmend.value = null;
   showSnackbar(
     tm(meta.key),
     meta.color,
@@ -3785,6 +3900,7 @@ onBeforeUnmount(() => {
   gitStage.dispose();
   gitUnstage.dispose();
   gitCommit.dispose();
+    gitCommitAmend.dispose();
   gitRevert.dispose();
   gitSquash.dispose();
   gitIgnoreFileWrite.dispose();
@@ -4929,7 +5045,8 @@ watch(
             @refresh="onLogRefresh"
             @revert="onLogRevertRequest"
             @cherry-pick="onLogCherryPickRequest"
-            @cherry-pick-blank="onToolbarCherryPickRequest"
+                        @amend="onLogAmendRequest"
+                        @cherry-pick-blank="onToolbarCherryPickRequest"
             @squash="onLogSquashRequest"
             @changelog="onChangelogRequest"
           />
@@ -5109,7 +5226,16 @@ watch(
           @submit="onCherryPickSubmit"
         />
 
-        <!-- 2026-08-03 git-squash: dialog for the history-view
+                <!-- 2026-08-13 git-commit-amend: dialog for editing the HEAD
+                     commit message. -->
+                <GitCommitAmendDialog
+                  v-model="amendDialogOpen"
+                  :commit="pendingAmend"
+                  :loading="gitCommitAmend.isAmending.value"
+                  @submit="onAmendSubmit"
+                />
+
+                <!-- 2026-08-03 git-squash: dialog for the history-view
              multi-commit squash (commits listed oldest → newest). -->
         <GitSquashDialog
           v-model="squashDialogOpen"
