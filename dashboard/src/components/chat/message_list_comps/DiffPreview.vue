@@ -175,13 +175,15 @@
               :class="[
                 line.type,
                 {
+                  // 2026-08-13: del rows carry old-side comments.
                   'has-comment': isCommentable &&
-                    !!line.newNo &&
-                    commentsByNewLine.has(Number(line.newNo)),
+                    (commentOnLine(line) !== undefined),
                   'is-hovered': isCommentable &&
-                    !!line.newNo &&
-                    hoveredUnifiedLine === Number(line.newNo) &&
-                    hoveredUnifiedHunk === hi,
+                    hoveredUnifiedHunk === hi &&
+                    ((!!line.newNo && hoveredUnifiedSide === 'new' &&
+                      hoveredUnifiedLine === Number(line.newNo)) ||
+                     (!!line.oldNo && hoveredUnifiedSide === 'old' &&
+                      hoveredUnifiedLine === Number(line.oldNo))),
                 },
               ]"
               @mouseenter="onUnifiedRowEnter(line, hi)"
@@ -192,33 +194,29 @@
                    gate on `line.newNo` — del rows have newNo="" but
                    still need the 24px placeholder so the line-prefix
                    and content stay column-aligned with ctx / add
-                   rows. The inner <button> elements gate on
-                   `Number(line.newNo)` (see onUnifiedRowEnter, which
-                   refuses to set hover state for del rows) so no
-                   button ever renders on a del row. -->
+                   rows. The inner <button> elements gate on the row's
+                   own side (new for add/ctx, old for del). -->
               <span
                 v-if="isCommentable"
                 class="diff-line-gutter"
               >
                 <button
-                  v-if="hoveredUnifiedLine === Number(line.newNo) &&
-                    hoveredUnifiedHunk === hi &&
-                    !commentsByNewLine.has(Number(line.newNo))"
+                  v-if="unifiedGutterAddVisible(line, hi)"
                   type="button"
                   class="diff-comment-add"
-                  :aria-label="tm('spcodeProjectLoad.fileBrowser.comment.addButtonAria', { line: line.newNo })"
-                  @click.stop="openNewEditor(Number(line.newNo))"
+                  :aria-label="tm('spcodeProjectLoad.fileBrowser.comment.addButtonAria', { line: unifiedAnchorLine(line) })"
+                  @click.stop="openEditorForLine(line)"
                 >+</button>
                 <button
-                  v-else-if="commentsByNewLine.has(Number(line.newNo))"
+                  v-else-if="commentOnLine(line)"
                   type="button"
                   class="diff-comment-indicator"
-                  :title="commentsByNewLine.get(Number(line.newNo))?.text ?? ''"
+                  :title="commentOnLine(line)?.text ?? ''"
                   :aria-label="tm('spcodeProjectLoad.fileBrowser.comment.indicatorAria', {
-                    line: line.newNo,
-                    preview: commentsByNewLine.get(Number(line.newNo))?.text ?? '',
+                    line: unifiedAnchorLine(line),
+                    preview: commentOnLine(line)?.text ?? '',
                   })"
-                  @click.stop="openEditEditor(commentsByNewLine.get(Number(line.newNo))?.id ?? '')"
+                  @click.stop="openEditorForComment(line)"
                 >
                   <v-icon size="12">mdi-comment-text-outline</v-icon>
                 </button>
@@ -316,15 +314,18 @@
               :class="[
                 row.kind,
                 {
+                  // 2026-08-13: del-only rows carry old-side comments.
                   'has-comment': isCommentable &&
-                    !!row.right?.newNo &&
-                    commentsByNewLine.has(Number(row.right.newNo)),
+                    ((!!row.right?.newNo &&
+                      commentsByNewLine.has(Number(row.right.newNo))) ||
+                     (!!row.left?.oldNo && !row.right &&
+                      commentsByOldLine.has(Number(row.left.oldNo)))),
                   // Hunk index guard: `ri` is the row index WITHIN
                   // this hunk, so two hunks with a row at the same
                   // offset would otherwise both light up. Pairing
                   // (hi, ri) makes the key globally unique.
                   'is-hovered': isCommentable &&
-                    !!row.right?.newNo &&
+                    (!!row.left || !!row.right) &&
                     hoveredSplitRow === ri &&
                     hoveredSplitHunk === hi,
                 },
@@ -333,6 +334,35 @@
               @mouseleave="onSplitRowLeave"
             >
               <div class="diff-cell left">
+                <!-- 2026-08-13: inline-comment gutter for del-only rows
+                     (no new-side line) — anchors to the OLD side. -->
+                <span
+                  v-if="isCommentable && !row.right && row.left?.oldNo"
+                  class="diff-line-gutter"
+                >
+                  <button
+                    v-if="hoveredSplitRow === ri &&
+                      hoveredSplitHunk === hi &&
+                      !commentsByOldLine.has(Number(row.left.oldNo))"
+                    type="button"
+                    class="diff-comment-add"
+                    :aria-label="tm('spcodeProjectLoad.fileBrowser.comment.addButtonAria', { line: row.left.oldNo })"
+                    @click.stop="openNewEditor(Number(row.left.oldNo), 'old')"
+                  >+</button>
+                  <button
+                    v-else-if="commentsByOldLine.has(Number(row.left.oldNo))"
+                    type="button"
+                    class="diff-comment-indicator"
+                    :title="commentsByOldLine.get(Number(row.left.oldNo))?.text ?? ''"
+                    :aria-label="tm('spcodeProjectLoad.fileBrowser.comment.indicatorAria', {
+                      line: row.left.oldNo,
+                      preview: commentsByOldLine.get(Number(row.left.oldNo))?.text ?? '',
+                    })"
+                    @click.stop="openEditEditor(commentsByOldLine.get(Number(row.left.oldNo))?.id ?? '')"
+                  >
+                    <v-icon size="12">mdi-comment-text-outline</v-icon>
+                  </button>
+                </span>
                 <span class="line-number">{{ row.left?.oldNo ?? '' }}</span>
                 <span class="line-prefix">{{ row.left?.prefix ?? '' }}</span>
                 <span class="line-content">{{ row.left?.content ?? '' }}</span>
@@ -352,7 +382,7 @@
                     type="button"
                     class="diff-comment-add"
                     :aria-label="tm('spcodeProjectLoad.fileBrowser.comment.addButtonAria', { line: row.right!.newNo })"
-                    @click.stop="openNewEditor(Number(row.right!.newNo))"
+                    @click.stop="openNewEditor(Number(row.right!.newNo), 'new')"
                   >+</button>
                   <button
                     v-else-if="commentsByNewLine.has(Number(row.right!.newNo))"
@@ -414,6 +444,7 @@
         <FileCommentEditor
           :line="activeEditLine"
           :comment-id="activeEditCommentId"
+          :side="activeEditSide"
           :initial-text="editorInitialText"
           :line-content="editorContext?.lineContent ?? null"
           :context-before="editorContext?.contextBefore ?? null"
@@ -640,47 +671,46 @@
                       line.type,
                       {
                         'has-comment': isCommentable &&
-                          !!line.newNo &&
-                          commentsByNewLine.has(Number(line.newNo)),
+                          (commentOnLine(line) !== undefined),
                         // Fullscreen copy mirrors the normal view:
                         // hunk guard scopes the hover to the
                         // hunk the cursor is in.
                         'is-hovered': isCommentable &&
-                          !!line.newNo &&
-                          hoveredUnifiedLine === Number(line.newNo) &&
-                          hoveredUnifiedHunk === hi,
+                          hoveredUnifiedHunk === hi &&
+                          ((!!line.newNo && hoveredUnifiedSide === 'new' &&
+                            hoveredUnifiedLine === Number(line.newNo)) ||
+                           (!!line.oldNo && hoveredUnifiedSide === 'old' &&
+                            hoveredUnifiedLine === Number(line.oldNo))),
                       },
                     ]"
                     @mouseenter="onUnifiedRowEnter(line, hi)"
                     @mouseleave="onUnifiedRowLeave"
                   >
-                    <span
-                      v-if="isCommentable"
-                      class="diff-line-gutter"
+                  <span
+                    v-if="isCommentable"
+                    class="diff-line-gutter"
+                  >
+                    <button
+                      v-if="unifiedGutterAddVisible(line, hi)"
+                      type="button"
+                      class="diff-comment-add"
+                      :aria-label="tm('spcodeProjectLoad.fileBrowser.comment.addButtonAria', { line: unifiedAnchorLine(line) })"
+                      @click.stop="openEditorForLine(line)"
+                    >+</button>
+                    <button
+                      v-else-if="commentOnLine(line)"
+                      type="button"
+                      class="diff-comment-indicator"
+                      :title="commentOnLine(line)?.text ?? ''"
+                      :aria-label="tm('spcodeProjectLoad.fileBrowser.comment.indicatorAria', {
+                        line: unifiedAnchorLine(line),
+                        preview: commentOnLine(line)?.text ?? '',
+                      })"
+                      @click.stop="openEditorForComment(line)"
                     >
-                      <button
-                        v-if="hoveredUnifiedLine === Number(line.newNo) &&
-                          hoveredUnifiedHunk === hi &&
-                          !commentsByNewLine.has(Number(line.newNo))"
-                        type="button"
-                        class="diff-comment-add"
-                        :aria-label="tm('spcodeProjectLoad.fileBrowser.comment.addButtonAria', { line: line.newNo })"
-                        @click.stop="openNewEditor(Number(line.newNo))"
-                      >+</button>
-                      <button
-                        v-else-if="commentsByNewLine.has(Number(line.newNo))"
-                        type="button"
-                        class="diff-comment-indicator"
-                        :title="commentsByNewLine.get(Number(line.newNo))?.text ?? ''"
-                        :aria-label="tm('spcodeProjectLoad.fileBrowser.comment.indicatorAria', {
-                          line: line.newNo,
-                          preview: commentsByNewLine.get(Number(line.newNo))?.text ?? '',
-                        })"
-                        @click.stop="openEditEditor(commentsByNewLine.get(Number(line.newNo))?.id ?? '')"
-                      >
-                        <v-icon size="12">mdi-comment-text-outline</v-icon>
-                      </button>
-                    </span>
+                      <v-icon size="12">mdi-comment-text-outline</v-icon>
+                    </button>
+                  </span>
                     <span class="line-number old">{{ line.oldNo }}</span>
                     <span class="line-number new">{{ line.newNo }}</span>
                     <span class="line-prefix">{{ line.prefix }}</span>
@@ -766,15 +796,17 @@
                       row.kind,
                       {
                         'has-comment': isCommentable &&
-                          !!row.right?.newNo &&
-                          commentsByNewLine.has(Number(row.right.newNo)),
+                          ((!!row.right?.newNo &&
+                            commentsByNewLine.has(Number(row.right.newNo))) ||
+                           (!!row.left?.oldNo && !row.right &&
+                            commentsByOldLine.has(Number(row.left.oldNo)))),
                         // Fullscreen copy mirrors the normal view:
                         // hunk guard scopes the hover to the hunk
                         // the cursor is in. (Bugfix for per-hunk
                         // `ri` collision when multiple hunks share
-                        // a row offset.)
+                        // the same row offset.)
                         'is-hovered': isCommentable &&
-                          !!row.right?.newNo &&
+                          (!!row.left || !!row.right) &&
                           hoveredSplitRow === ri &&
                           hoveredSplitHunk === hi,
                       },
@@ -782,39 +814,67 @@
                     @mouseenter="onSplitRowEnter(ri, row, hi)"
                     @mouseleave="onSplitRowLeave"
                   >
-                    <div class="diff-cell left">
-                      <span class="line-number">{{ row.left?.oldNo ?? '' }}</span>
-                      <span class="line-prefix">{{ row.left?.prefix ?? '' }}</span>
-                      <span class="line-content">{{ row.left?.content ?? '' }}</span>
-                    </div>
-                    <div class="diff-cell right">
-                      <span
-                        v-if="isCommentable && row.right?.newNo"
-                        class="diff-line-gutter"
+                  <div class="diff-cell left">
+                    <!-- 2026-08-13: gutter for del-only rows (old side). -->
+                    <span
+                      v-if="isCommentable && !row.right && row.left?.oldNo"
+                      class="diff-line-gutter"
+                    >
+                      <button
+                        v-if="hoveredSplitRow === ri &&
+                          hoveredSplitHunk === hi &&
+                          !commentsByOldLine.has(Number(row.left.oldNo))"
+                        type="button"
+                        class="diff-comment-add"
+                        :aria-label="tm('spcodeProjectLoad.fileBrowser.comment.addButtonAria', { line: row.left.oldNo })"
+                        @click.stop="openNewEditor(Number(row.left.oldNo), 'old')"
+                      >+</button>
+                      <button
+                        v-else-if="commentsByOldLine.has(Number(row.left.oldNo))"
+                        type="button"
+                        class="diff-comment-indicator"
+                        :title="commentsByOldLine.get(Number(row.left.oldNo))?.text ?? ''"
+                        :aria-label="tm('spcodeProjectLoad.fileBrowser.comment.indicatorAria', {
+                          line: row.left.oldNo,
+                          preview: commentsByOldLine.get(Number(row.left.oldNo))?.text ?? '',
+                        })"
+                        @click.stop="openEditEditor(commentsByOldLine.get(Number(row.left.oldNo))?.id ?? '')"
                       >
-                        <button
-                          v-if="hoveredSplitRow === ri &&
-                            hoveredSplitHunk === hi &&
-                            !commentsByNewLine.has(Number(row.right!.newNo))"
-                          type="button"
-                          class="diff-comment-add"
-                          :aria-label="tm('spcodeProjectLoad.fileBrowser.comment.addButtonAria', { line: row.right!.newNo })"
-                          @click.stop="openNewEditor(Number(row.right!.newNo))"
-                        >+</button>
-                        <button
-                          v-else-if="commentsByNewLine.has(Number(row.right!.newNo))"
-                          type="button"
-                          class="diff-comment-indicator"
-                          :title="commentsByNewLine.get(Number(row.right!.newNo))?.text ?? ''"
-                          :aria-label="tm('spcodeProjectLoad.fileBrowser.comment.indicatorAria', {
-                            line: row.right!.newNo,
-                            preview: commentsByNewLine.get(Number(row.right!.newNo))?.text ?? '',
-                          })"
-                          @click.stop="openEditEditor(commentsByNewLine.get(Number(row.right!.newNo))?.id ?? '')"
-                        >
-                          <v-icon size="12">mdi-comment-text-outline</v-icon>
-                        </button>
-                      </span>
+                        <v-icon size="12">mdi-comment-text-outline</v-icon>
+                      </button>
+                    </span>
+                    <span class="line-number">{{ row.left?.oldNo ?? '' }}</span>
+                    <span class="line-prefix">{{ row.left?.prefix ?? '' }}</span>
+                    <span class="line-content">{{ row.left?.content ?? '' }}</span>
+                  </div>
+                  <div class="diff-cell right">
+                    <span
+                      v-if="isCommentable && row.right?.newNo"
+                      class="diff-line-gutter"
+                    >
+                      <button
+                        v-if="hoveredSplitRow === ri &&
+                          hoveredSplitHunk === hi &&
+                          !commentsByNewLine.has(Number(row.right!.newNo))"
+                        type="button"
+                        class="diff-comment-add"
+                        :aria-label="tm('spcodeProjectLoad.fileBrowser.comment.addButtonAria', { line: row.right!.newNo })"
+                        @click.stop="openNewEditor(Number(row.right!.newNo), 'new')"
+                      >+</button>
+                      <button
+                        v-else-if="commentsByNewLine.has(Number(row.right!.newNo))"
+                        type="button"
+                        class="diff-comment-indicator"
+                        :title="commentsByNewLine.get(Number(row.right!.newNo))?.text ?? ''"
+                        :aria-label="tm('spcodeProjectLoad.fileBrowser.comment.indicatorAria', {
+                          line: row.right!.newNo,
+                          preview: commentsByNewLine.get(Number(row.right!.newNo))?.text ?? '',
+                        })"
+                        @click.stop="openEditEditor(commentsByNewLine.get(Number(row.right!.newNo))?.id ?? '')"
+                      >
+                        <v-icon size="12">mdi-comment-text-outline</v-icon>
+                      </button>
+                    </span>
                       <span class="line-number">{{ row.right?.newNo ?? '' }}</span>
                       <span class="line-prefix">{{ row.right?.prefix ?? '' }}</span>
                       <span class="line-content">{{ row.right?.content ?? '' }}</span>
@@ -863,6 +923,7 @@
               <FileCommentEditor
                 :line="activeEditLine"
                 :comment-id="activeEditCommentId"
+                :side="activeEditSide"
                 :initial-text="editorInitialText"
                 :line-content="editorContext?.lineContent ?? null"
                 :context-before="editorContext?.contextBefore ?? null"
@@ -1272,6 +1333,10 @@ const fileComments = useFileComments();
  *
  *  `null` means "no row hovered". */
 const hoveredUnifiedLine = ref<number | null>(null);
+/** 2026-08-13: which side the unified hover currently points at.
+ *  add/ctx rows → "new"; del rows → "old". Split mode needs no side
+ *  state — the gutter lives in the left/right cell itself. */
+const hoveredUnifiedSide = ref<"new" | "old" | null>(null);
 const hoveredUnifiedHunk = ref<number | null>(null);
 const hoveredSplitRow = ref<number | null>(null);
 const hoveredSplitHunk = ref<number | null>(null);
@@ -1280,6 +1345,8 @@ const hoveredSplitHunk = ref<number | null>(null);
  *  `activeEditLine` is non-null the editor is visible at the bottom
  *  of the preview. */
 const activeEditLine = ref<number | null>(null);
+/** 2026-08-13: which side the open editor anchors to (del rows = old). */
+const activeEditSide = ref<"new" | "old">("new");
 const activeEditCommentId = ref<string | null>(null);
 const editorContext = ref<LineContext | null>(null);
 const editorInitialText = ref<string>("");
@@ -1301,12 +1368,25 @@ const visibleComments = computed<FileComment[]>(() => {
   return fileComments.commentsForFile(props.filePath);
 });
 
-/** newNo → existing comment. First-wins: if a parent injects
- *  duplicates (shouldn't happen, but be defensive) the first one
- *  renders the indicator and the others are ignored. */
+/** newNo → existing comment (new-side only, 2026-08-13). First-wins:
+ *  if a parent injects duplicates (shouldn't happen, but be defensive)
+ *  the first one renders the indicator and the others are ignored. */
 const commentsByNewLine = computed<Map<number, FileComment>>(() => {
   const m = new Map<number, FileComment>();
   for (const c of visibleComments.value) {
+    if (c.side === "old") continue;
+    if (Number.isInteger(c.line) && c.line > 0 && !m.has(c.line)) {
+      m.set(c.line, c);
+    }
+  }
+  return m;
+});
+
+/** 2026-08-13: oldNo → existing comment (old-side only, del lines). */
+const commentsByOldLine = computed<Map<number, FileComment>>(() => {
+  const m = new Map<number, FileComment>();
+  for (const c of visibleComments.value) {
+    if (c.side !== "old") continue;
     if (Number.isInteger(c.line) && c.line > 0 && !m.has(c.line)) {
       m.set(c.line, c);
     }
@@ -1344,23 +1424,33 @@ const newFileContent = computed<string>(() => {
 const pendingDiffHunk = ref<DiffHunkContext | null>(null);
 
 /**
- * Find the parsed DiffHunk whose new-side range contains `line`.
- * The hunk header `@@ -X,A +Y,B @@` tells us the starting new-side
- * line Y and the new-side count B. We check whether the requested
- * line falls in [Y, Y+B) by counting ctx+add lines (we have the
- * parsed lines in `parsedHunks` already, so this is O(hunk-lines)
- * per hunk, not a re-parse).
+ * Find the parsed DiffHunk whose side-specific range contains `line`.
+ * The hunk header `@@ -X,A +Y,B @@` gives both ranges; we match by
+ * counting ctx+add lines (new side) or ctx+del lines (old side) from
+ * the parsed lines — O(hunk-lines), no re-parse.
  */
-function findHunkForLine(line: number): DiffHunk | null {
+function findHunkForLine(line: number, side: "new" | "old"): DiffHunk | null {
   for (const hunk of parsedHunks.value) {
-    const m = hunk.header.match(
-      /^@@\s+-\d+(?:,\d+)?\s+\+(\d+)(?:,\d+)?\s+@@/,
-    );
-    if (!m) continue;
-    const startNew = parseInt(m[1], 10);
-    const newCount = hunk.lines.filter((l) => l.type !== "del").length;
-    if (line >= startNew && line < startNew + newCount) {
-      return hunk;
+    if (side === "new") {
+      const m = hunk.header.match(
+        /^@@\s+-\d+(?:,\d+)?\s+\+(\d+)(?:,\d+)?\s+@@/,
+      );
+      if (!m) continue;
+      const startNew = parseInt(m[1], 10);
+      const newCount = hunk.lines.filter((l) => l.type !== "del").length;
+      if (line >= startNew && line < startNew + newCount) {
+        return hunk;
+      }
+    } else {
+      const m = hunk.header.match(
+        /^@@\s+-(\d+)(?:,\d+)?\s+\+\d+(?:,\d+)?\s+@@/,
+      );
+      if (!m) continue;
+      const startOld = parseInt(m[1], 10);
+      const oldCount = hunk.lines.filter((l) => l.type !== "add").length;
+      if (line >= startOld && line < startOld + oldCount) {
+        return hunk;
+      }
     }
   }
   return null;
@@ -1374,7 +1464,11 @@ function findHunkForLine(line: number): DiffHunk | null {
  * dropped — they don't appear inside hunks in practice but we
  * filter defensively.
  */
-function buildDiffHunkContext(hunk: DiffHunk, newLine: number): DiffHunkContext {
+function buildDiffHunkContext(
+  hunk: DiffHunk,
+  anchorLine: number,
+  side: "new" | "old",
+): DiffHunkContext {
   return {
     header: hunk.header,
     lines: hunk.lines
@@ -1385,26 +1479,101 @@ function buildDiffHunkContext(hunk: DiffHunk, newLine: number): DiffHunkContext 
         oldNo: l.oldNo ? Number(l.oldNo) : null,
         newNo: l.newNo ? Number(l.newNo) : null,
       })),
-    newLine,
+    newLine: side === "new" ? anchorLine : null,
+    side,
+    oldLine: side === "old" ? anchorLine : null,
   };
 }
 
-/** Open the editor for a brand-new comment on a given new-side line. */
-function openNewEditor(line: number): void {
+/** 2026-08-13: the line a unified row anchors to (new for add/ctx,
+ *  old for del) — mirrors onUnifiedRowEnter's side resolution. */
+function unifiedAnchorSide(line: DiffLine): "new" | "old" {
+  return line.newNo ? "new" : "old";
+}
+function unifiedAnchorLine(line: DiffLine): number {
+  return Number(line.newNo ? line.newNo : line.oldNo);
+}
+
+/** 2026-08-13: existing comment on a unified row (either side). */
+function commentOnLine(line: DiffLine): FileComment | undefined {
+  if (line.newNo) return commentsByNewLine.value.get(Number(line.newNo));
+  if (line.oldNo) return commentsByOldLine.value.get(Number(line.oldNo));
+  return undefined;
+}
+
+/** 2026-08-13: open a new editor for a unified row, picking the side
+ *  from the row type (add/ctx → new, del → old). */
+function openEditorForLine(line: DiffLine): void {
+  if (line.newNo) openNewEditor(Number(line.newNo), "new");
+  else if (line.oldNo) openNewEditor(Number(line.oldNo), "old");
+}
+
+/** 2026-08-13: open the existing comment's editor for a unified row. */
+function openEditorForComment(line: DiffLine): void {
+  const c = commentOnLine(line);
+  if (c) openEditEditor(c.id);
+}
+
+/** 2026-08-13: whether the unified "+" chip should show for this row. */
+function unifiedGutterAddVisible(line: DiffLine, hi: number): boolean {
+  if (!isCommentable.value) return false;
+  if (hoveredUnifiedHunk.value !== hi) return false;
+  if (line.newNo) {
+    return (
+      hoveredUnifiedSide.value === "new" &&
+      hoveredUnifiedLine.value === Number(line.newNo) &&
+      !commentsByNewLine.value.has(Number(line.newNo))
+    );
+  }
+  if (line.oldNo) {
+    return (
+      hoveredUnifiedSide.value === "old" &&
+      hoveredUnifiedLine.value === Number(line.oldNo) &&
+      !commentsByOldLine.value.has(Number(line.oldNo))
+    );
+  }
+  return false;
+}
+
+/** 2026-08-13: the content of a del line by old-side line number.
+ *  Spec decision (B): del-line comments do NOT rebuild the old file —
+ *  the line's own content comes straight from the hunk; surrounding
+ *  context stays null. */
+function delLineContent(line: number): string {
+  for (const hunk of parsedHunks.value) {
+    for (const l of hunk.lines) {
+      if (l.type === "del" && l.oldNo && Number(l.oldNo) === line) {
+        return l.content;
+      }
+    }
+  }
+  return "";
+}
+
+/** Open the editor for a brand-new comment on the given side. */
+function openNewEditor(line: number, side: "new" | "old"): void {
   activeEditLine.value = line;
+  activeEditSide.value = side;
   activeEditCommentId.value = null;
   editorInitialText.value = "";
   // extractLineContext may return null when the line is out of range
   // (e.g. a stub diff that only contains del lines). The editor
   // handles a null context gracefully (no preview snippet shown).
-  editorContext.value = extractLineContext(newFileContent.value, line);
+  editorContext.value =
+    side === "new"
+      ? extractLineContext(newFileContent.value, line)
+      : {
+          lineContent: delLineContent(line),
+          contextBefore: null,
+          contextAfter: null,
+        };
   // Snapshot the surrounding diff hunk so the saved comment can
   // include the patch in the LLM-facing output. Falls back to null
   // when the line isn't in any parseable hunk (very rare: only
   // happens if the diff text is malformed and the parser couldn't
   // recover the @@ header).
-  const hunk = findHunkForLine(line);
-  pendingDiffHunk.value = hunk ? buildDiffHunkContext(hunk, line) : null;
+  const hunk = findHunkForLine(line, side);
+  pendingDiffHunk.value = hunk ? buildDiffHunkContext(hunk, line, side) : null;
 }
 
 /** Open the editor for an existing comment (look up by id in the
@@ -1414,6 +1583,7 @@ function openEditEditor(commentId: string): void {
   const existing = fileComments.findCommentById(commentId);
   if (!existing) return;
   activeEditLine.value = existing.line;
+  activeEditSide.value = existing.side ?? "new";
   activeEditCommentId.value = existing.id;
   editorInitialText.value = existing.text;
   editorContext.value = {
@@ -1448,6 +1618,8 @@ function onSaveComment(payload: {
       line: payload.line,
       text: payload.text,
       context: ctx,
+      // 2026-08-13: del-line comments anchor to the old side.
+      side: activeEditSide.value,
       // Attach the diff hunk so the LLM sees the surrounding
       // patch (with the target line marked) instead of just the
       // one line of context around the comment. `null` for
@@ -1465,6 +1637,7 @@ function onDeleteComment(commentId: string): void {
 
 function closeEditor(): void {
   activeEditLine.value = null;
+  activeEditSide.value = "new";
   activeEditCommentId.value = null;
   editorContext.value = null;
   // Drop the snapshotted hunk — it's only meaningful while the
@@ -1480,17 +1653,29 @@ function closeEditor(): void {
  *  line from clientY; here we get it for free from the row element). */
 function onUnifiedRowEnter(line: DiffLine, hi: number): void {
   if (!isCommentable.value) return;
-  if (!line.newNo) return; // del lines don't have a new-side number
-  hoveredUnifiedLine.value = Number(line.newNo);
+  // 2026-08-13: del rows now arm the gutter too — they anchor to the
+  // OLD side (oldNo); ctx/add rows keep anchoring to the NEW side.
+  if (line.newNo) {
+    hoveredUnifiedLine.value = Number(line.newNo);
+    hoveredUnifiedSide.value = "new";
+  } else if (line.oldNo) {
+    hoveredUnifiedLine.value = Number(line.oldNo);
+    hoveredUnifiedSide.value = "old";
+  } else {
+    return;
+  }
   hoveredUnifiedHunk.value = hi;
 }
 function onUnifiedRowLeave(): void {
   hoveredUnifiedLine.value = null;
+  hoveredUnifiedSide.value = null;
   hoveredUnifiedHunk.value = null;
 }
 function onSplitRowEnter(ri: number, row: SplitRow, hi: number): void {
   if (!isCommentable.value) return;
-  if (!row.right || !row.right.newNo) return; // del-only rows
+  // 2026-08-13: del-only rows (left cell only) arm the gutter too —
+  // the cell itself decides the side (left = old, right = new).
+  if (!row.left && !row.right) return;
   hoveredSplitRow.value = ri;
   hoveredSplitHunk.value = hi;
 }
@@ -2404,14 +2589,19 @@ const statsDels = computed(() => {
    row. The gutter is absolutely positioned at the LEFT edge of the
    right cell so it sits in the gap between the two columns' line
    numbers and the code text — the same place the file browser puts
-   its gutter. */
+   its gutter. The left cell gets the same treatment for del-only
+   rows (2026-08-13). */
 .diff-row-split {
   position: relative;
 }
 .diff-cell.right {
   position: relative;
 }
-.diff-cell.right .diff-line-gutter {
+.diff-cell.left {
+  position: relative;
+}
+.diff-cell.right .diff-line-gutter,
+.diff-cell.left .diff-line-gutter {
   position: absolute;
   left: 4px;
   top: 50%;

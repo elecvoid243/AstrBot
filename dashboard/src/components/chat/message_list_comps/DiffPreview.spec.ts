@@ -19,6 +19,7 @@ import { mount, flushPromises, type VueWrapper } from "@vue/test-utils";
 import { nextTick, ref } from "vue";
 import DiffPreview from "./DiffPreview.vue";
 import FileCommentEditor from "./FileCommentEditor.vue";
+import { useFileComments } from "@/composables/useFileComments";
 
 const STUB_CHILDREN = {
   FileCommentEditor: { template: "<div />" },
@@ -416,5 +417,110 @@ describe("DiffPreview bulk fold controls (fullscreen)", () => {
   it("bulk buttons are not rendered in the inline (non-fullscreen) card", () => {
     const wrapper = mountDiff();
     expect(wrapper.findAll(".diff-hunk-bulk-btn").length).toBe(0);
+  });
+});
+
+// 2026-08-13 (elecvoid243): del-line comments (old side).
+// Spec: docs/superpowers/specs/2026-08-13-diff-comments-old-side-design.md §4
+// A one-hunk diff: del oldNo=1, ctx oldNo=2/newNo=1, add newNo=2.
+const DEL_DIFF = "@@ -1,3 +1,2 @@\n-old1\n ctx1\n+new1\n";
+
+function mountDelDiff() {
+  return mount(DiffPreview, {
+    props: { content: DEL_DIFF, filePath: "a.txt", maxLines: 30 },
+    global: { stubs: STUB_CHILDREN },
+  });
+}
+
+describe("DiffPreview del-line comments (old side, spec 2026-08-13)", () => {
+  beforeEach(() => {
+    useFileComments().clearAll();
+  });
+
+  it("unified: hovering a del row shows the + button", async () => {
+    const w = mountDelDiff();
+    const delRow = w.find(".diff-line.del");
+    await delRow.trigger("mouseenter");
+    expect(delRow.find(".diff-comment-add").exists()).toBe(true);
+    // ctx/add rows keep working on the new side.
+    await w.find(".diff-line.add").trigger("mouseenter");
+    expect(w.find(".diff-line.add .diff-comment-add").exists()).toBe(true);
+  });
+
+  it("unified: clicking + on a del row opens the editor with side=old", async () => {
+    const w = mountDelDiff();
+    const vm = w.vm as unknown as {
+      activeEditSide: string;
+      activeEditLine: number | null;
+    };
+    await w.find(".diff-line.del").trigger("mouseenter");
+    await w.find(".diff-line.del .diff-comment-add").trigger("click");
+    expect(vm.activeEditSide).toBe("old");
+    expect(vm.activeEditLine).toBe(1);
+  });
+
+  it("unified: saving a del-row comment stores side=old + del-line content", async () => {
+    const w = mountDelDiff();
+    const vm = w.vm as unknown as {
+      activeEditSide: string;
+      onSaveComment: (p: {
+        text: string;
+        commentId: string | null;
+        line: number;
+      }) => void;
+    };
+    await w.find(".diff-line.del").trigger("mouseenter");
+    await w.find(".diff-line.del .diff-comment-add").trigger("click");
+    vm.onSaveComment({ text: "为什么删掉", commentId: null, line: 1 });
+    await nextTick();
+    const comments = useFileComments().commentsForFile("a.txt");
+    expect(comments).toHaveLength(1);
+    expect(comments[0].side).toBe("old");
+    expect(comments[0].line).toBe(1);
+    // Spec decision (B): lineContent comes from the hunk del line.
+    expect(comments[0].lineContent).toBe("old1");
+    expect(comments[0].diffHunk?.side).toBe("old");
+    expect(comments[0].diffHunk?.oldLine).toBe(1);
+  });
+
+  it("unified: del row with an existing old comment renders the indicator", async () => {
+    useFileComments().addCommentWithContext({
+      filePath: "a.txt",
+      line: 1,
+      text: "已评论",
+      context: { lineContent: "old1", contextBefore: null, contextAfter: null },
+      side: "old",
+      diffHunk: {
+        header: "@@ -1,3 +1,2 @@",
+        lines: [
+          { type: "del", content: "old1", oldNo: 1, newNo: null },
+          { type: "ctx", content: "ctx1", oldNo: 2, newNo: 1 },
+          { type: "add", content: "new1", oldNo: null, newNo: 2 },
+        ],
+        newLine: null,
+        side: "old",
+        oldLine: 1,
+      },
+    });
+    const w = mountDelDiff();
+    const delRow = w.find(".diff-line.del");
+    expect(delRow.classes()).toContain("has-comment");
+    expect(delRow.find(".diff-comment-indicator").exists()).toBe(true);
+  });
+
+  it("split: del-only row shows + in the LEFT cell and opens with side=old", async () => {
+    const w = mountDelDiff();
+    const vm = w.vm as unknown as {
+      activeEditSide: string;
+      setViewMode: (m: "unified" | "split") => void;
+    };
+    vm.setViewMode("split");
+    await nextTick();
+    const delOnlyRow = w.find(".diff-row-split.del-only");
+    await delOnlyRow.trigger("mouseenter");
+    const btn = delOnlyRow.find(".diff-cell.left .diff-comment-add");
+    expect(btn.exists()).toBe(true);
+    await btn.trigger("click");
+    expect(vm.activeEditSide).toBe("old");
   });
 });

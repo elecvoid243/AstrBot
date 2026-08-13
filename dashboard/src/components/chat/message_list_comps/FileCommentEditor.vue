@@ -13,6 +13,9 @@ import { useModuleI18n } from "@/i18n/composables";
 const props = defineProps<{
   line: number | null;
   commentId: string | null;
+  /** 2026-08-13: which diff side the comment anchors to; shows a
+   *  "(old)" suffix on the title for del-line comments. */
+  side?: "new" | "old";
   initialText: string;
   lineContent: string | null;
   contextBefore: string | null;
@@ -46,7 +49,8 @@ const text = ref<string>("");
 const textareaRef = ref<HTMLTextAreaElement | null>(null);
 
 const isRange = computed<boolean>(
-  () => props.endLine != null && props.line != null && props.endLine > props.line,
+  () =>
+    props.endLine != null && props.line != null && props.endLine > props.line,
 );
 
 const rangeLabel = computed<string>(() => {
@@ -99,11 +103,7 @@ function onSave(): void {
 </script>
 
 <template>
-  <div
-    v-if="line !== null"
-    class="comment-editor"
-    @keydown="handleKeyDown"
-  >
+  <div v-if="line !== null" class="comment-editor" @keydown="handleKeyDown">
     <div class="comment-editor-header">
       <v-icon size="14">mdi-comment-text-outline</v-icon>
       <span class="editor-title">
@@ -112,6 +112,9 @@ function onSave(): void {
             ? tm("spcodeProjectLoad.fileBrowser.comment.editTitle", { line })
             : tm("spcodeProjectLoad.fileBrowser.comment.newTitle", { line })
         }}
+        <template v-if="props.side === 'old'">
+          {{ tm("spcodeProjectLoad.fileBrowser.comment.oldSideLabel") }}
+        </template>
       </span>
       <!-- 2026-07-17 selection-comment: range header. Sits next to
            the title; the title itself stays the single-line
@@ -129,7 +132,9 @@ function onSave(): void {
     <!-- Range mode replaces the ±1 context preview with the frozen
          selection. Verbatim, no syntax highlighting: this is what
          the user dragged, not the rest of the file. -->
-    <pre v-if="isRange" class="comment-editor-selection">{{ selectionContent }}</pre>
+    <pre v-if="isRange" class="comment-editor-selection">{{
+      selectionContent
+    }}</pre>
     <textarea
       ref="textareaRef"
       v-model="text"

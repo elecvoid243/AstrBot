@@ -21,6 +21,11 @@ export interface FileComment {
   filePath: string;
   /** 1-based line number at comment time. May drift if file is edited. */
   line: number;
+  /** 2026-08-13: which side of the diff the comment anchors to.
+   *  "new" (default) = post-change line (add/ctx lines); "old" =
+   *  pre-change line (del lines). File-browser comments leave it
+   *  undefined (= "new"). */
+  side?: "new" | "old";
   /** Exact line content at comment time. The LLM uses this as a fingerprint. */
   lineContent: string;
   /** Line above (null if line === 1). */
@@ -85,9 +90,18 @@ export interface DiffHunkContext {
   /**
    * New-side line number the comment is anchored to. The renderer
    * looks up the line whose newNo equals this value and prepends a
-   * ">" marker to it.
+   * ">" marker to it. Null for old-side comments (see `side`).
    */
-  newLine: number;
+  newLine: number | null;
+  /** 2026-08-13: which diff side the comment anchors to. Old-side
+   *  comments anchor to del lines, which only exist in the pre-change
+   *  file. Legacy stored hunks lack this field — treat missing as
+   *  "new". */
+  side: "new" | "old";
+  /** 2026-08-13: old-side anchor line number; null for new-side
+   *  comments. The renderer looks up the line whose oldNo equals this
+   *  value for the ">" marker. */
+  oldLine: number | null;
 }
 
 /** Single source of truth for line context extraction. Used by both
@@ -141,8 +155,7 @@ export function extractRangeLineContext(
   return {
     lineContent: firstLineOfSelection,
     contextBefore: startLine - 2 >= 0 ? lines[startLine - 2] ?? null : null,
-    contextAfter:
-      endLine < lines.length ? lines[endLine] ?? null : null,
+    contextAfter: endLine < lines.length ? lines[endLine] ?? null : null,
   };
 }
 
@@ -254,8 +267,10 @@ function createFileComments() {
     text: string;
     context: LineContext;
     diffHunk?: DiffHunkContext;
+    /** 2026-08-13: anchoring side; "new" when omitted. */
+    side?: "new" | "old";
   }): FileComment | null {
-    const { filePath, line, text, context, diffHunk } = input;
+    const { filePath, line, text, context, diffHunk, side } = input;
     if (!filePath) return null;
     if (!Number.isInteger(line) || line < 1) return null;
     if (text.trim() === "") return null;
@@ -263,6 +278,7 @@ function createFileComments() {
       id: newId(),
       filePath,
       line,
+      ...(side ? { side } : {}),
       lineContent: context.lineContent,
       contextBefore: context.contextBefore,
       contextAfter: context.contextAfter,
@@ -618,9 +634,18 @@ function createFileComments() {
     out.push("````");
     out.push(hunk.header);
 
-    const commentedNewLines = new Set(comments.map((c) => c.line));
+    // 2026-08-13: anchor sets are side-aware — new-side comments mark
+    // lines by newNo, old-side comments mark del lines by oldNo.
+    const commentedNewLines = new Set(
+      comments.filter((c) => (c.side ?? "new") === "new").map((c) => c.line),
+    );
+    const commentedOldLines = new Set(
+      comments.filter((c) => c.side === "old").map((c) => c.line),
+    );
     for (const line of hunk.lines) {
-      const isMarked = line.newNo !== null && commentedNewLines.has(line.newNo);
+      const isMarked =
+        (line.newNo !== null && commentedNewLines.has(line.newNo)) ||
+        (line.oldNo !== null && commentedOldLines.has(line.oldNo));
       // Pick the line number to display: prefer newNo (adds and
       // ctx), fall back to oldNo (del lines have no newNo). Pad to
       // 4 chars for column alignment.
@@ -640,7 +665,8 @@ function createFileComments() {
     out.push("Comments:");
     for (const c of comments) {
       const textLines = c.text.split("\n");
-      out.push(`  - line ${c.line}: ${textLines[0]}`);
+      const sideLabel = c.side === "old" ? " (old)" : "";
+      out.push(`  - line ${c.line}${sideLabel}: ${textLines[0]}`);
       for (let i = 1; i < textLines.length; i++) {
         out.push(`    ${textLines[i]}`);
       }
