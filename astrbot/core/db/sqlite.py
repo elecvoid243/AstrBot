@@ -2327,10 +2327,13 @@ class SQLiteDatabase(BaseDatabase):
         Args:
             session_id: Session to associate with the project.
             project_id: Target project.
-            position: 0-based index in the project session list (0 = top).
-                ``None`` prepends the session to the top, matching the old
-                "newest first" ordering. The remaining sessions are shifted
-                down so positions stay contiguous.
+            position: 0-based index in the project's *visible* session list
+                (0 = top). ``None`` prepends the session to the top, matching
+                the old "newest first" ordering. The remaining sessions are
+                shifted down so positions stay contiguous. Archived sessions
+                keep their relations but are hidden from the ChatUI list, so
+                the index is mapped onto the full relation list by counting
+                only non-archived rows.
 
         Returns:
             The created (or re-created) relation.
@@ -2350,7 +2353,15 @@ class SQLiteDatabase(BaseDatabase):
                     ),
                 )
                 ordered_result = await session.execute(
-                    select(SessionProjectRelation)
+                    select(
+                        SessionProjectRelation,
+                        col(PlatformSession.archived),
+                    )
+                    .join(
+                        PlatformSession,
+                        col(PlatformSession.session_id)
+                        == col(SessionProjectRelation.session_id),
+                    )
                     .where(
                         col(SessionProjectRelation.project_id) == project_id,
                     )
@@ -2359,12 +2370,24 @@ class SQLiteDatabase(BaseDatabase):
                         col(SessionProjectRelation.id).asc(),
                     ),
                 )
-                ordered = list(ordered_result.scalars().all())
+                rows = list(ordered_result.all())
+                ordered = [relation for relation, _ in rows]
 
                 if position is None:
                     insert_index = 0
                 else:
-                    insert_index = max(0, min(position, len(ordered)))
+                    # ``position`` counts only non-archived rows (the ChatUI
+                    # hides archived sessions); map it back onto the full
+                    # relation list so the session lands where the user sees it.
+                    insert_index = len(ordered)
+                    visible_seen = 0
+                    for row_index, (_, archived) in enumerate(rows):
+                        if archived:
+                            continue
+                        if visible_seen == position:
+                            insert_index = row_index
+                            break
+                        visible_seen += 1
 
                 relation = SessionProjectRelation(
                     session_id=session_id,
