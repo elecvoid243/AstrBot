@@ -1284,6 +1284,22 @@ paths:
         "200":
           $ref: "#/components/responses/Ok"
 
+  /api/v1/chat/sessions/batch-unarchive:
+    post:
+      tags: [Chat]
+      summary: Restore multiple archived webchat sessions
+      operationId: batchUnarchiveChatSessions
+      x-astrbot-scope: chat
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChatSessionBatchDeleteRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+
   /api/v1/chat/sessions/archived:
     get:
       tags: [Chat]
@@ -1384,6 +1400,22 @@ paths:
       x-astrbot-scope: chat
       parameters:
         - $ref: "#/components/parameters/SessionId"
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+
+  /api/v1/chat/open-file:
+    post:
+      tags: [Chat]
+      summary: Open a local file on the AstrBot host with the OS default application
+      operationId: openChatLocalFile
+      x-astrbot-scope: chat
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChatOpenFileRequest"
       responses:
         "200":
           $ref: "#/components/responses/Ok"
@@ -1717,6 +1749,12 @@ paths:
           schema:
             type: string
         - $ref: "#/components/parameters/SessionId"
+        - name: position
+          in: query
+          required: false
+          description: 0-based insertion index in the project session list (omitted prepends to top)
+          schema:
+            type: integer
       responses:
         "200":
           $ref: "#/components/responses/Ok"
@@ -5659,6 +5697,14 @@ components:
       type: object
       properties:
         display_name:
+          type: string
+      additionalProperties: false
+
+    ChatOpenFileRequest:
+      type: object
+      required: [path]
+      properties:
+        path:
           type: string
       additionalProperties: false
 

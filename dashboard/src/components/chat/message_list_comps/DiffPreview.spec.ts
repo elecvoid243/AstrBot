@@ -14,7 +14,7 @@
 // Mount strategy mirrors DocumentManager.spec.ts: stub the heavy
 // children so the test focuses on DiffPreview's own state graph.
 
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mount, flushPromises, type VueWrapper } from "@vue/test-utils";
 import { nextTick, ref } from "vue";
 import DiffPreview from "./DiffPreview.vue";
@@ -522,5 +522,125 @@ describe("DiffPreview del-line comments (old side, spec 2026-08-13)", () => {
     expect(btn.exists()).toBe(true);
     await btn.trigger("click");
     expect(vm.activeEditSide).toBe("old");
+  });
+});
+
+// 2026-08-14 diff syntax highlighting: lines are tokenized with the
+// shared Shiki highlighter (old side = ctx+del, new side = ctx+add)
+// and rendered as colored spans; unknown languages keep the escaped
+// plain-text path.
+describe("DiffPreview syntax highlighting (2026-08-14)", () => {
+  it("renders colored token spans for a known language", async () => {
+    const wrapper = mount(DiffPreview, {
+      props: {
+        // Context lines carry the Shiki colors: paired del/add lines
+        // are claimed by the intra-line segment highlight instead
+        // (changed segments win over token colors there).
+        content:
+          "@@ -1,3 +1,3 @@\n def f(): pass\n-x = 1\n+x = 2\n def g(): pass",
+        filePath: "sample.py",
+        isDark: false,
+      },
+      global: { stubs: STUB_CHILDREN },
+    });
+    // Shiki loads asynchronously; wait until a keyword token span
+    // shows up in one of the line-content slots.
+    await vi.waitFor(
+      () => {
+        const hit = wrapper
+          .findAll(".line-content")
+          .some((el) => el.html().includes('<span style="color:'));
+        expect(hit).toBe(true);
+      },
+      { timeout: 8000 },
+    );
+    // Text content is unchanged by the highlight layer.
+    expect(wrapper.text()).toContain("def f(): pass");
+  });
+
+  it("keeps escaped plain text for unknown languages", async () => {
+    const wrapper = mount(DiffPreview, {
+      props: {
+        // No trailing newline: the parser renders a trailing empty
+        // line for a final "\n", which would become the LAST
+        // .line-content cell and break the assertion below.
+        content: "@@ -1,1 +1,1 @@\n-a <b>\n+c <d>",
+        filePath: "sample.txt",
+        isDark: false,
+      },
+      global: { stubs: STUB_CHILDREN },
+    });
+    await nextTick();
+    const cells = wrapper.findAll(".line-content");
+    expect(cells.length).toBeGreaterThan(0);
+    for (const cell of cells) {
+      expect(cell.html()).not.toContain('<span style="color:');
+    }
+    // `<d>` must be escaped text, not interpreted markup.
+    expect(cells[cells.length - 1].text()).toBe("c <d>");
+  });
+});
+
+// Intra-line highlight: paired del/add lines wrap their changed
+// word segments in .intra-hl-del / .intra-hl-add spans.
+describe("DiffPreview intra-line highlight (2026-08-14)", () => {
+  // viewMode initializes from localStorage and earlier tests in this
+  // file may leave "split" behind; pin "unified" so the cell layout
+  // is deterministic regardless of execution order.
+  beforeEach(() => {
+    localStorage.setItem("astrbot.diff.viewMode", "unified");
+  });
+
+  it("wraps the changed segments of paired del/add lines", () => {
+    const wrapper = mount(DiffPreview, {
+      props: {
+        content: "@@ -1,1 +1,1 @@\n-const a = 1;\n+const a = 2;",
+        filePath: "sample.txt",
+        isDark: false,
+      },
+      global: { stubs: STUB_CHILDREN },
+    });
+    const cells = wrapper.findAll(".line-content");
+    expect(cells.length).toBe(2);
+    // del side: only the "1" is emphasized, surroundings stay plain.
+    expect(cells[0].html()).toContain('intra-hl intra-hl-del">1<');
+    expect(cells[0].text()).toBe("const a = 1;");
+    // add side: only the "2".
+    expect(cells[1].html()).toContain('intra-hl intra-hl-add">2<');
+    expect(cells[1].text()).toBe("const a = 2;");
+  });
+
+  it("leaves add-only lines without intra-line spans", () => {
+    const wrapper = mount(DiffPreview, {
+      props: {
+        content: "@@ -1,0 +1,1 @@\n+brand new line",
+        filePath: "sample.txt",
+        isDark: false,
+      },
+      global: { stubs: STUB_CHILDREN },
+    });
+    const cells = wrapper.findAll(".line-content");
+    expect(cells.length).toBe(1);
+    expect(cells[0].html()).not.toContain("intra-hl");
+    expect(cells[0].text()).toBe("brand new line");
+  });
+
+  it("escapes markup inside changed segments", () => {
+    const wrapper = mount(DiffPreview, {
+      props: {
+        content: "@@ -1,1 +1,1 @@\n-a <b>\n+a <d>",
+        filePath: "sample.txt",
+        isDark: false,
+      },
+      global: { stubs: STUB_CHILDREN },
+    });
+    const cells = wrapper.findAll(".line-content");
+    expect(cells.length).toBe(2);
+    // `<d>` renders as text, not as a parsed element. (Assert via
+    // text(): happy-dom's serializer does not re-escape text nodes,
+    // so an html()-level `&lt;` check is meaningless here.)
+    expect(cells[1].text()).toBe("a <d>");
+    expect(cells[1].findAll("span")).toHaveLength(1);
+    expect(cells[1].find(".intra-hl-add").text()).toBe("d");
   });
 });

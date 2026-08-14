@@ -143,15 +143,21 @@ class ChatUIProjectService:
         payload = self._as_payload(data)
         session_id = payload.get("session_id")
         project_id = payload.get("project_id")
+        position = payload.get("position")
 
         if not session_id:
             raise ChatUIProjectServiceError("Missing key: session_id")
         if not project_id:
             raise ChatUIProjectServiceError("Missing key: project_id")
+        if position is not None:
+            try:
+                position = int(position)
+            except (TypeError, ValueError):
+                position = None
 
         await self._get_owned_project(username, project_id)
         await self._get_owned_session(username, session_id)
-        await self.db.add_session_to_project(session_id, project_id)
+        await self.db.add_session_to_project(session_id, project_id, position)
 
     async def remove_session_from_project(self, username: str, data: object) -> None:
         payload = self._as_payload(data)
@@ -528,9 +534,7 @@ class ChatUIProjectService:
             if workspace_path is None:
                 if raw_path is not None:
                     # Provided explicitly but blank / unusable.
-                    raise ChatUIProjectServiceError(
-                        "Project workspace requires a path"
-                    )
+                    raise ChatUIProjectServiceError("Project workspace requires a path")
                 return workspace_type, None
             try:
                 workspace_root = workspace_path_to_root(workspace_path)

@@ -27,42 +27,57 @@
     ]"
     :data-call-id="entry.callId"
   >
-    <button
-      type="button"
-      class="file-change-card-header"
-      @click="isExpanded = !isExpanded"
-    >
-      <v-icon size="14" class="file-change-icon">{{ kindIcon }}</v-icon>
-      <span class="file-change-name" :title="entry.filePath">{{ basename }}</span>
-      <v-progress-circular
-        v-if="entry.status === 'running'"
-        indeterminate
-        size="12"
-        width="2"
-        class="file-change-status"
-      />
-      <v-icon
-        v-else-if="entry.status === 'error'"
-        size="14"
-        class="file-change-status file-change-status--error"
+    <div class="file-change-card-top">
+      <button
+        type="button"
+        class="file-change-card-header"
+        @click="isExpanded = !isExpanded"
       >
-        mdi-alert-circle-outline
-      </v-icon>
-      <span v-if="hasStat" class="file-change-stat">
-        <template v-if="entry.kind === 'edit' && entry.diffStat">
-          <span class="stat-adds">+{{ entry.diffStat.adds }}</span>
-          <span class="stat-dels">−{{ entry.diffStat.dels }}</span>
-        </template>
-        <template v-else>{{ lineCountText }}</template>
-      </span>
-      <v-icon
-        size="18"
-        class="file-change-chevron"
-        :class="{ expanded: isExpanded }"
+        <v-icon size="14" class="file-change-icon">{{ kindIcon }}</v-icon>
+        <span class="file-change-name" :title="entry.filePath">{{ basename }}</span>
+        <v-progress-circular
+          v-if="entry.status === 'running'"
+          indeterminate
+          size="12"
+          width="2"
+          class="file-change-status"
+        />
+        <v-icon
+          v-else-if="entry.status === 'error'"
+          size="14"
+          class="file-change-status file-change-status--error"
+        >
+          mdi-alert-circle-outline
+        </v-icon>
+        <span v-if="hasStat" class="file-change-stat">
+          <template v-if="entry.kind === 'edit' && entry.diffStat">
+            <span class="stat-adds">+{{ entry.diffStat.adds }}</span>
+            <span class="stat-dels">−{{ entry.diffStat.dels }}</span>
+          </template>
+          <template v-else>{{ lineCountText }}</template>
+        </span>
+        <v-icon
+          size="18"
+          class="file-change-chevron"
+          :class="{ expanded: isExpanded }"
+        >
+          mdi-chevron-right
+        </v-icon>
+      </button>
+      <!-- 2026-08-14 open-on-disk: open the changed file on the AstrBot
+           host with the OS default application. Hidden for removals
+           (file is gone) and while the tool call is still running. -->
+      <button
+        v-if="canOpenOnDisk"
+        type="button"
+        class="file-change-open-btn"
+        :disabled="opening"
+        :title="tm('fileChange.openOnDisk')"
+        @click.stop="openOnDisk(entry.filePath, basename)"
       >
-        mdi-chevron-right
-      </v-icon>
-    </button>
+        <v-icon size="14">mdi-open-in-new</v-icon>
+      </button>
+    </div>
 
     <div v-if="isExpanded" class="file-change-body">
       <!-- running -->
@@ -123,6 +138,7 @@ import {
   parseFileEditResult,
   type FileChangeEntry,
 } from "@/utils/fileChangeTool";
+import { useOpenOnDisk } from "@/composables/useOpenOnDisk";
 import DiffPreview from "./DiffPreview.vue";
 import CopyableText from "./__shared__/CopyableText.vue";
 
@@ -134,6 +150,20 @@ const props = defineProps<{
 const { tm } = useModuleI18n("features/chat");
 
 const isExpanded = ref(false);
+
+// ── 2026-08-14 open-on-disk ───────────────────────────────────────
+
+const { opening, openOnDisk } = useOpenOnDisk("fileChange");
+
+/** Removals delete the file and a running call may not have flushed
+ *  yet, so the open action only makes sense for finished edit/write
+ *  entries with a resolved path. */
+const canOpenOnDisk = computed(
+  () =>
+    Boolean(props.entry.filePath) &&
+    props.entry.kind !== "remove" &&
+    props.entry.status !== "running",
+);
 
 const kindIcon = computed(() => {
   if (props.entry.kind === "edit") return "mdi-file-document-edit-outline";
@@ -227,17 +257,53 @@ onMounted(async () => {
   border-color: rgba(207, 34, 46, 0.35);
 }
 
+/* 2026-08-14 open-on-disk: the header and the open button sit side by
+   side in a flex row (buttons cannot nest inside the header button). */
+.file-change-card-top {
+  display: flex;
+  align-items: stretch;
+}
+
+.file-change-card-top .file-change-card-header {
+  flex: 1;
+  min-width: 0;
+}
+
+.file-change-open-btn {
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  border: 0;
+  background: rgba(var(--v-theme-on-surface), 0.04);
+  color: rgba(var(--v-theme-on-surface), 0.5);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s ease;
+}
+
+.file-change-open-btn:hover {
+  background: rgba(var(--v-theme-on-surface), 0.07);
+  color: rgba(var(--v-theme-on-surface), 0.8);
+}
+
+.file-change-open-btn:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
 /* 2026-08-11: whole-card tint by change kind */
 .file-change-card--green {
   background: rgba(45, 164, 78, 0.07);
   border-color: rgba(45, 164, 78, 0.35);
 }
 
-.file-change-card--green .file-change-card-header {
+.file-change-card--green .file-change-card-header,
+.file-change-card--green .file-change-open-btn {
   background: rgba(45, 164, 78, 0.12);
 }
 
-.file-change-card--green .file-change-card-header:hover {
+.file-change-card--green .file-change-card-header:hover,
+.file-change-card--green .file-change-open-btn:hover {
   background: rgba(45, 164, 78, 0.18);
 }
 
@@ -246,11 +312,13 @@ onMounted(async () => {
   border-color: rgba(191, 135, 0, 0.35);
 }
 
-.file-change-card--yellow .file-change-card-header {
+.file-change-card--yellow .file-change-card-header,
+.file-change-card--yellow .file-change-open-btn {
   background: rgba(191, 135, 0, 0.12);
 }
 
-.file-change-card--yellow .file-change-card-header:hover {
+.file-change-card--yellow .file-change-card-header:hover,
+.file-change-card--yellow .file-change-open-btn:hover {
   background: rgba(191, 135, 0, 0.18);
 }
 
@@ -259,11 +327,13 @@ onMounted(async () => {
   border-color: rgba(207, 34, 46, 0.35);
 }
 
-.file-change-card--red .file-change-card-header {
+.file-change-card--red .file-change-card-header,
+.file-change-card--red .file-change-open-btn {
   background: rgba(207, 34, 46, 0.12);
 }
 
-.file-change-card--red .file-change-card-header:hover {
+.file-change-card--red .file-change-card-header:hover,
+.file-change-card--red .file-change-open-btn:hover {
   background: rgba(207, 34, 46, 0.18);
 }
 

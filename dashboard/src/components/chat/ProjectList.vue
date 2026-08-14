@@ -91,6 +91,13 @@
                     !selectionMode &&
                     (Boolean(session.branches?.length) ||
                       Boolean(session.branch_source)),
+                  'drag-over': dragOverSessionId === session.session_id,
+                  'drag-before':
+                    dragOverSessionId === session.session_id &&
+                    dragInsertBefore,
+                  'drag-after':
+                    dragOverSessionId === session.session_id &&
+                    !dragInsertBefore,
                 }"
                 role="button"
                 tabindex="0"
@@ -100,8 +107,27 @@
                 @keydown.space.prevent="
                   handleSessionRowClick(session.session_id)
                 "
-                @dragstart="onProjectSessionDragStart(session.session_id, $event)"
+                @dragstart="
+                  onProjectSessionDragStart(
+                    project.project_id,
+                    session.session_id,
+                    $event,
+                  )
+                "
                 @dragend="emit('dragSessionEnd')"
+                @dragover.prevent="
+                  onSessionRowDragOver(
+                    project.project_id,
+                    session.session_id,
+                    $event,
+                  )
+                "
+                @dragleave="
+                  onSessionRowDragLeave(project.project_id, $event)
+                "
+                @drop.prevent="
+                  onSessionRowDrop(project.project_id, session.session_id, $event)
+                "
               >
                 <v-checkbox-btn
                   v-if="selectionMode"
@@ -183,18 +209,6 @@
                     size="x-small"
                     variant="text"
                     class="project-action-btn"
-                    :title="tm('conversation.archive')"
-                    @click="
-                      $emit('archiveSession', session.session_id, project.project_id)
-                    "
-                  >
-                    <Archive :size="15" />
-                  </v-btn>
-                  <v-btn
-                    icon
-                    size="x-small"
-                    variant="text"
-                    class="project-action-btn"
                     :title="tm('conversation.editDisplayName')"
                     @click="
                       $emit(
@@ -205,6 +219,18 @@
                     "
                   >
                     <Pencil :size="15" />
+                  </v-btn>
+                  <v-btn
+                    icon
+                    size="x-small"
+                    variant="text"
+                    class="project-action-btn"
+                    :title="tm('conversation.archive')"
+                    @click="
+                      $emit('archiveSession', session.session_id, project.project_id)
+                    "
+                  >
+                    <Archive :size="15" />
                   </v-btn>
                   <v-btn
                     icon
@@ -293,6 +319,12 @@ interface Props {
   /** 2026-08-13 session drag: id of the project row currently hovered
    * by a session drag (highlight), or null. */
   dragOverProjectId?: string | null;
+  /** 2026-08-14 session drag: id of the project session row currently
+   * hovered by a session drag (drop-position indicator), or null. */
+  dragOverSessionId?: string | null;
+  /** 2026-08-14 session drag: when true the pending drop inserts before
+   * the hovered session row, otherwise after it. */
+  dragInsertBefore?: boolean;
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -302,6 +334,8 @@ const props = withDefaults(defineProps<Props>(), {
   checkedSessionIds: () => new Set<string>(),
   draggingSessionId: null,
   dragOverProjectId: null,
+  dragOverSessionId: null,
+  dragInsertBefore: true,
 });
 
 const emit = defineEmits<{
@@ -318,11 +352,16 @@ const emit = defineEmits<{
   archiveSession: [sessionId: string, projectId: string];
   /** 2026-08-13 session drag events (bubbled to Chat.vue, the owner of
    * sessions/projects and the move logic). */
-  dragSessionStart: [sessionId: string];
+  dragSessionStart: [sessionId: string, projectId: string];
   dragSessionEnd: [];
   dragOverProject: [projectId: string];
   dragLeaveProject: [projectId: string];
   dropOnProject: [projectId: string];
+  /** 2026-08-14 session drag: dropping onto a project session row inserts
+   * the dragged session into that project at the hovered position. */
+  dragOverSession: [projectId: string, sessionId: string, before: boolean];
+  dragLeaveSession: [projectId: string];
+  dropOnSession: [projectId: string, sessionId: string, before: boolean];
 }>();
 
 const { tm } = useModuleI18n("features/chat");
@@ -442,13 +481,54 @@ function onProjectRowDragLeave(projectId: string, event: DragEvent) {
 }
 
 /** 2026-08-13 session drag: set the dataTransfer here (Firefox refuses to
- * start a drag without setData) and bubble the session id to Chat.vue. */
-function onProjectSessionDragStart(sessionId: string, event: DragEvent) {
+ * start a drag without setData) and bubble the session id + owning project
+ * to Chat.vue so it can tell an in-project reorder from a flat-session move. */
+function onProjectSessionDragStart(
+  projectId: string,
+  sessionId: string,
+  event: DragEvent,
+) {
   if (event.dataTransfer) {
     event.dataTransfer.setData("text/plain", sessionId);
     event.dataTransfer.effectAllowed = "move";
   }
-  emit("dragSessionStart", sessionId);
+  emit("dragSessionStart", sessionId, projectId);
+}
+
+/** 2026-08-14 session drag: whether the pointer is over the top half of the
+ * hovered row (insert before it) rather than the bottom half (after). */
+function insertBeforeRow(event: MouseEvent | DragEvent) {
+  const el = event.currentTarget as HTMLElement | null;
+  if (!el) return true;
+  const rect = el.getBoundingClientRect();
+  return event.clientY < rect.top + rect.height / 2;
+}
+
+/** 2026-08-14 session drag: project session rows are now drop targets too,
+ * so sessions can join a project at a specific position without having to
+ * reach the (possibly scrolled-out) project row. */
+function onSessionRowDragOver(
+  projectId: string,
+  sessionId: string,
+  event: DragEvent,
+) {
+  if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+  emit("dragOverSession", projectId, sessionId, insertBeforeRow(event));
+}
+
+function onSessionRowDragLeave(projectId: string, event: DragEvent) {
+  const related = event.relatedTarget as Node | null;
+  const el = event.currentTarget as HTMLElement | null;
+  if (el && related && el.contains(related)) return;
+  emit("dragLeaveSession", projectId);
+}
+
+function onSessionRowDrop(
+  projectId: string,
+  sessionId: string,
+  event: DragEvent,
+) {
+  emit("dropOnSession", projectId, sessionId, insertBeforeRow(event));
 }
 
 </script>
@@ -535,6 +615,32 @@ function onProjectSessionDragStart(sessionId: string, event: DragEvent) {
   background: rgba(var(--v-theme-primary), 0.12);
   outline: 1.5px dashed rgba(var(--v-theme-primary), 0.6);
   outline-offset: -1px;
+}
+
+/* 2026-08-14 session drag: project session rows are drop targets too; the
+   accent line marks the exact insertion point (before / after the row). */
+.project-session-row.drag-over {
+  background: rgba(var(--v-theme-primary), 0.12);
+}
+
+.project-session-row.drag-before::before,
+.project-session-row.drag-after::after {
+  content: "";
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  height: 2px;
+  border-radius: 1px;
+  background: rgb(var(--v-theme-primary));
+  pointer-events: none;
+}
+
+.project-session-row.drag-before::before {
+  top: -1px;
+}
+
+.project-session-row.drag-after::after {
+  bottom: -1px;
 }
 
 .project-emoji {

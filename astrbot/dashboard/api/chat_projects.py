@@ -221,13 +221,18 @@ async def list_dashboard_chat_project_sessions(
 async def add_chat_project_session(
     project_id: str,
     session_id: str,
+    position: int | None = Query(default=None),
     auth: AuthContext = Depends(require_chat_scope),
     service: ChatUIProjectService = Depends(get_service),
 ):
     return await _run(
         lambda: service.add_session_to_project(
             auth.username,
-            {"project_id": project_id, "session_id": session_id},
+            {
+                "project_id": project_id,
+                "session_id": session_id,
+                "position": position,
+            },
         )
     )
 

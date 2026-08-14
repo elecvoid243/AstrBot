@@ -71,6 +71,7 @@ class SQLiteDatabase(BaseDatabase):
             await self._ensure_platform_session_archived_column(conn)
             await self._ensure_chatui_project_workspace_columns(conn)
             await self._ensure_chatui_project_spcode_columns(conn)
+            await self._ensure_session_project_relation_position_column(conn)
             await self._ensure_conversation_indexes(conn)
             await conn.commit()
 
@@ -238,6 +239,55 @@ class SQLiteDatabase(BaseDatabase):
                     "ADD COLUMN spcode_no_codegraph BOOLEAN NOT NULL DEFAULT 0"
                 )
             )
+
+    async def _ensure_session_project_relation_position_column(self, conn) -> None:
+        """Add and backfill the explicit ``position`` ordering column.
+
+        2026-08-14 (elecvoid243): project sessions were previously ordered by
+        ``PlatformSession.updated_at``; the new ``position`` column makes the
+        order explicit so drag-to-position inserts survive a reload. Existing
+        relations keep their old visual order by backfilling sequential
+        positions (0 = top) in ``updated_at`` descending order.
+        """
+        result = await conn.execute(
+            text("PRAGMA table_info(session_project_relations)")
+        )
+        columns = {row[1] for row in result.fetchall()}
+
+        if "position" not in columns:
+            await conn.execute(
+                text(
+                    "ALTER TABLE session_project_relations "
+                    "ADD COLUMN position INTEGER NOT NULL DEFAULT 0"
+                )
+            )
+
+            # Backfill once (position defaults to 0 for all rows, which would
+            # collapse their relative order into a tie). Group by project and
+            # assign 0..n-1 using the pre-existing updated_at order so existing
+            # projects keep their old visual order.
+            rows_result = await conn.execute(
+                text(
+                    "SELECT r.id, r.project_id, s.updated_at "
+                    "FROM session_project_relations AS r "
+                    "JOIN platform_sessions AS s "
+                    "ON s.session_id = r.session_id "
+                    "ORDER BY r.project_id ASC, s.updated_at DESC, r.id ASC"
+                )
+            )
+            rows = rows_result.fetchall()
+            positions_by_project: dict[str, int] = {}
+            for row in rows:
+                project_id = row[1]
+                next_position = positions_by_project.get(project_id, 0)
+                await conn.execute(
+                    text(
+                        "UPDATE session_project_relations "
+                        "SET position = :position WHERE id = :id"
+                    ),
+                    {"position": next_position, "id": row[0]},
+                )
+                positions_by_project[project_id] = next_position + 1
 
     # ====
     # Platform Statistics
@@ -2270,22 +2320,61 @@ class SQLiteDatabase(BaseDatabase):
         self,
         session_id: str,
         project_id: str,
+        position: int | None = None,
     ) -> SessionProjectRelation:
-        """Add a session to a project."""
+        """Add a session to a project, optionally at an ordered position.
+
+        Args:
+            session_id: Session to associate with the project.
+            project_id: Target project.
+            position: 0-based index in the project session list (0 = top).
+                ``None`` prepends the session to the top, matching the old
+                "newest first" ordering. The remaining sessions are shifted
+                down so positions stay contiguous.
+
+        Returns:
+            The created (or re-created) relation.
+
+        Raises:
+            No explicit error for invalid positions; ``position`` is clamped
+            to ``[0, len(project_sessions)]``.
+        """
         async with self.get_db() as session:
             session: AsyncSession
             async with session.begin():
-                # First remove existing relation if any
+                # Move between projects / reorder within the same project:
+                # drop any existing relation first, then re-insert.
                 await session.execute(
                     delete(SessionProjectRelation).where(
                         col(SessionProjectRelation.session_id) == session_id,
                     ),
                 )
-                # Then create new relation
+                ordered_result = await session.execute(
+                    select(SessionProjectRelation)
+                    .where(
+                        col(SessionProjectRelation.project_id) == project_id,
+                    )
+                    .order_by(
+                        col(SessionProjectRelation.position).asc(),
+                        col(SessionProjectRelation.id).asc(),
+                    ),
+                )
+                ordered = list(ordered_result.scalars().all())
+
+                if position is None:
+                    insert_index = 0
+                else:
+                    insert_index = max(0, min(position, len(ordered)))
+
                 relation = SessionProjectRelation(
                     session_id=session_id,
                     project_id=project_id,
+                    position=0,
                 )
+                ordered.insert(insert_index, relation)
+                for index, item in enumerate(ordered):
+                    item.position = index
+
                 session.add(relation)
                 await session.flush()
                 await session.refresh(relation)
@@ -2333,7 +2422,10 @@ class SQLiteDatabase(BaseDatabase):
             if exclude_archived:
                 query = query.where(col(PlatformSession.archived) == 0)
             result = await session.execute(
-                query.order_by(desc(PlatformSession.updated_at))
+                query.order_by(
+                    col(SessionProjectRelation.position).asc(),
+                    desc(PlatformSession.updated_at),
+                )
                 .limit(page_size)
                 .offset(offset),
             )

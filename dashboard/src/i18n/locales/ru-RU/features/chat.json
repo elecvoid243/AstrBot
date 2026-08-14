@@ -122,7 +122,10 @@
   },
   "fileChange": {
     "lines": "{count} строк",
-    "editing": "Редактирование…"
+    "editing": "Редактирование…",
+    "openOnDisk": "Открыть на диске",
+    "opened": "Открыт файл {name}",
+    "openFailed": "Не удалось открыть файл: {message}"
   },
   "shellSession": {
     "headers": {
@@ -203,12 +206,19 @@
     "confirmDelete": "Вы уверены, что хотите удалить «{name}»? Это действие необратимо.",
     "resizeSidebar": "Перетащите, чтобы изменить ширину боковой панели",
     "archive": "Архивировать диалог",
+    "archiveConfirm": "Архивировать «{name}»? Его можно восстановить из «Просмотра архива».",
     "unarchive": "Восстановить диалог",
     "archived": "Просмотр архива",
     "archivedDialogTitle": "Архивные диалоги",
     "archivedSearchPlaceholder": "Поиск по названиям архивных диалогов…",
     "archivedPagination": "Стр. {page}/{totalPages} · всего {total}",
     "archivedEmpty": "Нет архивных диалогов",
+    "archivedNoPreview": "Нет предпросмотра",
+    "viewFull": "Открыть полный диалог",
+    "batchUnarchive": "Восстановить",
+    "batchUnarchiveConfirm": "Восстановить выбранные диалоги ({count})?",
+    "batchUnarchiveSuccess": "Восстановлено диалогов: {count}",
+    "readonlyHint": "Диалог архивирован и открыт в режиме только для чтения",
     "archivedToast": "Диалог архивирован",
     "unarchiveToast": "Диалог восстановлен",
     "archiveFailed": "Не удалось архивировать диалог",
@@ -384,7 +394,7 @@
     "manage": "Выбрать диалоги",
     "deleteSuccess": "Удалено диалогов: {count}",
     "archive": "Архивировать",
-    "confirmArchive": "Архивировать выбранные диалоги ({count})? Это действие необратимо.",
+    "confirmArchive": "Архивировать выбранные диалоги ({count})? Их можно восстановить из «Просмотра архива».",
     "archiveSuccess": "Архивировано диалогов: {count}"
   },
   "diffPreview": {
@@ -530,7 +540,10 @@
         "copySuccess": "Скопировано",
         "copyFail": "Ошибка копирования",
         "goToTarget": "Перейти к цели",
-        "encodingLabel": "Кодировка: {encoding}"
+        "encodingLabel": "Кодировка: {encoding}",
+        "openOnDisk": "Открыть на диске",
+        "opened": "Открыт файл {name}",
+        "openFailed": "Не удалось открыть файл: {message}"
       },
       "editor": {
         "edit": "Изменить",
@@ -1033,6 +1046,14 @@
             "unknown": "Не удалось отменить: {reason}"
           }
         }
+      },
+      "openOnDisk": {
+        "buttonAria": "Открыть {path} на диске"
+      },
+      "openMenu": {
+        "buttonAria": "Открыть {path}",
+        "inFileBrowser": "Открыть в файловом браузере",
+        "onDisk": "Открыть на диске"
       },
       "gitWorkflow": {
         "stage": {

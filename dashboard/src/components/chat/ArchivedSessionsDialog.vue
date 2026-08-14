@@ -1,12 +1,21 @@
 <template>
   <v-dialog
     :model-value="modelValue"
-    max-width="640"
+    max-width="680"
     @update:model-value="$emit('update:modelValue', $event)"
   >
     <v-card class="archived-dialog">
-      <v-card-title class="text-h3 pa-4 pb-0 pl-6">
-        {{ tm("conversation.archivedDialogTitle") }}
+      <v-card-title class="text-h3 pa-4 pb-0 pl-6 d-flex align-center">
+        <span class="flex-grow-1">{{ tm("conversation.archivedDialogTitle") }}</span>
+        <v-btn
+          size="small"
+          variant="tonal"
+          density="compact"
+          :class="{ active: selectionMode }"
+          @click="toggleSelectionMode"
+        >
+          {{ tm("batch.manage") }}
+        </v-btn>
       </v-card-title>
       <v-card-text>
         <v-text-field
@@ -21,6 +30,50 @@
           @update:model-value="onSearchInput"
         />
 
+        <!-- 2026-08-13 batch actions inside the archived dialog -->
+        <div v-if="selectionMode" class="archived-batch-bar">
+          <v-checkbox-btn
+            :model-value="allChecked"
+            :indeterminate="someChecked"
+            density="compact"
+            class="batch-select-all"
+            :title="allChecked ? tm('batch.deselectAll') : tm('batch.selectAll')"
+            @update:model-value="toggleSelectAll"
+          />
+          <span class="archived-batch-count">
+            {{ tm("batch.selected", { count: checkedIds.size }) }}
+          </span>
+          <v-btn
+            size="x-small"
+            variant="text"
+            class="archived-batch-btn"
+            :disabled="checkedIds.size === 0"
+            :loading="batchLoading"
+            @click="batchRestore"
+          >
+            {{ tm("conversation.batchUnarchive") }}
+          </v-btn>
+          <v-btn
+            size="x-small"
+            variant="text"
+            color="error"
+            class="archived-batch-btn"
+            :disabled="checkedIds.size === 0"
+            :loading="batchLoading"
+            @click="batchDelete"
+          >
+            {{ tm("batch.delete") }}
+          </v-btn>
+          <v-btn
+            size="x-small"
+            variant="text"
+            class="archived-batch-btn"
+            @click="toggleSelectionMode"
+          >
+            {{ tm("batch.exit") }}
+          </v-btn>
+        </div>
+
         <div v-if="loading" class="archived-dialog-status">
           <v-progress-circular indeterminate size="18" width="2" />
         </div>
@@ -29,36 +82,84 @@
           <div
             v-for="session in items"
             :key="session.session_id"
-            class="archived-dialog-item"
+            class="archived-card"
+            :class="{ expanded: expandedId === session.session_id }"
           >
-            <span class="archived-dialog-title">
-              {{ session.display_name?.trim() || tm("conversation.newConversation") }}
-            </span>
-            <span v-if="session.project_title" class="archived-project-tag">
-              {{ session.project_title }}
-            </span>
-            <div class="archived-dialog-actions">
-              <v-btn
-                icon
-                size="small"
-                variant="text"
-                class="archived-dialog-btn"
-                :title="tm('conversation.unarchive')"
-                @click="restoreSession(session)"
+            <div class="archived-card-head">
+              <v-checkbox-btn
+                v-if="selectionMode"
+                :model-value="checkedIds.has(session.session_id)"
+                density="compact"
+                class="archived-card-checkbox"
+                @click.stop
+                @update:model-value="toggleChecked(session.session_id)"
+              />
+              <button
+                type="button"
+                class="archived-card-toggle"
+                @click="toggleExpanded(session)"
               >
-                <ArchiveRestore :size="16" />
-              </v-btn>
-              <v-btn
-                icon
-                size="small"
-                variant="text"
-                class="archived-dialog-btn"
-                :title="tm('actions.deleteChat')"
-                @click="deleteSession(session)"
-              >
-                <Trash2 :size="16" />
-              </v-btn>
+                <ChevronRight
+                  :size="16"
+                  class="archived-card-chevron"
+                  :class="{ open: expandedId === session.session_id }"
+                />
+                <span class="archived-card-title">
+                  {{
+                    session.display_name?.trim() ||
+                    tm("conversation.newConversation")
+                  }}
+                </span>
+                <span v-if="session.project_title" class="archived-project-tag">
+                  {{ session.project_title }}
+                </span>
+              </button>
+              <div class="archived-card-actions">
+                <v-btn
+                  icon
+                  size="small"
+                  variant="text"
+                  class="archived-dialog-btn"
+                  :title="tm('conversation.viewFull')"
+                  @click="$emit('open', session)"
+                >
+                  <Eye :size="16" />
+                </v-btn>
+                <v-btn
+                  icon
+                  size="small"
+                  variant="text"
+                  class="archived-dialog-btn"
+                  :title="tm('conversation.unarchive')"
+                  @click="restoreSession(session)"
+                >
+                  <ArchiveRestore :size="16" />
+                </v-btn>
+                <v-btn
+                  icon
+                  size="small"
+                  variant="text"
+                  class="archived-dialog-btn"
+                  :title="tm('actions.deleteChat')"
+                  @click="deleteSession(session)"
+                >
+                  <Trash2 :size="16" />
+                </v-btn>
+              </div>
             </div>
+            <Transition name="archived-preview">
+              <div v-if="expandedId === session.session_id" class="archived-preview">
+                <div v-if="previewLoading[session.session_id]" class="archived-preview-status">
+                  <v-progress-circular indeterminate size="16" width="2" />
+                </div>
+                <p v-else-if="previews[session.session_id]" class="archived-preview-text">
+                  {{ previews[session.session_id] }}
+                </p>
+                <p v-else class="archived-preview-empty">
+                  {{ tm("conversation.archivedNoPreview") }}
+                </p>
+              </div>
+            </Transition>
           </div>
         </div>
 
@@ -114,8 +215,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from "vue";
-import { ArchiveRestore, ChevronLeft, ChevronRight, Trash2 } from "@lucide/vue";
+import { computed, reactive, ref, watch } from "vue";
+import {
+  ArchiveRestore,
+  ChevronLeft,
+  ChevronRight,
+  Eye,
+  Trash2,
+} from "@lucide/vue";
 import { useI18n, useModuleI18n } from "@/i18n/composables";
 import { useToast } from "@/utils/toast";
 import { askForConfirmation, useConfirmDialog } from "@/utils/confirmDialog";
@@ -131,12 +238,12 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   "update:modelValue": [value: boolean];
-  /** Session restored; parent refreshes sidebar/project lists. */
-  restore: [session: ArchivedSession];
-  /** Session deleted; parent refreshes sidebar/project lists. */
-  delete: [session: ArchivedSession];
-  /** Total archived count changed; parent updates the badge. */
-  count: [total: number];
+  /** Session(s) restored; parent refreshes sidebar/project lists. */
+  restore: [session?: ArchivedSession];
+  /** Session(s) deleted; parent refreshes sidebar/project lists. */
+  delete: [session?: ArchivedSession];
+  /** View the full session read-only in the main chat area. */
+  open: [session: ArchivedSession];
 }>();
 
 const { t } = useI18n();
@@ -159,6 +266,25 @@ const pageSizeOptions = [20, 30, 50];
 const pageSize = ref(20);
 let searchDebounce: ReturnType<typeof setTimeout> | null = null;
 
+// Selection mode for batch restore / batch delete.
+const selectionMode = ref(false);
+const checkedIds = ref<Set<string>>(new Set());
+const batchLoading = ref(false);
+
+// Expanded cards: lazy preview of the first user message.
+const expandedId = ref<string | null>(null);
+const previewLoading = reactive<Record<string, boolean>>({});
+const previews = reactive<Record<string, string>>({});
+
+const allChecked = computed(
+  () =>
+    items.value.length > 0 &&
+    items.value.every((session) => checkedIds.value.has(session.session_id)),
+);
+const someChecked = computed(
+  () => checkedIds.value.size > 0 && !allChecked.value,
+);
+
 async function load() {
   loading.value = true;
   try {
@@ -173,7 +299,6 @@ async function load() {
       ...payload.pagination,
       page_size: pageSize.value,
     };
-    emit("count", payload.pagination.total);
   } finally {
     loading.value = false;
   }
@@ -192,6 +317,27 @@ function goPage(page: number) {
   if (page < 1 || page > pagination.value.total_pages) return;
   pagination.value.page = page;
   void load();
+}
+
+function toggleSelectionMode() {
+  selectionMode.value = !selectionMode.value;
+  if (!selectionMode.value) checkedIds.value = new Set();
+}
+
+function toggleChecked(sessionId: string) {
+  const next = new Set(checkedIds.value);
+  if (next.has(sessionId)) {
+    next.delete(sessionId);
+  } else {
+    next.add(sessionId);
+  }
+  checkedIds.value = next;
+}
+
+function toggleSelectAll() {
+  checkedIds.value = allChecked.value
+    ? new Set()
+    : new Set(items.value.map((session) => session.session_id));
 }
 
 async function restoreSession(session: ArchivedSession) {
@@ -222,6 +368,114 @@ async function deleteSession(session: ArchivedSession) {
   void load();
 }
 
+async function batchRestore() {
+  const ids = [...checkedIds.value];
+  if (!ids.length) return;
+  const message = tm("conversation.batchUnarchiveConfirm", { count: ids.length });
+  if (!(await askForConfirmation(message, confirmDialog))) return;
+
+  batchLoading.value = true;
+  try {
+    const response = await chatApi.batchUnarchiveSessions({ session_ids: ids });
+    if (response.data?.status !== "ok") {
+      throw new Error(response.data?.message || "Failed to batch restore");
+    }
+    const data = response.data?.data || {};
+    const failedCount = data.failed_count || 0;
+    if (failedCount > 0) {
+      toast.error(tm("batch.partialFailure", { failed: failedCount, total: ids.length }));
+    } else {
+      toast.success(
+        tm("conversation.batchUnarchiveSuccess", { count: data.unarchived_count }),
+      );
+    }
+    // Parent refreshes sidebar/project lists for the restored set.
+    emit("restore");
+    toggleSelectionMode();
+    void load();
+  } catch (err) {
+    console.error("Failed to batch restore sessions:", err);
+    toast.error(tm("batch.requestFailed"));
+  } finally {
+    batchLoading.value = false;
+  }
+}
+
+async function batchDelete() {
+  const ids = [...checkedIds.value];
+  if (!ids.length) return;
+  const message = tm("batch.confirmDelete", { count: ids.length });
+  if (!(await askForConfirmation(message, confirmDialog))) return;
+
+  batchLoading.value = true;
+  try {
+    const response = await chatApi.batchDeleteSessions({ session_ids: ids });
+    if (response.data?.status !== "ok") {
+      throw new Error(response.data?.message || "Failed to batch delete");
+    }
+    const data = response.data?.data || {};
+    const failedCount = data.failed_count || 0;
+    if (failedCount > 0) {
+      toast.error(tm("batch.partialFailure", { failed: failedCount, total: ids.length }));
+    } else {
+      toast.success(tm("batch.deleteSuccess", { count: data.deleted_count }));
+    }
+    emit("delete");
+    toggleSelectionMode();
+    void load();
+  } catch (err) {
+    console.error("Failed to batch delete sessions:", err);
+    toast.error(tm("batch.requestFailed"));
+  } finally {
+    batchLoading.value = false;
+  }
+}
+
+async function toggleExpanded(session: ArchivedSession) {
+  if (expandedId.value === session.session_id) {
+    expandedId.value = null;
+    return;
+  }
+  expandedId.value = session.session_id;
+  if (previews[session.session_id] || previewLoading[session.session_id]) return;
+  previewLoading[session.session_id] = true;
+  try {
+    const response = await chatApi.getSession(session.session_id);
+    const history = response.data?.data?.history || [];
+    previews[session.session_id] = truncatePreview(
+      extractFirstUserText(history),
+      200,
+    );
+  } catch (err) {
+    console.error("Failed to load archived session preview:", err);
+    previews[session.session_id] = "";
+  } finally {
+    previewLoading[session.session_id] = false;
+  }
+}
+
+function extractFirstUserText(history: unknown[]): string {
+  for (const entry of history) {
+    const content = (entry as Record<string, any>)?.content;
+    if (!content || content.type !== "user") continue;
+    const parts = content.message;
+    if (typeof parts === "string") return parts;
+    if (Array.isArray(parts)) {
+      const texts = parts
+        .filter((part) => part && typeof part.text === "string")
+        .map((part) => part.text);
+      if (texts.length) return texts.join(" ");
+    }
+  }
+  return "";
+}
+
+function truncatePreview(text: string, limit: number): string {
+  const cleaned = text.replace(/\s+/g, " ").trim();
+  if (cleaned.length <= limit) return cleaned;
+  return `${cleaned.slice(0, limit)}…`;
+}
+
 watch(
   () => pageSize.value,
   () => {
@@ -230,7 +484,7 @@ watch(
   },
 );
 
-// Reset query + paging every time the dialog opens.
+// Reset query + paging + selection every time the dialog opens.
 watch(
   () => props.modelValue,
   (open) => {
@@ -238,6 +492,9 @@ watch(
     searchInput.value = "";
     searchQuery.value = "";
     pagination.value.page = 1;
+    selectionMode.value = false;
+    checkedIds.value = new Set();
+    expandedId.value = null;
     void load();
   },
 );
@@ -253,24 +510,60 @@ watch(
 .archived-dialog-list {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  max-height: 46vh;
+  gap: 4px;
+  max-height: 50vh;
   overflow-y: auto;
 }
 
-.archived-dialog-item {
+.archived-card {
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.08);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.archived-card.expanded {
+  border-color: rgba(var(--v-theme-primary), 0.35);
+}
+
+.archived-card-head {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  border-radius: 8px;
+  gap: 2px;
+  padding: 4px 6px 4px 10px;
 }
 
-.archived-dialog-item:hover {
-  background: rgba(var(--v-theme-on-surface), 0.05);
+.archived-card-checkbox {
+  flex: 0 0 auto;
 }
 
-.archived-dialog-title {
+.archived-card-checkbox :deep(.v-selection-control) {
+  min-height: 24px;
+}
+
+.archived-card-toggle {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 4px 0;
+  text-align: left;
+}
+
+.archived-card-chevron {
+  flex: 0 0 auto;
+  transition: transform 0.12s ease;
+}
+
+.archived-card-chevron.open {
+  transform: rotate(90deg);
+}
+
+.archived-card-title {
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -294,7 +587,7 @@ watch(
   line-height: 18px;
 }
 
-.archived-dialog-actions {
+.archived-card-actions {
   display: flex;
   align-items: center;
   gap: 2px;
@@ -309,10 +602,71 @@ watch(
   color: rgb(var(--v-theme-on-surface));
 }
 
+.archived-preview {
+  padding: 4px 12px 10px 40px;
+  border-top: 1px solid rgba(var(--v-theme-on-surface), 0.06);
+  margin-top: 2px;
+}
+
+.archived-preview-status {
+  display: flex;
+  justify-content: center;
+  padding: 8px 0;
+}
+
+.archived-preview-text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: rgba(var(--v-theme-on-surface), 0.72);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.archived-preview-empty {
+  margin: 0;
+  padding: 8px 0;
+  font-size: 12px;
+  color: var(--chat-muted);
+}
+
+.archived-preview-enter-active,
+.archived-preview-leave-active {
+  transition: opacity 0.12s ease;
+}
+.archived-preview-enter-from,
+.archived-preview-leave-to {
+  opacity: 0;
+}
+
 .archived-empty {
   padding: 24px 0;
   text-align: center;
   color: var(--chat-muted);
+  font-size: 13px;
+}
+
+.archived-batch-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 8px;
+  padding: 2px 8px;
+  border-radius: 8px;
+  background: rgba(var(--v-theme-on-surface), 0.05);
+}
+
+.archived-batch-count {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--chat-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.archived-batch-btn {
   font-size: 13px;
 }
 

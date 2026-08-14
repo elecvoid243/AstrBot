@@ -124,6 +124,12 @@ class ChatSessionPatchRequest(OpenModel):
     display_name: str | None = None
 
 
+class ChatOpenFileRequest(OpenModel):
+    """Request to open a local file on the AstrBot host (2026-08-14)."""
+
+    path: str
+
+
 class ChatMessagePatchRequest(OpenModel):
     content: dict[str, Any]
 

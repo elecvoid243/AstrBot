@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import asyncio
+import os
+import sys
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query, Request
@@ -10,6 +14,7 @@ from astrbot.dashboard.responses import error, ok
 from astrbot.dashboard.schemas import (
     ChatMessagePatchRequest,
     ChatMessageRegenerateRequest,
+    ChatOpenFileRequest,
     ChatSessionBatchDeleteRequest,
     ChatSessionPatchRequest,
     ChatThreadCreateRequest,
@@ -148,6 +153,20 @@ async def batch_archive_chat_sessions(
     )
 
 
+@router.post("/chat/sessions/batch-unarchive")
+async def batch_unarchive_chat_sessions(
+    payload: ChatSessionBatchDeleteRequest,
+    auth: AuthContext = Depends(require_chat_scope),
+    service: ChatService = Depends(get_service),
+):
+    return await _run(
+        lambda: service.batch_unarchive_sessions_from_dashboard_payload(
+            auth.username,
+            _model_dict(payload),
+        )
+    )
+
+
 @router.get("/chat/sessions/archived")
 async def get_archived_chat_sessions(
     request: Request,
@@ -231,6 +250,36 @@ async def stop_chat_session(
     service: ChatService = Depends(get_service),
 ):
     return await _run(lambda: service.stop_session(auth.username, session_id))
+
+
+@router.post("/chat/open-file")
+async def open_chat_local_file(
+    payload: ChatOpenFileRequest,
+    _auth: AuthContext = Depends(require_chat_scope),
+):
+    """Open a file on the AstrBot host with the OS default application.
+
+    Used by the webchat file-change cards (2026-08-14) so users can open
+    the file an agent edited/wrote directly from the reasoning sidebar.
+    """
+    raw_path = payload.path.strip()
+    if not raw_path:
+        return error("Missing file path")
+    target = Path(raw_path).expanduser()
+    if not target.exists():
+        return error(f"File not found: {raw_path}")
+    try:
+        if sys.platform == "win32":
+            os.startfile(target)  # noqa: S606
+        else:
+            # Popen equivalent that does not block the event loop.
+            await asyncio.create_subprocess_exec(
+                "open" if sys.platform == "darwin" else "xdg-open",
+                str(target),
+            )
+    except OSError as exc:
+        return error(f"Failed to open file: {exc}")
+    return ok({"path": str(target)})
 
 
 @router.get("/chat/runs/{run_id}/stream")

@@ -506,6 +506,13 @@ class SessionProjectRelation(SQLModel, table=True):
     """Session ID from PlatformSession"""
     project_id: str = Field(nullable=False, max_length=36)
     """Project ID from ChatUIProject"""
+    position: int = Field(default=0, nullable=False)
+    """0-based sort index inside the project (lower = higher in the list).
+
+    2026-08-14 (elecvoid243): explicit ordering so sessions dragged into a
+    project can be inserted at the exact drop position instead of relying on
+    the session's ``updated_at``.
+    """
 
     __table_args__ = (
         UniqueConstraint(

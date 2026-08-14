@@ -1,4 +1,4 @@
-/* Auto-generated MDI subset – 361 icons */
+/* Auto-generated MDI subset – 362 icons */
 /* Do not edit manually. Run: pnpm run subset-icons */
 
 @font-face {
@@ -1018,6 +1018,10 @@
 
 .mdi-numeric-3::before {
   content: "\F0B3C";
+}
+
+.mdi-open-in-app::before {
+  content: "\F03CB";
 }
 
 .mdi-open-in-new::before {

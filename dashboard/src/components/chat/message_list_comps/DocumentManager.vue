@@ -71,6 +71,7 @@ import BinaryPreview from "./binary_preview/BinaryPreview.vue";
 import { useResizableSplit } from "@/composables/useResizableSplit";
 import { useInlineAnnotations } from "@/composables/useInlineAnnotations";
 import { useSpcodeBtw } from "@/composables/useSpcodeBtw";
+import { useOpenOnDisk } from "@/composables/useOpenOnDisk";
 import {
   projectRelativePath,
   docsRootRelativePath,
@@ -270,6 +271,19 @@ const fileContent = computed<string>(() => {
 const docMeta = computed(() =>
   fileState.value.kind === "file" ? fileState.value.snapshot.meta : null,
 );
+
+// 2026-08-14 open-on-disk: ask the AstrBot host to open the selected
+// doc with the OS default application. docMeta.path is the absolute
+// path echoed back by the file-browser endpoint, so no client-side
+// path math is needed. Mirrors the workspace preview's button.
+const { opening: openingOnDisk, openOnDisk } = useOpenOnDisk(
+  "spcodeProjectLoad.fileBrowser.preview",
+);
+
+function openSelectedDocOnDisk(): void {
+  if (!docMeta.value) return;
+  void openOnDisk(docMeta.value.path, docMeta.value.name);
+}
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -1944,6 +1958,24 @@ onBeforeUnmount(() => {
                     @click="onCopyContent"
                   >
                     {{ copyButtonText }}
+                  </v-btn>
+                  <!-- 2026-08-14 open-on-disk: open the selected doc on
+                       the AstrBot host with the OS default application.
+                       Shown for binary files too (PDF / DOCX / XLSX) —
+                       opening them externally is the primary way to view
+                       them natively. Mirrors the workspace preview. -->
+                  <v-btn
+                    v-if="docMeta"
+                    size="x-small"
+                    variant="text"
+                    color="primary"
+                    prepend-icon="mdi-open-in-new"
+                    :disabled="openingOnDisk"
+                    @click="openSelectedDocOnDisk"
+                  >
+                    {{
+                      tm("spcodeProjectLoad.fileBrowser.preview.openOnDisk")
+                    }}
                   </v-btn>
                 </div>
               </div>

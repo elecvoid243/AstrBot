@@ -268,6 +268,9 @@ export function useMessages(options: UseMessagesOptions) {
   const sessionProjects = reactive<Record<string, ChatSessionProject | null>>(
     {},
   );
+  // 2026-08-13: archived flag per loaded session, from the getSession
+  // payload. The ChatUI renders archived sessions in read-only mode.
+  const sessionArchivedFlags = reactive<Record<string, boolean>>({});
   // System event stream (goal-loop orphan turns): one long-lived SSE per
   // active session, feeding live records through the systemStream leaf.
   // Wrap with `reactive` so that (1) record mutations made via the raw
@@ -483,6 +486,7 @@ export function useMessages(options: UseMessagesOptions) {
       await resolveRecordMedia(records);
       messagesBySession[sessionId] = records;
       sessionProjects[sessionId] = normalizeSessionProject(payload.project);
+      sessionArchivedFlags[sessionId] = Boolean(payload.archived);
       loadedSessions[sessionId] = true;
       if (resumeRuns && Array.isArray(payload.active_runs)) {
         await restoreNextActiveRun(sessionId, payload.active_runs);
@@ -1694,6 +1698,7 @@ export function useMessages(options: UseMessagesOptions) {
     messagesBySession,
     loadedSessions,
     sessionProjects,
+    sessionArchivedFlags,
     activeMessages,
     isSessionRunning,
     hasLiveSystemRecord,

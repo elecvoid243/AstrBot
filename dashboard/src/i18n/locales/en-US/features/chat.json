@@ -122,7 +122,10 @@
   },
   "fileChange": {
     "lines": "{count} lines",
-    "editing": "Editing…"
+    "editing": "Editing…",
+    "openOnDisk": "Open on disk",
+    "opened": "Opened {name}",
+    "openFailed": "Failed to open file: {message}"
   },
   "shellSession": {
     "headers": {
@@ -203,12 +206,19 @@
     "confirmDelete": "Are you sure you want to delete \"{name}\"? This action cannot be undone.",
     "resizeSidebar": "Drag to resize sidebar",
     "archive": "Archive Session",
+    "archiveConfirm": "Archive \"{name}\"? You can restore it anytime from View Archive.",
     "unarchive": "Restore Session",
     "archived": "View Archive",
     "archivedDialogTitle": "Archived Conversations",
     "archivedSearchPlaceholder": "Search archived conversation titles…",
     "archivedPagination": "Page {page}/{totalPages} · {total} total",
     "archivedEmpty": "No archived conversations",
+    "archivedNoPreview": "No preview available",
+    "viewFull": "View full session",
+    "batchUnarchive": "Restore",
+    "batchUnarchiveConfirm": "Restore {count} archived conversation(s)?",
+    "batchUnarchiveSuccess": "Restored {count} conversation(s)",
+    "readonlyHint": "This session is archived and opened in read-only mode",
     "archivedToast": "Conversation archived",
     "unarchiveToast": "Conversation restored",
     "archiveFailed": "Failed to archive conversation",
@@ -384,7 +394,7 @@
     "manage": "Select conversations",
     "deleteSuccess": "Deleted {count} conversation(s)",
     "archive": "Archive",
-    "confirmArchive": "Archive {count} conversation(s)? This action cannot be undone.",
+    "confirmArchive": "Archive {count} conversation(s)? You can restore them anytime from View Archive.",
     "archiveSuccess": "Archived {count} conversation(s)"
   },
   "diffPreview": {
@@ -531,7 +541,10 @@
         "copySuccess": "Copied",
         "copyFail": "Copy failed",
         "goToTarget": "Go to target",
-        "encodingLabel": "Encoding: {encoding}"
+        "encodingLabel": "Encoding: {encoding}",
+        "openOnDisk": "Open on disk",
+        "opened": "Opened {name}",
+        "openFailed": "Failed to open file: {message}"
       },
       "editor": {
         "edit": "Edit",
@@ -1159,6 +1172,14 @@
       },
       "openFile": {
         "buttonAria": "Open {path} in file browser"
+      },
+      "openOnDisk": {
+        "buttonAria": "Open {path} on disk"
+      },
+      "openMenu": {
+        "buttonAria": "Open {path}",
+        "inFileBrowser": "Open in file browser",
+        "onDisk": "Open on disk"
       },
       "gitWorkflow": {
         "stage": {

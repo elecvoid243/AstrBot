@@ -1990,6 +1990,46 @@ class ChatService:
             "failed_items": failed_items,
         }
 
+    async def batch_unarchive_sessions_from_dashboard_payload(
+        self,
+        username: str,
+        payload: object,
+    ) -> dict:
+        """Restore multiple archived sessions owned by the user in one request.
+
+        Mirror of ``batch_archive_sessions_from_dashboard_payload`` for the
+        archived-conversations dialog's batch restore action.
+
+        Args:
+            username: Dashboard username; must own every session.
+            payload: Dict with ``session_ids`` (list of session ids).
+
+        Returns:
+            Dict with ``unarchived_count``, ``failed_count`` and
+            ``failed_items`` (``{"session_id", "reason"}``).
+        """
+        data = self._dashboard_payload(payload)
+        session_ids = data.get("session_ids")
+        if not session_ids or not isinstance(session_ids, list):
+            raise ChatServiceError("Missing or invalid key: session_ids")
+
+        unarchived_count = 0
+        failed_items: list[dict] = []
+        for session_id in session_ids:
+            try:
+                await self.set_session_archived(username, session_id, False)
+                unarchived_count += 1
+            except ChatServiceError as exc:
+                failed_items.append(
+                    {"session_id": session_id, "reason": str(exc)}
+                )
+
+        return {
+            "unarchived_count": unarchived_count,
+            "failed_count": len(failed_items),
+            "failed_items": failed_items,
+        }
+
     async def delete_attachments(self, attachment_ids: list[str]) -> None:
         try:
             attachments = await self.db.get_attachments(attachment_ids)
@@ -2260,6 +2300,9 @@ class ChatService:
             "threads": [serialize_thread(thread) for thread in threads],
             "is_running": self.running_convs.get(session_id, False),
             "active_runs": self.get_active_chat_runs(username, session_id),
+            # 2026-08-13: lets the frontend render archived sessions in a
+            # read-only mode.
+            "archived": bool(getattr(session, "archived", 0)),
         }
         if project_info:
             response_data["project"] = {

@@ -196,6 +196,8 @@
           :checked-session-ids="checkedSessionIds"
           :dragging-session-id="draggingSessionId"
           :drag-over-project-id="dragOverProjectId"
+          :drag-over-session-id="dragOverSessionId"
+          :drag-insert-before="dragInsertBefore"
           @create-project="openCreateProjectDialog"
           @edit-project="openEditProjectDialog"
           @delete-project="handleDeleteProject"
@@ -211,11 +213,14 @@
           @drag-over-project="onProjectDragOver"
           @drag-leave-project="onProjectDragLeave"
           @drop-on-project="onProjectDrop"
+          @drag-over-session="onSessionDragOver"
+          @drag-leave-session="onSessionDragLeave"
+          @drop-on-session="onSessionDrop"
         />
 
         <section
           class="sidebar-section session-list"
-          :class="{ 'drop-unsorted': dragOverUnsorted }"
+          :class="{ 'drop-unsorted': dragOverUnsorted && draggingSessionProjectId }"
           @dragover.prevent="onUnsortedDragOver"
           @dragleave="onUnsortedDragLeave"
           @drop.prevent="onUnsortedDrop"
@@ -225,7 +230,7 @@
           </div>
           <Transition name="drag-hint">
             <div
-              v-if="dragOverUnsorted && draggingSessionId"
+              v-if="dragOverUnsorted && draggingSessionId && draggingSessionProjectId"
               class="session-list-drop-hint"
             >
               <v-icon size="14">mdi-tray-arrow-up</v-icon>
@@ -328,20 +333,20 @@
                 size="x-small"
                 variant="text"
                 class="session-action-btn"
-                :title="tm('conversation.archive')"
-                @click="archiveSidebarSession(session)"
+                :title="tm('conversation.editDisplayName')"
+                @click="editSidebarSessionTitle(session)"
               >
-                <Archive :size="15" />
+                <Pencil :size="15" />
               </v-btn>
               <v-btn
                 icon
                 size="x-small"
                 variant="text"
                 class="session-action-btn"
-                :title="tm('conversation.editDisplayName')"
-                @click="editSidebarSessionTitle(session)"
+                :title="tm('conversation.archive')"
+                @click="archiveSidebarSession(session)"
               >
-                <Pencil :size="15" />
+                <Archive :size="15" />
               </v-btn>
               <v-btn
                 icon
@@ -385,12 +390,6 @@
           />
           <span v-if="!isSidebarCollapsed">
             {{ tm("conversation.archived") }}
-          </span>
-          <span
-            v-if="!isSidebarCollapsed && archivedCount"
-            class="archive-count-badge"
-          >
-            {{ archivedCount }}
           </span>
         </button>
 
@@ -770,6 +769,7 @@
         </div>
 
         <section ref="composerShell" class="composer-shell">
+          <template v-if="!isReadonlySession">
           <ChatInput
             ref="inputRef"
             v-model:prompt="draft"
@@ -810,6 +810,22 @@
             @clear-reply="replyTarget = null"
             @open-diff-sidebar="openGitDiffSidebar"
           />
+        </template>
+        <!-- 2026-08-13 (elecvoid243): archived sessions open read-only. -->
+        <div v-else class="readonly-session-bar">
+          <ArchiveRestore :size="16" />
+          <span class="readonly-session-text">
+            {{ tm("conversation.readonlyHint") }}
+          </span>
+          <v-btn
+            size="small"
+            variant="tonal"
+            density="compact"
+            @click="restoreReadonlySession"
+          >
+            {{ tm("conversation.unarchive") }}
+          </v-btn>
+        </div>
         </section>
       </div>
     </main>
@@ -929,7 +945,7 @@
   v-model="archivedDialogOpen"
   @restore="onArchivedRestored"
   @delete="onArchivedDeleted"
-  @count="archivedCount = $event"
+  @open="openArchivedSession"
 />
 </template>
 
@@ -949,6 +965,7 @@ import { useDisplay } from "vuetify";
 import { isAxiosError } from "axios";
 import {
   Archive,
+  ArchiveRestore,
   Box,
   Cable,
   Check,
@@ -1076,7 +1093,6 @@ const { languageOptions, currentLanguage, switchLanguage, locale } =
   useLanguageSwitcher();
 const {
   sessions,
-  archivedPagination,
   currSessionId,
   getSessions,
   newSession,
@@ -1474,6 +1490,7 @@ const {
   sending,
   loadedSessions,
   sessionProjects,
+  sessionArchivedFlags,
   activeMessages,
   isSessionRunning,
   hasLiveSystemRecord,
@@ -2207,23 +2224,26 @@ async function handleDeleteProject(projectId: string) {
 // here (owner of sessions/projects); ProjectList and the unsorted session
 // list bubble drag events up, and moveSessionToProject performs the move.
 const draggingSessionId = ref<string | null>(null);
+const draggingSessionProjectId = ref<string | null>(null);
 const dragOverProjectId = ref<string | null>(null);
+const dragOverSessionId = ref<string | null>(null);
+const dragInsertBefore = ref(true);
 const dragOverUnsorted = ref(false);
 const movingSession = ref(false);
 
-function sessionProjectIdOf(sessionId: string): string | null {
-  return sessionProjects[sessionId]?.project_id ?? null;
-}
-
-function onSessionDragStart(sessionId: string): void {
+/** ProjectList session rows carry their owning project so the drag knows
+ * whether it is an in-project reorder (vs. a flat-session move). */
+function onSessionDragStart(sessionId: string, projectId: string): void {
   draggingSessionId.value = sessionId;
+  draggingSessionProjectId.value = projectId;
 }
 
 /** Sidebar (unsorted) session rows set the dataTransfer themselves — the
  * ProjectList rows do it in their own component, so this is only needed
- * here. */
+ * here. Unsorted sessions are never inside a project. */
 function onSidebarSessionDragStart(sessionId: string, event: DragEvent): void {
-  onSessionDragStart(sessionId);
+  draggingSessionId.value = sessionId;
+  draggingSessionProjectId.value = null;
   if (event.dataTransfer) {
     event.dataTransfer.setData("text/plain", sessionId);
     event.dataTransfer.effectAllowed = "move";
@@ -2232,7 +2252,9 @@ function onSidebarSessionDragStart(sessionId: string, event: DragEvent): void {
 
 function onSessionDragEnd(): void {
   draggingSessionId.value = null;
+  draggingSessionProjectId.value = null;
   dragOverProjectId.value = null;
+  dragOverSessionId.value = null;
   dragOverUnsorted.value = false;
 }
 
@@ -2246,6 +2268,67 @@ function onProjectDragLeave(projectId: string): void {
 
 function onProjectDrop(projectId: string): void {
   void moveSessionToProject(draggingSessionId.value, projectId);
+}
+
+function onSessionDragOver(
+  projectId: string,
+  sessionId: string,
+  before: boolean,
+): void {
+  dragOverProjectId.value = projectId;
+  dragOverSessionId.value = sessionId;
+  dragInsertBefore.value = before;
+}
+
+function onSessionDragLeave(projectId: string): void {
+  if (dragOverSessionId.value) {
+    dragOverSessionId.value = null;
+  }
+  if (dragOverProjectId.value === projectId) {
+    dragOverProjectId.value = null;
+  }
+}
+
+/** Compute the 0-based insertion index for dropping next to ``sessionId``.
+ *
+ * The index is relative to the project list *after* removing the dragged
+ * session (the backend removes any existing relation before re-inserting),
+ * so an in-project reorder subtracts one when the dragged row sits above
+ * the target.
+ */
+function projectInsertIndex(projectId: string, sessionId: string, before: boolean) {
+  const list = projectSessionsById.value[projectId] || [];
+  const targetIndex = list.findIndex((s) => s.session_id === sessionId);
+  let index = before ? targetIndex : targetIndex + 1;
+  if (index < 0) index = 0;
+  if (draggingSessionId.value) {
+    const draggedIndex = list.findIndex(
+      (s) => s.session_id === draggingSessionId.value,
+    );
+    if (draggedIndex >= 0 && draggedIndex < index) {
+      index -= 1;
+    }
+  }
+  return index;
+}
+
+function onSessionDrop(
+  projectId: string,
+  sessionId: string,
+  before: boolean,
+): void {
+  // The `drop` event can land on a stale row when the session list
+  // re-renders mid-drag, while the visible insertion line is driven by
+  // dragOverSessionId / dragInsertBefore (refreshed on every dragover).
+  // Prefer the tracked values so the inserted position matches the line
+  // the user actually sees; fall back to the event's row when no session
+  // row is currently hovered.
+  const targetSessionId = dragOverSessionId.value ?? sessionId;
+  const insertBefore = dragOverSessionId.value
+    ? dragInsertBefore.value
+    : before;
+  const index = projectInsertIndex(projectId, targetSessionId, insertBefore);
+  void moveSessionToProject(draggingSessionId.value, projectId, index);
 }
 
 function onUnsortedDragOver(event: DragEvent): void {
@@ -2264,19 +2347,31 @@ function onUnsortedDrop(): void {
   void moveSessionToProject(draggingSessionId.value, null);
 }
 
-/** Move a session into (targetProjectId) or out of (null) a project. */
+/** Move a session into (targetProjectId) or out of (null) a project.
+ *
+ * ``position`` is the 0-based index in the target project's session list;
+ * ``null`` (e.g. dropping onto the project row) prepends the session.
+ */
 async function moveSessionToProject(
   sessionId: string | null,
   targetProjectId: string | null,
+  position: number | null = null,
 ): Promise<void> {
   if (!sessionId || movingSession.value) return;
-  const currentProjectId = sessionProjectIdOf(sessionId);
-  if (currentProjectId === targetProjectId) return; // no-op
+  const currentProjectId = draggingSessionProjectId.value;
+  // Dropping onto the same project's tag (no explicit position) is a no-op,
+  // but dropping at a specific position reorders within that project.
+  if (currentProjectId === targetProjectId && position === null) return;
 
+  const isReorder = currentProjectId === targetProjectId && targetProjectId !== null;
   movingSession.value = true;
   try {
     const ok = targetProjectId
-      ? await addSessionToProject(sessionId, targetProjectId)
+      ? await addSessionToProject(
+          sessionId,
+          targetProjectId,
+          position ?? undefined,
+        )
       : await removeSessionFromProject(sessionId);
     if (!ok) {
       toast.error(tm("project.moveFailed"));
@@ -2300,29 +2395,37 @@ async function moveSessionToProject(
     }
 
     // Refresh the flat session list (project_id field) and the affected
-    // project session lists.
+    // project session lists (source refreshed only when it differs from the
+    // target — a same-project reorder refreshes one list, not twice).
     await Promise.allSettled([
       getSessions(),
       ...(targetProjectId ? [loadProjectSessions(targetProjectId)] : []),
-      ...(currentProjectId ? [loadProjectSessions(currentProjectId)] : []),
+      ...(currentProjectId && currentProjectId !== targetProjectId
+        ? [loadProjectSessions(currentProjectId)]
+        : []),
     ]);
 
-    toast.success(
-      targetProjectId
-        ? tm("project.sessionAdded", {
-            title:
-              projects.value.find(
-                (p) => p.project_id === targetProjectId,
-              )?.title || targetProjectId,
-          })
-        : tm("project.sessionRemoved"),
-    );
+    // Reordering within the same project is silent; cross-project moves
+    // and removals surface a confirmation toast.
+    if (!isReorder) {
+      toast.success(
+        targetProjectId
+          ? tm("project.sessionAdded", {
+              title:
+                projects.value.find(
+                  (p) => p.project_id === targetProjectId,
+                )?.title || targetProjectId,
+            })
+          : tm("project.sessionRemoved"),
+      );
+    }
   } catch {
     toast.error(tm("project.moveFailed"));
   } finally {
     movingSession.value = false;
     draggingSessionId.value = null;
     dragOverProjectId.value = null;
+    dragOverSessionId.value = null;
     dragOverUnsorted.value = false;
   }
 }
@@ -2557,12 +2660,45 @@ async function archiveCheckedSessions() {
 }
 
 // 2026-08-13 session archive (elecvoid243): the footer button opens the
-// archived-conversations dialog; archivedCount mirrors the server total for
-// the badge.
+// archived-conversations dialog.
 const archivedDialogOpen = ref(false);
-const archivedCount = computed(() => archivedPagination.value.total);
+
+/** Archived sessions open read-only: hide the composer and show a restore
+ * bar instead of the input. */
+const isReadonlySession = computed(
+  () =>
+    Boolean(currSessionId.value && sessionArchivedFlags[currSessionId.value]),
+);
+
+async function restoreReadonlySession() {
+  const sessionId = currSessionId.value;
+  if (!sessionId) return;
+  const ok = await setSessionArchived(sessionId, false);
+  if (!ok) {
+    toast.error(tm("conversation.unarchiveFailed"));
+    return;
+  }
+  // Flip the local flag directly instead of reloading the whole history.
+  sessionArchivedFlags[sessionId] = false;
+  const projectId = sessionProjects[sessionId]?.project_id ?? null;
+  if (projectId) {
+    await loadProjectSessions(projectId);
+  }
+  toast.success(tm("conversation.unarchiveToast"));
+}
+
+/** Dialog "view full session": close the dialog and open the session in the
+ * main chat area (read-only because it is still archived). */
+function openArchivedSession(session: ArchivedSession) {
+  archivedDialogOpen.value = false;
+  selectSession(session.session_id);
+}
 
 async function archiveSidebarSession(session: Session | ArchivedSession) {
+  const message = tm("conversation.archiveConfirm", {
+    name: sessionTitle(session),
+  });
+  if (!(await askForConfirmation(message, confirmDialog))) return;
   const ok = await setSessionArchived(session.session_id, true);
   if (!ok) {
     toast.error(tm("conversation.archiveFailed"));
@@ -2584,24 +2720,42 @@ async function archiveSidebarSession(session: Session | ArchivedSession) {
   toast.success(tm("conversation.archivedToast"));
 }
 
-/** Dialog restored a session: refresh sidebar/project lists (dialog toasts). */
-async function onArchivedRestored(session: ArchivedSession) {
+/** Dialog restored session(s): refresh sidebar/project lists (dialog toasts). */
+async function onArchivedRestored(session?: ArchivedSession) {
   await getSessions();
-  if (session.project_id) {
-    await loadProjectSessions(session.project_id);
-  }
+  await refreshArchivedAffectedProjects(session);
 }
 
-/** Dialog deleted an archived session: refresh sidebar/project lists. */
-async function onArchivedDeleted(session: ArchivedSession) {
+/** Dialog deleted archived session(s): refresh sidebar/project lists. */
+async function onArchivedDeleted(session?: ArchivedSession) {
   await getSessions();
-  if (session.project_id) {
+  await refreshArchivedAffectedProjects(session);
+}
+
+/** Batch operations emit without a session; refresh every loaded project. */
+async function refreshArchivedAffectedProjects(session?: ArchivedSession) {
+  if (session?.project_id) {
     await loadProjectSessions(session.project_id);
+    return;
   }
+  await Promise.all(
+    Object.keys(projectSessionsById.value).map((projectId) =>
+      loadProjectSessions(projectId),
+    ),
+  );
 }
 
 /** Archive a project session row (from ProjectList). */
 async function archiveProjectSession(sessionId: string, projectId: string) {
+  const projectSession = (projectSessionsById.value[projectId] || []).find(
+    (session) => session.session_id === sessionId,
+  );
+  const message = tm("conversation.archiveConfirm", {
+    name:
+      projectSession?.display_name?.trim() ||
+      tm("conversation.newConversation"),
+  });
+  if (!(await askForConfirmation(message, confirmDialog))) return;
   const ok = await setSessionArchived(sessionId, true);
   if (!ok) {
     toast.error(tm("conversation.archiveFailed"));
@@ -3940,18 +4094,6 @@ function toggleTheme() {
   background: var(--chat-session-active-bg);
 }
 
-.archive-count-badge {
-  margin-left: auto;
-  min-width: 18px;
-  padding: 0 5px;
-  border-radius: 999px;
-  background: rgba(var(--v-theme-primary), 0.15);
-  color: rgb(var(--v-theme-primary));
-  font-size: 11px;
-  line-height: 18px;
-  text-align: center;
-}
-
 .new-chat-btn :deep(.v-btn__content),
 .settings-btn :deep(.v-btn__content) {
   min-width: 0;
@@ -4565,6 +4707,24 @@ function toggleTheme() {
   position: relative;
   background: transparent;
   padding: 0 0 18px;
+}
+
+/* 2026-08-13 (elecvoid243): read-only bar replacing the composer while an
+   archived session is open. */
+.readonly-session-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: var(--chat-session-active-bg);
+  color: var(--chat-muted);
+  font-size: 13px;
+}
+
+.readonly-session-text {
+  flex: 1;
+  min-width: 0;
 }
 
 .composer-shell :deep(.input-area),

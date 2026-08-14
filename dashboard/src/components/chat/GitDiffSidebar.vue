@@ -4063,6 +4063,12 @@ const currentRoot = computed<string | null>(() => {
   return selectedWorktree.value ?? mainWorktreePath.value ?? projectRoot.value;
 });
 
+// 2026-08-14 open-on-disk: expose the effective root to deeply-nested
+// file rows (GitDiffFileItem via DiffDirectoryNode, GitLogView) so
+// they can glue repo-relative paths into absolute ones for the
+// "open on disk" action without threading props through every layer.
+provide("openOnDiskRoot", currentRoot);
+
 // 2026-07-20 recent-files-unify: the recent list is a single global
 // bucket shared across every worktree / project root, so the
 // composable no longer takes a worktree ref. Switching directories

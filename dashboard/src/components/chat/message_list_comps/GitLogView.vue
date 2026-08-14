@@ -12,7 +12,7 @@
      a previously seen commit is a no-op (ETag 304 short-circuit).
      Spec: docs/superpowers/specs/2026-06-25-git-show-design.md. -->
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from "vue";
+import { computed, inject, nextTick, ref, watch, type ComputedRef } from "vue";
 import { storeToRefs } from "pinia";
 import { useCustomizerStore } from "@/stores/customizer";
 import { useModuleI18n } from "@/i18n/composables";
@@ -35,6 +35,8 @@ import {
   rangeForPreset,
   type GitStatsRange,
 } from "@/composables/parseSpcodeGitStats";
+import { useOpenOnDisk } from "@/composables/useOpenOnDisk";
+import { absoluteFromSelectedDoc } from "@/composables/pathUtils";
 
 const { tm } = useModuleI18n("features/chat");
 // Note (v3.9, 2026-06-25, elecvoid243): FilePatchPanel reads the
@@ -105,6 +107,32 @@ export interface SquashPayloadCommit {
   sha: string;
   subject: string;
   body: string | null;
+}
+
+// 2026-08-14 open-on-disk: per-file "open on the AstrBot host"
+// action for the expanded commit's file list. The file paths are
+// repo-relative; the effective worktree root is injected by
+// GitDiffSidebar. Files deleted by the commit (status D) no longer
+// exist on disk, so the action is hidden for them.
+const openOnDiskRoot = inject<ComputedRef<string | null> | null>(
+  "openOnDiskRoot",
+  null,
+);
+const { opening: openingOnDisk, openOnDisk } = useOpenOnDisk(
+  "spcodeProjectLoad.fileBrowser.preview",
+);
+
+function openOnDiskAbsPath(f: GitShowFile): string {
+  const root = openOnDiskRoot?.value;
+  if (!root || f.status === "D") return "";
+  return absoluteFromSelectedDoc(root, ".", f.path);
+}
+
+function onOpenOnDiskClick(e: MouseEvent, f: GitShowFile): void {
+  e.stopPropagation();
+  const abs = openOnDiskAbsPath(f);
+  if (!abs) return;
+  void openOnDisk(abs, f.path);
 }
 
 const emit = defineEmits<{
@@ -1230,57 +1258,87 @@ function fileErrorMessage(state: GitShowFetchState): string | null {
                   dedicated i18n key with the path interpolated; falls
                   back to a generic key for non-renamed paths.
                 -->
-                <button
-                  type="button"
-                  class="git-log-files-item-button"
-                  :aria-expanded="isFileExpanded(c.sha, f.path)"
-                  :aria-label="
-                    tm(
-                      'spcodeProjectLoad.diffSidebar.gitWorkflow.history.expandFileAria',
-                      { path: renameLabel(f) ?? f.path },
-                    )
-                  "
-                  @click="toggleFile(c.sha, f.path)"
-                >
-                  <v-icon :size="14" :color="fileIcon(f).color">
-                    {{ fileIcon(f).icon }}
-                  </v-icon>
-                  <!-- Status label: localized via fileStatus.<status> key.
-                       The label is informational; screen readers also get
-                       the title="..." attribute that duplicates the label
-                       plus the file path for full context. -->
-                  <span
-                    class="git-log-files-status-badge"
-                    :title="fileStatusLabel(f.status)"
+                <!--
+                  2026-08-14 open-on-disk: the row button and the
+                  open-on-disk icon button sit side by side in a
+                  flex row (buttons cannot nest inside the row
+                  button).
+                -->
+                <div class="git-log-files-item-row">
+                  <button
+                    type="button"
+                    class="git-log-files-item-button"
+                    :aria-expanded="isFileExpanded(c.sha, f.path)"
+                    :aria-label="
+                      tm(
+                        'spcodeProjectLoad.diffSidebar.gitWorkflow.history.expandFileAria',
+                        { path: renameLabel(f) ?? f.path },
+                      )
+                    "
+                    @click="toggleFile(c.sha, f.path)"
                   >
-                    {{ fileStatusLabel(f.status) }}
-                  </span>
-                  <!-- For R / C: show the "old → new (similarity%)" label
-                       inline instead of the bare `f.path`, so the rename
-                       source is visible without needing a tooltip. Other
-                       statuses render the plain path. -->
-                  <span v-if="renameLabel(f)" class="git-log-files-path">{{
-                    renameLabel(f)
-                  }}</span>
-                  <span v-else class="git-log-files-path" :title="f.path">{{
-                    f.path
-                  }}</span>
-                  <span class="git-log-files-stats">
-                    <span class="git-log-files-add">+{{ f.additions }}</span>
-                    <span class="git-log-files-del">−{{ f.deletions }}</span>
-                  </span>
-                  <!-- Chevron indicator: up = expanded, down = collapsed.
-                       Uses a literal mdi name to avoid pulling in extra
-                       icon components; the row button already handles
-                       click semantics. -->
-                  <v-icon :size="14" class="git-log-files-chevron">
-                    {{
-                      isFileExpanded(c.sha, f.path)
-                        ? "mdi-chevron-up"
-                        : "mdi-chevron-down"
-                    }}
-                  </v-icon>
-                </button>
+                    <v-icon :size="14" :color="fileIcon(f).color">
+                      {{ fileIcon(f).icon }}
+                    </v-icon>
+                    <!-- Status label: localized via fileStatus.<status> key.
+                         The label is informational; screen readers also get
+                         the title="..." attribute that duplicates the label
+                         plus the file path for full context. -->
+                    <span
+                      class="git-log-files-status-badge"
+                      :title="fileStatusLabel(f.status)"
+                    >
+                      {{ fileStatusLabel(f.status) }}
+                    </span>
+                    <!-- For R / C: show the "old → new (similarity%)" label
+                         inline instead of the bare `f.path`, so the rename
+                         source is visible without needing a tooltip. Other
+                         statuses render the plain path. -->
+                    <span v-if="renameLabel(f)" class="git-log-files-path">{{
+                      renameLabel(f)
+                    }}</span>
+                    <span v-else class="git-log-files-path" :title="f.path">{{
+                      f.path
+                    }}</span>
+                    <span class="git-log-files-stats">
+                      <span class="git-log-files-add">+{{ f.additions }}</span>
+                      <span class="git-log-files-del">−{{ f.deletions }}</span>
+                    </span>
+                    <!-- Chevron indicator: up = expanded, down = collapsed.
+                         Uses a literal mdi name to avoid pulling in extra
+                         icon components; the row button already handles
+                         click semantics. -->
+                    <v-icon :size="14" class="git-log-files-chevron">
+                      {{
+                        isFileExpanded(c.sha, f.path)
+                          ? "mdi-chevron-up"
+                          : "mdi-chevron-down"
+                      }}
+                    </v-icon>
+                  </button>
+                  <!-- 2026-08-14 open-on-disk: opens the file on the
+                       AstrBot host with the OS default application.
+                       Hidden for files deleted by the commit. -->
+                  <button
+                    v-if="openOnDiskAbsPath(f)"
+                    type="button"
+                    class="git-log-files-item-open-on-disk"
+                    :disabled="openingOnDisk"
+                    :aria-label="
+                      tm('spcodeProjectLoad.diffSidebar.openOnDisk.buttonAria', {
+                        path: f.path,
+                      })
+                    "
+                    :title="
+                      tm('spcodeProjectLoad.diffSidebar.openOnDisk.buttonAria', {
+                        path: f.path,
+                      })
+                    "
+                    @click="onOpenOnDiskClick($event, f)"
+                  >
+                    <v-icon :size="14">mdi-open-in-new</v-icon>
+                  </button>
+                </div>
                 <!--
                   v3.9: lazy-loaded patch panel. States mirror the
                   composable's GitShowFileFetchState enum:
@@ -1742,6 +1800,53 @@ function fileErrorMessage(state: GitShowFetchState): string | null {
   cursor: pointer;
   font-family: inherit;
   transition: background 0.12s ease;
+}
+
+/* 2026-08-14 open-on-disk: the row button and the open-on-disk
+   icon button sit side by side; the row button keeps the flexible
+   width, the icon button stays flush right. */
+.git-log-files-item-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.git-log-files-item-row .git-log-files-item-button {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
+.git-log-files-item-open-on-disk {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: rgb(var(--v-theme-info));
+  cursor: pointer;
+  opacity: 0.5;
+  transition:
+    opacity 0.12s ease,
+    background 0.12s ease;
+  flex-shrink: 0;
+}
+.git-log-files-item:hover .git-log-files-item-open-on-disk {
+  opacity: 1;
+}
+.git-log-files-item-open-on-disk:hover {
+  background: rgba(var(--v-theme-info), 0.1);
+}
+.git-log-files-item-open-on-disk:disabled {
+  cursor: default;
+  opacity: 0.3;
+}
+.git-log-files-item-open-on-disk:focus-visible {
+  outline: 2px solid rgb(var(--v-theme-primary));
+  outline-offset: 2px;
+  opacity: 1;
 }
 .git-log-files-item-button:hover {
   background: rgba(var(--v-theme-on-surface), 0.04);

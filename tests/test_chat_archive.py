@@ -20,6 +20,7 @@ def _session(
     session_id: str = SRC_SESSION_ID,
     creator: str = "alice",
     display_name: str = "会话",
+    archived: int = 0,
 ):
     return SimpleNamespace(
         session_id=session_id,
@@ -27,6 +28,7 @@ def _session(
         creator=creator,
         is_group=0,
         display_name=display_name,
+        archived=archived,
         created_at=datetime(2026, 8, 13, tzinfo=UTC),
         updated_at=datetime(2026, 8, 13, tzinfo=UTC),
     )
@@ -271,3 +273,59 @@ async def test_batch_archive_sessions_rejects_bad_payload():
 
     with pytest.raises(ChatServiceError, match="session_ids"):
         await service.batch_archive_sessions_from_dashboard_payload("alice", {})
+
+
+@pytest.mark.asyncio
+async def test_batch_unarchive_sessions_restores_all():
+    """批量取消归档：全部成功。"""
+    service = _make_chat_service()
+    service.db.get_platform_session_by_id = AsyncMock(
+        side_effect=lambda session_id: _session(session_id=session_id)
+    )
+
+    result = await service.batch_unarchive_sessions_from_dashboard_payload(
+        "alice", {"session_ids": ["s-1", "s-2"]}
+    )
+
+    assert result["unarchived_count"] == 2
+    assert result["failed_count"] == 0
+    assert service.db.update_platform_session.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_batch_unarchive_sessions_reports_failures():
+    """批量取消归档：缺失会话计入失败。"""
+    service = _make_chat_service()
+    service.db.get_platform_session_by_id = AsyncMock(
+        side_effect=[_session(session_id="ok"), None]
+    )
+
+    result = await service.batch_unarchive_sessions_from_dashboard_payload(
+        "alice", {"session_ids": ["ok", "missing"]}
+    )
+
+    assert result["unarchived_count"] == 1
+    assert result["failed_count"] == 1
+    assert result["failed_items"][0]["session_id"] == "missing"
+
+
+@pytest.mark.asyncio
+async def test_get_session_exposes_archived_flag():
+    """get_session 返回 archived 标志，供前端只读渲染。"""
+    service = _make_chat_service()
+    service.db.get_project_by_session = AsyncMock(return_value=None)
+    service.db.get_webchat_threads_by_parent_session = AsyncMock(return_value=[])
+    service.platform_history_mgr.get = AsyncMock(return_value=[])
+    service.get_active_chat_runs = AsyncMock(return_value=[])
+
+    service.db.get_platform_session_by_id = AsyncMock(
+        return_value=_session(archived=1)
+    )
+    result = await service.get_session("alice", SRC_SESSION_ID)
+    assert result["archived"] is True
+
+    service.db.get_platform_session_by_id = AsyncMock(
+        return_value=_session(archived=0)
+    )
+    result = await service.get_session("alice", SRC_SESSION_ID)
+    assert result["archived"] is False

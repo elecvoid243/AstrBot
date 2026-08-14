@@ -38,6 +38,7 @@ import { useSpcodeFileRename } from "@/composables/useSpcodeFileRename";
 import { useSpcodeFileRemove } from "@/composables/useSpcodeFileRemove";
 import { useInlineAnnotations } from "@/composables/useInlineAnnotations";
 import { useSpcodeBtw } from "@/composables/useSpcodeBtw";
+import { useOpenOnDisk } from "@/composables/useOpenOnDisk";
 
 /** Mirrors DocumentManager's viewMode union, trimmed to what the
  *  workspace pane actually renders: 'raw' (file content) and 'diff'
@@ -331,6 +332,22 @@ async function copyContent(): Promise<void> {
     copyButtonColor.value = undefined;
     copyResetTimer = null;
   }, 2000);
+}
+
+// 2026-08-14 open-on-disk: ask the AstrBot host to open the
+// previewed file with the OS default application. The file-browser
+// snapshot echoes the requested ABSOLUTE path back in meta.path, so
+// no client-side path math is needed.
+const { opening: openingOnDisk, openOnDisk } = useOpenOnDisk(
+  "spcodeProjectLoad.fileBrowser.preview",
+);
+
+function openPreviewOnDisk(): void {
+  if (props.state.kind !== "file") return;
+  void openOnDisk(
+    props.state.snapshot.meta.path,
+    props.state.snapshot.meta.name,
+  );
 }
 
 // Drop any pending reset timer on unmount. Without this the closure
@@ -1285,6 +1302,22 @@ onBeforeUnmount(() => {
               @click="copyContent"
             >
               {{ copyButtonText }}
+            </v-btn>
+            <!-- 2026-08-14 open-on-disk: open the previewed file on
+                 the AstrBot host with the OS default application.
+                 Available for the current file and historical views
+                 alike — the on-disk working copy is opened either
+                 way. Same affordance as DocumentManager's toolbar. -->
+            <v-btn
+              v-if="!editMode"
+              size="x-small"
+              variant="text"
+              color="primary"
+              prepend-icon="mdi-open-in-new"
+              :disabled="openingOnDisk"
+              @click="openPreviewOnDisk"
+            >
+              {{ tm("spcodeProjectLoad.fileBrowser.preview.openOnDisk") }}
             </v-btn>
           </div>
 

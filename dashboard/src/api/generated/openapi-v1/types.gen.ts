@@ -102,6 +102,10 @@ export type ChatMessageRegenerateRequest = {
     flags?: ChatFlags;
 };
 
+export type ChatOpenFileRequest = {
+    path: string;
+};
+
 export type ChatProjectRequest = {
     title?: string;
     emoji?: string;
@@ -1383,6 +1387,14 @@ export type BatchArchiveChatSessionsResponse = (SuccessEnvelope);
 
 export type BatchArchiveChatSessionsError = unknown;
 
+export type BatchUnarchiveChatSessionsData = {
+    body: ChatSessionBatchDeleteRequest;
+};
+
+export type BatchUnarchiveChatSessionsResponse = (SuccessEnvelope);
+
+export type BatchUnarchiveChatSessionsError = unknown;
+
 export type ListArchivedChatSessionsData = {
     query?: {
         page?: number;
@@ -1456,6 +1468,14 @@ export type StopChatSessionData = {
 export type StopChatSessionResponse = (SuccessEnvelope);
 
 export type StopChatSessionError = unknown;
+
+export type OpenChatLocalFileData = {
+    body: ChatOpenFileRequest;
+};
+
+export type OpenChatLocalFileResponse = (SuccessEnvelope);
+
+export type OpenChatLocalFileError = unknown;
 
 export type ResumeChatRunData = {
     path: {
@@ -1641,6 +1661,12 @@ export type AddChatProjectSessionData = {
     path: {
         project_id: string;
         session_id: string;
+    };
+    query?: {
+        /**
+         * 0-based insertion index in the project session list (omitted prepends to top)
+         */
+        position?: number;
     };
 };
 

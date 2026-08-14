@@ -122,7 +122,10 @@
   },
   "fileChange": {
     "lines": "{count} 行",
-    "editing": "正在编辑…"
+    "editing": "正在编辑…",
+    "openOnDisk": "在磁盘上打开",
+    "opened": "已打开 {name}",
+    "openFailed": "打开文件失败：{message}"
   },
   "shellSession": {
     "headers": {
@@ -203,12 +206,19 @@
     "confirmDelete": "确定要删除“{name}”吗？此操作无法撤销。",
     "resizeSidebar": "拖动以调整侧边栏宽度",
     "archive": "归档会话",
+    "archiveConfirm": "确定要归档「{name}」吗？可在「查看归档」中随时恢复。",
     "unarchive": "恢复会话",
     "archived": "查看归档",
     "archivedDialogTitle": "归档的对话",
     "archivedSearchPlaceholder": "搜索归档对话标题…",
     "archivedPagination": "{page}/{totalPages} 页 · 共 {total} 个",
     "archivedEmpty": "暂无归档会话",
+    "archivedNoPreview": "无消息预览",
+    "viewFull": "查看完整会话",
+    "batchUnarchive": "取消归档",
+    "batchUnarchiveConfirm": "确定要取消归档 {count} 个对话吗？",
+    "batchUnarchiveSuccess": "已取消归档 {count} 个对话",
+    "readonlyHint": "此会话已归档，当前为只读模式",
     "archivedToast": "会话已归档",
     "unarchiveToast": "会话已恢复",
     "archiveFailed": "归档会话失败",
@@ -384,7 +394,7 @@
     "manage": "批量管理",
     "deleteSuccess": "已删除 {count} 个对话",
     "archive": "归档",
-    "confirmArchive": "确定要归档 {count} 个对话吗？此操作无法撤销。",
+    "confirmArchive": "确定要归档 {count} 个对话吗？可在「查看归档」中随时恢复。",
     "archiveSuccess": "已归档 {count} 个对话"
   },
   "diffPreview": {
@@ -531,7 +541,10 @@
         "copySuccess": "已复制",
         "copyFail": "复制失败",
         "goToTarget": "前往目标",
-        "encodingLabel": "编码: {encoding}"
+        "encodingLabel": "编码: {encoding}",
+        "openOnDisk": "在磁盘中打开",
+        "opened": "已打开 {name}",
+        "openFailed": "打开文件失败：{message}"
       },
       "editor": {
         "edit": "编辑",
@@ -1159,6 +1172,14 @@
       },
       "openFile": {
         "buttonAria": "在文件浏览器中打开 {path}"
+      },
+      "openOnDisk": {
+        "buttonAria": "在磁盘中打开 {path}"
+      },
+      "openMenu": {
+        "buttonAria": "打开 {path}",
+        "inFileBrowser": "在文件浏览器中打开",
+        "onDisk": "在磁盘中打开"
       },
       "gitWorkflow": {
         "stage": {

@@ -104,9 +104,9 @@ export function useProjects() {
         }
     }
 
-    async function addSessionToProject(sessionId: string, projectId: string) {
+    async function addSessionToProject(sessionId: string, projectId: string, position?: number) {
         try {
-            const res = await chatApi.addProjectSession(projectId, sessionId);
+            const res = await chatApi.addProjectSession(projectId, sessionId, position);
             return res.data.status === 'ok';
         } catch (error) {
             console.error('Failed to add session to project:', error);

@@ -7,10 +7,31 @@
 //
 // Author: elecvoid243 | 2026-08-11
 
-import { describe, it, expect } from "vitest";
-import { mount } from "@vue/test-utils";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { flushPromises, mount } from "@vue/test-utils";
 import FileChangeCard from "./FileChangeCard.vue";
 import type { FileChangeEntry } from "@/utils/fileChangeTool";
+
+// 2026-08-14 open-on-disk: mock the API wrapper and the toast store so
+// the card can be mounted without pinia / network.
+const mocks = vi.hoisted(() => ({
+  openLocalFile: vi.fn(),
+  toastError: vi.fn(),
+  toastSuccess: vi.fn(),
+}));
+
+vi.mock("@/api/v1", () => ({
+  chatApi: {
+    openLocalFile: mocks.openLocalFile,
+  },
+}));
+
+vi.mock("@/utils/toast", () => ({
+  useToast: () => ({
+    error: mocks.toastError,
+    success: mocks.toastSuccess,
+  }),
+}));
 
 const STUBS = {
   DiffPreview: {
@@ -86,6 +107,15 @@ function mountCard(entry: FileChangeEntry) {
 }
 
 describe("FileChangeCard", () => {
+  beforeEach(() => {
+    mocks.openLocalFile.mockReset();
+    mocks.toastError.mockReset();
+    mocks.toastSuccess.mockReset();
+    mocks.openLocalFile.mockResolvedValue({
+      data: { status: "ok", message: null, data: {} },
+    });
+  });
+
   it("shows basename and line count for a write entry", () => {
     const wrapper = mountCard(WRITE_ENTRY);
     expect(wrapper.text()).toContain("b.txt");
@@ -157,5 +187,55 @@ describe("FileChangeCard", () => {
     expect(adds.text()).toBe("+2");
     expect(dels.exists()).toBe(true);
     expect(dels.text()).toBe("−1");
+  });
+
+  // ── 2026-08-14 open-on-disk ─────────────────────────────────────
+
+  it("opens the file on disk via the API without expanding the card", async () => {
+    const wrapper = mountCard(WRITE_ENTRY);
+    const btn = wrapper.find(".file-change-open-btn");
+    expect(btn.exists()).toBe(true);
+    await btn.trigger("click");
+    await flushPromises();
+    expect(mocks.openLocalFile).toHaveBeenCalledWith("F:\\proj\\b.txt");
+    expect(mocks.toastSuccess).toHaveBeenCalled();
+    expect(mocks.toastError).not.toHaveBeenCalled();
+    // the click must not toggle the collapse state
+    expect(wrapper.find(".file-change-body").exists()).toBe(false);
+  });
+
+  it("hides the open-on-disk button for removals and running calls", () => {
+    const removeEntry: FileChangeEntry = {
+      callId: "r1",
+      kind: "remove",
+      filePath: "F:\\proj\\old.txt",
+      status: "done",
+      diffStat: null,
+      lineCount: null,
+      tool: {
+        id: "r1",
+        name: "astrbot_file_remove_tool",
+        args: { path: "F:\\proj\\old.txt" },
+        result: "File removed: F:\\proj\\old.txt",
+        finished_ts: 2,
+      },
+    };
+    expect(mountCard(removeEntry).find(".file-change-open-btn").exists()).toBe(
+      false,
+    );
+    expect(
+      mountCard(RUNNING_EDIT_ENTRY).find(".file-change-open-btn").exists(),
+    ).toBe(false);
+  });
+
+  it("surfaces backend errors as an error toast", async () => {
+    mocks.openLocalFile.mockResolvedValue({
+      data: { status: "error", message: "File not found: x" },
+    });
+    const wrapper = mountCard(EDIT_ENTRY);
+    await wrapper.find(".file-change-open-btn").trigger("click");
+    await flushPromises();
+    expect(mocks.toastError).toHaveBeenCalled();
+    expect(mocks.toastSuccess).not.toHaveBeenCalled();
   });
 });

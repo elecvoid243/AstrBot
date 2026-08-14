@@ -10,7 +10,7 @@
      icon for modified files). Spec: docs/superpowers/specs/2026-06-17-
      chatui-git-diff-sidebar-design.md §4.2.3 (merged untracked). -->
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, inject, type ComputedRef } from "vue";
 import type {
   SpcodeGitDiffFile,
   FileStatus,
@@ -18,6 +18,8 @@ import type {
 } from "@/composables/parseSpcodeGitDiff";
 import { useModuleI18n } from "@/i18n/composables";
 import { useSpcodeProjectStatus } from "@/composables/useSpcodeProjectStatus";
+import { useOpenOnDisk } from "@/composables/useOpenOnDisk";
+import { absoluteFromSelectedDoc } from "@/composables/pathUtils";
 import DiffPreview from "@/components/chat/message_list_comps/DiffPreview.vue";
 
 const { tm } = useModuleI18n("features/chat");
@@ -166,10 +168,40 @@ function onUnstageClick(e: MouseEvent): void {
   emit("unstage", props.file.path);
 }
 
-function onOpenFileClick(e: MouseEvent): void {
+function onOpenFileClick(e: MouseEvent | KeyboardEvent): void {
   e.stopPropagation();
   emit("open-file", props.file.path);
 }
+
+// 2026-08-14 open-on-disk: the row path is repo-relative; the
+// effective worktree root is injected by GitDiffSidebar so the
+// absolute path can be glued here without threading a prop through
+// GitDiffBodyContent / DiffDirectoryNode. Deleted files no longer
+// exist on disk, so the action is hidden for them.
+const openOnDiskRoot = inject<ComputedRef<string | null> | null>(
+  "openOnDiskRoot",
+  null,
+);
+const { opening: openingOnDisk, openOnDisk } = useOpenOnDisk(
+  "spcodeProjectLoad.fileBrowser.preview",
+);
+const openOnDiskAbsPath = computed(() => {
+  const root = openOnDiskRoot?.value;
+  if (!root || props.file.status === "D") return "";
+  return absoluteFromSelectedDoc(root, ".", props.file.path);
+});
+
+function onOpenOnDiskClick(e: MouseEvent | KeyboardEvent): void {
+  e.stopPropagation();
+  if (!openOnDiskAbsPath.value) return;
+  void openOnDisk(openOnDiskAbsPath.value, displayName.value);
+}
+
+/** 2026-08-14 open-menu: the merged "open" button is visible when at
+ *  least one open target exists (in-browser view and/or on disk). */
+const showOpenMenu = computed(
+  () => Boolean(props.onOpenFile) || Boolean(openOnDiskAbsPath.value),
+);
 
 /** Stable identifier for a file row. Used by the parent to dedupe
  *  selection state when the same path appears in both staged and
@@ -306,25 +338,57 @@ function rowKey(): string {
         />
         <v-icon v-else :size="16">mdi-restore</v-icon>
       </button>
-      <!-- "View file" button: opens the file in the workspace File Browser. -->
-      <button
-        v-if="onOpenFile"
-        type="button"
-        class="git-diff-file-open"
-        :aria-label="
-          tm('spcodeProjectLoad.diffSidebar.openFile.buttonAria', {
-            path: file.path,
-          })
-        "
-        :title="
-          tm('spcodeProjectLoad.diffSidebar.openFile.buttonAria', {
-            path: file.path,
-          })
-        "
-        @click="onOpenFileClick"
-      >
-        <v-icon :size="16">mdi-file-eye-outline</v-icon>
-      </button>
+      <!-- 2026-08-14 open-menu: the former two icon buttons ("view in
+           file browser" + "open on disk") crowded the row; they are now
+           merged into a single button whose dropdown offers whichever
+           targets are available for this file. -->
+      <v-menu v-if="showOpenMenu" location="bottom end">
+        <template #activator="{ props: menuProps }">
+          <button
+            v-bind="menuProps"
+            type="button"
+            class="git-diff-file-open"
+            :disabled="openingOnDisk"
+            :aria-label="
+              tm('spcodeProjectLoad.diffSidebar.openMenu.buttonAria', {
+                path: file.path,
+              })
+            "
+            :title="
+              tm('spcodeProjectLoad.diffSidebar.openMenu.buttonAria', {
+                path: file.path,
+              })
+            "
+            @click.stop
+          >
+            <v-icon :size="16">mdi-open-in-app</v-icon>
+          </button>
+        </template>
+        <v-list density="compact">
+          <v-list-item
+            v-if="onOpenFile"
+            @click="onOpenFileClick"
+          >
+            <template #prepend>
+              <v-icon :size="16">mdi-file-eye-outline</v-icon>
+            </template>
+            <v-list-item-title>
+              {{ tm("spcodeProjectLoad.diffSidebar.openMenu.inFileBrowser") }}
+            </v-list-item-title>
+          </v-list-item>
+          <v-list-item
+            v-if="openOnDiskAbsPath"
+            @click="onOpenOnDiskClick"
+          >
+            <template #prepend>
+              <v-icon :size="16">mdi-open-in-new</v-icon>
+            </template>
+            <v-list-item-title>
+              {{ tm("spcodeProjectLoad.diffSidebar.openMenu.onDisk") }}
+            </v-list-item-title>
+          </v-list-item>
+        </v-list>
+      </v-menu>
       <v-icon
         :size="16"
         class="git-diff-file-chevron"
@@ -489,6 +553,10 @@ function rowKey(): string {
   outline: 2px solid rgb(var(--v-theme-primary));
   outline-offset: 2px;
   opacity: 1;
+}
+.git-diff-file-open:disabled {
+  cursor: default;
+  opacity: 0.3;
 }
 
 /* UI #3: selection checkbox at the start of the row. Square 16px,

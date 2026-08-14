@@ -997,8 +997,9 @@ class BaseDatabase(abc.ABC):
         self,
         session_id: str,
         project_id: str,
+        position: int | None = None,
     ) -> SessionProjectRelation:
-        """Add a session to a project."""
+        """Add a session to a project, optionally at an ordered position."""
         ...
 
     @abc.abstractmethod

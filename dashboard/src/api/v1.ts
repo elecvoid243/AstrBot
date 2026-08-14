@@ -865,10 +865,16 @@ export const chatApi = {
   batchArchiveSessions(payload: ChatSessionBatchDeleteRequest) {
     return typed<any>(openApiV1.batchArchiveChatSessions({ body: payload }));
   },
+  batchUnarchiveSessions(payload: ChatSessionBatchDeleteRequest) {
+    return typed<any>(openApiV1.batchUnarchiveChatSessions({ body: payload }));
+  },
   stopSession(sessionId: string) {
     return typed<any>(
       openApiV1.stopChatSession({ path: { session_id: sessionId } }),
     );
+  },
+  openLocalFile(path: string) {
+    return typed<any>(openApiV1.openChatLocalFile({ body: { path } }));
   },
   updateMessage(
     sessionId: string,
@@ -981,10 +987,14 @@ export const chatApi = {
       responseType: 'blob',
     }) as Promise<AxiosResponse<Blob>>;
   },
-  addProjectSession(projectId: string, sessionId: string) {
+  addProjectSession(projectId: string, sessionId: string, position?: number) {
     return typed<any>(
       openApiV1.addChatProjectSession({
         path: { project_id: projectId, session_id: sessionId },
+        query:
+          position !== undefined && position !== null
+            ? { position }
+            : undefined,
       }),
     );
   },

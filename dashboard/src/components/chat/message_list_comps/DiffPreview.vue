@@ -224,7 +224,7 @@
               <span class="line-number old">{{ line.oldNo }}</span>
               <span class="line-number new">{{ line.newNo }}</span>
               <span class="line-prefix">{{ line.prefix }}</span>
-              <span class="line-content">{{ line.content }}</span>
+              <span class="line-content" v-html="lineContentHtml(line)"></span>
             </div>
           </div>
         </div>
@@ -365,7 +365,7 @@
                 </span>
                 <span class="line-number">{{ row.left?.oldNo ?? '' }}</span>
                 <span class="line-prefix">{{ row.left?.prefix ?? '' }}</span>
-                <span class="line-content">{{ row.left?.content ?? '' }}</span>
+                <span class="line-content" v-html="lineContentHtml(row.left)"></span>
               </div>
               <div class="diff-cell right">
                 <!-- Inline-comment gutter: first child of the right
@@ -400,7 +400,7 @@
                 </span>
                 <span class="line-number">{{ row.right?.newNo ?? '' }}</span>
                 <span class="line-prefix">{{ row.right?.prefix ?? '' }}</span>
-                <span class="line-content">{{ row.right?.content ?? '' }}</span>
+                <span class="line-content" v-html="lineContentHtml(row.right)"></span>
               </div>
             </div>
           </div>
@@ -714,7 +714,7 @@
                     <span class="line-number old">{{ line.oldNo }}</span>
                     <span class="line-number new">{{ line.newNo }}</span>
                     <span class="line-prefix">{{ line.prefix }}</span>
-                    <span class="line-content">{{ line.content }}</span>
+                    <span class="line-content" v-html="lineContentHtml(line)"></span>
                   </div>
                 </div>
               </div>
@@ -845,7 +845,7 @@
                     </span>
                     <span class="line-number">{{ row.left?.oldNo ?? '' }}</span>
                     <span class="line-prefix">{{ row.left?.prefix ?? '' }}</span>
-                    <span class="line-content">{{ row.left?.content ?? '' }}</span>
+                    <span class="line-content" v-html="lineContentHtml(row.left)"></span>
                   </div>
                   <div class="diff-cell right">
                     <span
@@ -877,7 +877,7 @@
                     </span>
                       <span class="line-number">{{ row.right?.newNo ?? '' }}</span>
                       <span class="line-prefix">{{ row.right?.prefix ?? '' }}</span>
-                      <span class="line-content">{{ row.right?.content ?? '' }}</span>
+                      <span class="line-content" v-html="lineContentHtml(row.right)"></span>
                     </div>
                   </div>
                 </div>
@@ -948,11 +948,22 @@ import {
   nextTick,
   watch,
   onBeforeUnmount,
+  onMounted,
   inject,
   type Ref,
 } from "vue";
 import { useModuleI18n } from "@/i18n/composables";
 import type { GitDiffScope } from "@/composables/parseSpcodeGitDiff";
+import {
+  ensureShikiLanguages,
+  escapeHtml,
+  SHIKI_THEMES,
+} from "@/utils/shiki";
+import { detectLanguage } from "@/utils/codeLanguage";
+import {
+  computeIntraLineSegments,
+  type IntraLineSegment,
+} from "@/utils/intraLineDiff";
 import {
   extractLineContext,
   useFileComments,
@@ -1805,6 +1816,190 @@ function alignHunkLines(lines: DiffLine[]): SplitRow[] {
   return rows;
 }
 
+// ── 2026-08-14 diff syntax highlighting ──────────────────────────
+// Diff lines only carry red/green tints by default. Here we
+// additionally tokenize the old-side (ctx + del) and new-side
+// (ctx + add) text with the shared Shiki highlighter as if each were
+// the real file, then map per-line token HTML back onto the parsed
+// DiffLine objects. Multiline constructs interrupted by elided hunk
+// context can mis-highlight slightly — the standard approximation
+// for diff viewers that highlight without the full file at hand.
+
+const shikiHighlighter = ref<any>(null);
+const shikiReady = ref(false);
+
+/** Shiki language for the diffed file; "text" disables highlighting. */
+const highlightLanguage = computed(() => detectLanguage(props.filePath || ""));
+
+/** Safety cap: skip highlighting for very large diffs. */
+const HIGHLIGHT_MAX_CHARS = 200_000;
+
+onMounted(async () => {
+  if (!props.filePath || highlightLanguage.value === "text") return;
+  try {
+    shikiHighlighter.value = await ensureShikiLanguages();
+    shikiReady.value = true;
+  } catch (err) {
+    console.error("Failed to initialize Shiki for diff highlighting:", err);
+  }
+});
+
+interface LineHighlight {
+  light: string;
+  dark: string;
+}
+
+/** Render one line's tokens as colored spans (content is escaped). */
+function tokensToHtml(
+  tokens: Array<{ content: string; color?: string; fontStyle?: number }>,
+): string {
+  let out = "";
+  for (const token of tokens) {
+    const text = escapeHtml(token.content);
+    if (!text) continue;
+    const styles: string[] = [];
+    if (token.color) styles.push(`color:${token.color}`);
+    if (token.fontStyle) {
+      // Shiki FontStyle bitmask: 1 = italic, 2 = bold, 4 = underline.
+      if (token.fontStyle & 1) styles.push("font-style:italic");
+      if (token.fontStyle & 2) styles.push("font-weight:600");
+      if (token.fontStyle & 4) styles.push("text-decoration:underline");
+    }
+    out += styles.length
+      ? `<span style="${styles.join(";")}">${text}</span>`
+      : text;
+  }
+  return out;
+}
+
+/** Tokenize one side (old or new) and store per-line HTML for both
+ *  themes in `map`. */
+function assignSideHighlights(
+  map: Map<DiffLine, LineHighlight>,
+  sideLines: DiffLine[],
+  lang: string,
+): void {
+  if (!sideLines.length) return;
+  const text = sideLines.map((l) => l.content).join("\n");
+  const light = shikiHighlighter.value.codeToTokens(text, {
+    lang,
+    theme: SHIKI_THEMES.light,
+  });
+  const dark = shikiHighlighter.value.codeToTokens(text, {
+    lang,
+    theme: SHIKI_THEMES.dark,
+  });
+  sideLines.forEach((line, i) => {
+    map.set(line, {
+      light: tokensToHtml(light.tokens[i] ?? []),
+      dark: tokensToHtml(dark.tokens[i] ?? []),
+    });
+  });
+}
+
+const highlightedLines = computed<Map<DiffLine, LineHighlight> | null>(() => {
+  if (!shikiReady.value || !shikiHighlighter.value) return null;
+  const lang = highlightLanguage.value;
+  if (lang === "text") return null;
+  const lines = parsedHunks.value
+    .flatMap((h) => h.lines)
+    .filter((l) => l.type !== "header-file");
+  const totalChars = lines.reduce((sum, l) => sum + l.content.length, 0);
+  if (!lines.length || totalChars > HIGHLIGHT_MAX_CHARS) return null;
+  const map = new Map<DiffLine, LineHighlight>();
+  try {
+    // ctx lines belong to both sides; the new-side pass runs second
+    // so a ctx line's colors match the new file (what the user is
+    // about to have), not the old one.
+    assignSideHighlights(
+      map,
+      lines.filter((l) => l.type !== "add"),
+      lang,
+    );
+    assignSideHighlights(
+      map,
+      lines.filter((l) => l.type !== "del"),
+      lang,
+    );
+  } catch (err) {
+    console.error("Failed to highlight diff with Shiki:", err);
+    return null;
+  }
+  return map;
+});
+
+// ── 2026-08-14 intra-line (word-level) diff highlight ────────────
+// Pair del/add lines inside each hunk (same buffer/flush order as
+// alignHunkLines, so the pairing matches the split view) and compute
+// per-line changed segments so users can spot *what* changed inside
+// a modified line. Keyed by DiffLine object identity — the same
+// objects flow into both the unified and split renderers.
+//
+// Performance: computeIntraLineSegments caps the per-pair cost
+// (prefix/suffix trim + bounded word LCS); INTRA_LINE_MAX_TOTAL_CHARS
+// caps the per-diff total (mirrors HIGHLIGHT_MAX_CHARS). The computed
+// re-runs only when parsedHunks changes, never per render.
+const INTRA_LINE_MAX_TOTAL_CHARS = 200_000;
+
+const intraLineSegments = computed<Map<DiffLine, IntraLineSegment[]>>(() => {
+  const map = new Map<DiffLine, IntraLineSegment[]>();
+  let budget = INTRA_LINE_MAX_TOTAL_CHARS;
+  for (const hunk of parsedHunks.value) {
+    let dels: DiffLine[] = [];
+    let adds: DiffLine[] = [];
+    const flush = (): void => {
+      const pairCount = Math.min(dels.length, adds.length);
+      for (let i = 0; i < pairCount; i++) {
+        const cost = dels[i].content.length + adds[i].content.length;
+        if (cost > budget) continue; // keep earlier pairs, skip the rest
+        const { oldSegments, newSegments } = computeIntraLineSegments(
+          dels[i].content,
+          adds[i].content,
+        );
+        map.set(dels[i], oldSegments);
+        map.set(adds[i], newSegments);
+        budget -= cost;
+      }
+      dels = [];
+      adds = [];
+    };
+    for (const line of hunk.lines) {
+      if (line.type === "del") dels.push(line);
+      else if (line.type === "add") adds.push(line);
+      else flush();
+    }
+    flush();
+  }
+  return map;
+});
+
+/** HTML for a diff line's content: intra-line segments for paired
+ *  del/add lines (2026-08-14), otherwise Shiki-highlighted when the
+ *  highlighter is ready and the language is known, otherwise the
+ *  escaped plain text. Shared by all six render sites (unified /
+ *  split × inline / fullscreen). */
+function lineContentHtml(line: DiffLine | null | undefined): string {
+  if (!line) return "";
+  // Intra-line highlight wins over Shiki for paired changed lines:
+  // the changed segments matter more than token colors there
+  // (GitHub renders changed lines the same way — plain text with
+  // emphasized segments).
+  const segs = intraLineSegments.value.get(line);
+  if (segs) {
+    const cls = line.type === "del" ? "intra-hl-del" : "intra-hl-add";
+    return segs
+      .map((seg) =>
+        seg.changed
+          ? `<span class="intra-hl ${cls}">${escapeHtml(seg.text)}</span>`
+          : escapeHtml(seg.text),
+      )
+      .join("");
+  }
+  const pair = highlightedLines.value?.get(line);
+  if (pair) return props.isDark ? pair.dark : pair.light;
+  return escapeHtml(line.content);
+}
+
 // ── Stats ──────────────────────────────────────────────────────────
 
 const statsAdds = computed(() => {
@@ -1837,6 +2032,10 @@ const statsDels = computed(() => {
   --diff-del-bg: rgba(255, 100, 100, 0.12);
   --diff-del-border: rgba(255, 100, 100, 0.35);
   --diff-del-bg-strong: rgba(255, 100, 100, 0.22);
+  /* 2026-08-14 intra-line highlight: changed-segment background,
+     distinctly stronger than the whole-line tint. */
+  --diff-add-seg-bg: rgba(70, 200, 70, 0.45);
+  --diff-del-seg-bg: rgba(255, 100, 100, 0.45);
   --diff-hunk-bg: #e8f0fe;
   --diff-hunk-border: rgba(100, 150, 220, 0.3);
   --diff-line-no: rgba(0, 0, 0, 0.35);
@@ -1859,6 +2058,8 @@ const statsDels = computed(() => {
   --diff-del-bg: rgba(255, 100, 100, 0.16);
   --diff-del-border: rgba(255, 100, 100, 0.3);
   --diff-del-bg-strong: rgba(255, 100, 100, 0.3);
+  --diff-add-seg-bg: rgba(70, 200, 70, 0.5);
+  --diff-del-seg-bg: rgba(255, 100, 100, 0.5);
   --diff-hunk-bg: rgba(100, 150, 255, 0.12);
   --diff-hunk-border: rgba(100, 150, 255, 0.2);
   --diff-line-no: rgba(255, 255, 255, 0.35);
@@ -2248,6 +2449,27 @@ const statsDels = computed(() => {
 
 .diff-line.del .line-prefix {
   color: #cf222e;
+}
+
+/* 2026-08-14 intra-line highlight: the changed word segments inside
+   a paired del/add line get a distinctly stronger tint than the
+   whole-line background. The spans are injected via v-html, so they
+   never carry this component's scoped data-v attribute — :deep() is
+   required for the rules to match (same reason the Shiki spans use
+   inline styles). The --diff-*-seg-bg custom properties are defined
+   on .diff-preview (a template element) and inherit into the
+   injected markup, so they work without :deep. */
+.line-content :deep(.intra-hl) {
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+.line-content :deep(.intra-hl-del) {
+  background: var(--diff-del-seg-bg);
+}
+
+.line-content :deep(.intra-hl-add) {
+  background: var(--diff-add-seg-bg);
 }
 
 .diff-preview.is-dark .diff-line.del .line-prefix {
