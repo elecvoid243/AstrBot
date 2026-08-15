@@ -184,7 +184,11 @@ const errorText = computed<string>(() => {
 
         <!-- This PC: available drives (Windows multi-drive navigation) -->
         <v-list
-          v-else-if="!browser.error.value && browser.computerMode.value"
+          v-else-if="
+            !browser.error.value &&
+            browser.computerMode.value &&
+            browser.drives.value.length
+          "
           density="compact"
           class="dir-list pa-0"
           max-height="320"

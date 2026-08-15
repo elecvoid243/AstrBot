@@ -309,4 +309,49 @@ describe("ProjectDirectoryBrowser", () => {
     await wrapper.find('[data-testid="dir-confirm"]').trigger("click");
     expect(wrapper.emitted("select")).toEqual([["C:\\"]]);
   });
+
+  it("shows the no-drives hint when the drive list is empty", async () => {
+    getMock.mockImplementation(
+      (endpoint: string, config?: { params?: { path?: string } }) => {
+        if (endpoint === "spcode/home-directory") {
+          return Promise.resolve({ data: { data: { home: "/home/user" } } });
+        }
+        if (endpoint === "spcode/drives") {
+          return Promise.resolve({ data: { data: { drives: [] } } });
+        }
+        const path = config?.params?.path ?? "";
+        return Promise.resolve({
+          data: { data: { type: "directory", path, entries: [] } },
+        });
+      },
+    );
+    const wrapper = mountBrowser();
+    await flush();
+    await wrapper.find('[data-testid="dir-computer"]').trigger("click");
+    await flush();
+    expect(wrapper.text()).toContain("没有可用的磁盘");
+  });
+
+  it("surfaces an error when the drives response lacks the drives array", async () => {
+    getMock.mockImplementation(
+      (endpoint: string, config?: { params?: { path?: string } }) => {
+        if (endpoint === "spcode/home-directory") {
+          return Promise.resolve({ data: { data: { home: "/home/user" } } });
+        }
+        if (endpoint === "spcode/drives") {
+          // Route missing (plugin not reloaded) → empty envelope without drives.
+          return Promise.resolve({ data: { data: {} } });
+        }
+        const path = config?.params?.path ?? "";
+        return Promise.resolve({
+          data: { data: { type: "directory", path, entries: [] } },
+        });
+      },
+    );
+    const wrapper = mountBrowser();
+    await flush();
+    await wrapper.find('[data-testid="dir-computer"]').trigger("click");
+    await flush();
+    expect(wrapper.text()).toContain("加载失败，请重试");
+  });
 });

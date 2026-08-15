@@ -181,7 +181,14 @@ export function useSpcodeDirectoryBrowser() {
       const resp = await pluginExtensionApi.get<unknown>("spcode/drives");
       const list = (resp.data as { data?: { drives?: string[] } } | undefined)
         ?.data?.drives;
-      drives.value = Array.isArray(list) ? list : [];
+      // 响应里没有 drives 数组(如插件未重载、路由未注册)一律视为错误,
+      // 让错误条暴露出来,而不是静默显示空目录。
+      if (!Array.isArray(list)) {
+        error.value = "unknown";
+        drives.value = [];
+        return;
+      }
+      drives.value = list;
       currentPath.value = "";
       entries.value = [];
       truncated.value = false;
