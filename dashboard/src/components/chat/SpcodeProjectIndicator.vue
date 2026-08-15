@@ -86,10 +86,11 @@ const icon = computed(() => {
 });
 
 const label = computed(() => {
+  // 加载中一律显示统一定位文案(2026-08-15):不再实时打印 yield 的
+  // current_step(如"⏳ [2/3] codegraph init")——细节交给 codegraph
+  // 状态气泡;加载失败时 yield 信息仍可在失败 popover 中查看。
   if (isLoading.value) {
-    return (
-      progress.value.currentStep || tm("spcodeProjectLoad.indicator.loading")
-    );
+    return tm("spcodeProjectLoad.indicator.loading");
   }
   if (isFailed.value) return tm("spcodeProjectLoad.indicator.failed");
   return status.value.loaded
@@ -221,8 +222,9 @@ function openCodegraphManager(): void {
 // ── 状态气泡 (2026-08-15) ─────────────────────────────────────────────
 // 原 codegraph chip 移除后,初始化/重启等过程状态失去常驻显示。这里在
 // codegraph 状态变更(或 codegraph 相关操作进行中)时,于 services 按钮旁
-// 弹一个漫画式气泡实时提示,5s 后消失;显示期间状态再次更新则重置计时。
-const BUBBLE_DURATION_MS = 5000;
+// 弹一个漫画式气泡实时提示,3s 后消失;显示期间状态再次更新则重置计时。
+// 气泡右上角提供 ✕ 按钮可立即关闭。
+const BUBBLE_DURATION_MS = 3000;
 
 const bubbleText = ref("");
 const bubbleVisible = ref(false);
@@ -238,6 +240,15 @@ function showBubble(text: string): void {
     bubbleVisible.value = false;
     bubbleTimer = undefined;
   }, BUBBLE_DURATION_MS);
+}
+
+/** 立即关闭气泡(✕ 按钮 / 卸载时)。 */
+function closeBubble(): void {
+  if (bubbleTimer !== undefined) {
+    window.clearTimeout(bubbleTimer);
+    bubbleTimer = undefined;
+  }
+  bubbleVisible.value = false;
 }
 
 // 挂载后的首次观察只建立基线,不弹气泡——避免打开页面时把
@@ -469,7 +480,15 @@ function openLoadDialog(): void {
         role="status"
         :aria-label="bubbleText"
       >
-        {{ bubbleText }}
+        <span class="sp-bubble__text">{{ bubbleText }}</span>
+        <button
+          type="button"
+          class="sp-bubble__close"
+          :aria-label="tm('spcodeProjectLoad.indicator.dismissBubble')"
+          @click="closeBubble"
+        >
+          <v-icon size="12">mdi-close</v-icon>
+        </button>
         <span class="sp-bubble__tail" aria-hidden="true" />
       </div>
     </Transition>
@@ -703,11 +722,11 @@ function openLoadDialog(): void {
   right: 0;
   bottom: calc(100% + 10px);
   z-index: 30;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   max-width: 280px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  padding: 6px 12px;
+  padding: 6px 6px 6px 12px;
   font-size: 12px;
   font-weight: 500;
   color: var(--sp-text-primary);
@@ -715,6 +734,33 @@ function openLoadDialog(): void {
   border: 1px solid var(--sp-chip-border);
   border-radius: 12px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+}
+
+.sp-bubble__text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.sp-bubble__close {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--sp-text-path);
+  cursor: pointer;
+}
+
+.sp-bubble__close:hover {
+  background: var(--sp-chip-hover-bg);
+  color: var(--sp-text-primary);
 }
 
 .sp-bubble__tail {

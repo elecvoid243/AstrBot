@@ -497,7 +497,8 @@
       "codegraphInitializing": "Инициализация codegraph",
       "codegraphRestarting": "Перезапуск codegraph",
       "codegraphConnected": "Codegraph подключен",
-      "codegraphDisconnected": "Codegraph отключен"
+      "codegraphDisconnected": "Codegraph отключен",
+      "dismissBubble": "Закрыть"
     },
     "diffPreview": {
       "summary": {

@@ -80,12 +80,15 @@ describe("SpcodeProjectIndicator progress states", () => {
     useSpcodeVivadoStatus().reset();
   });
 
-  it("shows current step while loading and suppresses click", async () => {
+  it("shows a generic loading label (no live step) while loading and suppresses click", async () => {
     setProgress("running", "project_load", {
       currentStep: "⏳ [2/3] codegraph init",
     });
     const wrapper = mount(SpcodeProjectIndicator, { global: { stubs } });
-    expect(wrapper.text()).toContain("⏳ [2/3] codegraph init");
+    // Live yield steps are deliberately hidden (the codegraph bubble owns
+    // those details); the chip shows one generic loading label instead.
+    expect(wrapper.text()).toContain("正在加载项目");
+    expect(wrapper.text()).not.toContain("⏳ [2/3] codegraph init");
     await wrapper.find(".sp-status-badge").trigger("click");
     expect(wrapper.emitted("open-load-dialog")).toBeUndefined();
   });
@@ -225,7 +228,7 @@ describe("SpcodeProjectIndicator status bubble", () => {
     expect(wrapper.find(".sp-bubble").exists()).toBe(false);
   });
 
-  it("pops a bubble on codegraph connect and hides it after 5s", async () => {
+  it("pops a bubble on codegraph connect and hides it after 3s", async () => {
     vi.useFakeTimers();
     const wrapper = await mountWithBaseline();
     // codegraph goes online → bubble "Codegraph 已连接"
@@ -238,17 +241,17 @@ describe("SpcodeProjectIndicator status bubble", () => {
     await nextTick();
     expect(wrapper.find(".sp-bubble").exists()).toBe(true);
     expect(wrapper.find(".sp-bubble").text()).toContain("Codegraph 已连接");
-    // still visible just before the 5s mark
-    vi.advanceTimersByTime(4999);
+    // still visible just before the 3s mark
+    vi.advanceTimersByTime(2999);
     await nextTick();
     expect(wrapper.find(".sp-bubble").exists()).toBe(true);
-    // hidden after 5s
+    // hidden after 3s
     vi.advanceTimersByTime(1);
     await nextTick();
     expect(wrapper.find(".sp-bubble").exists()).toBe(false);
   });
 
-  it("resets the 5s timer when state changes while the bubble is visible", async () => {
+  it("resets the 3s timer when state changes while the bubble is visible", async () => {
     vi.useFakeTimers();
     const wrapper = await mountWithBaseline();
     useSpcodeCodegraphStatus().status.value = {
@@ -259,8 +262,8 @@ describe("SpcodeProjectIndicator status bubble", () => {
     };
     await nextTick();
     expect(wrapper.find(".sp-bubble").exists()).toBe(true);
-    // 3s later: bubble still visible (user example: init at t0, done at t3)
-    vi.advanceTimersByTime(3000);
+    // 2s later: bubble still visible (user example: init at t0, done at t2)
+    vi.advanceTimersByTime(2000);
     await nextTick();
     expect(wrapper.find(".sp-bubble").exists()).toBe(true);
     // State updates again (project switch) while visible → timer resets.
@@ -271,12 +274,31 @@ describe("SpcodeProjectIndicator status bubble", () => {
       fetchedAt: 3,
     };
     await nextTick();
-    // 4.9s after the reset: still visible (the OLD timer would have expired
-    // at t0+5s, i.e. 2s after this point).
-    vi.advanceTimersByTime(4999);
+    // 2.9s after the reset: still visible (the OLD timer would have expired
+    // at t0+3s, i.e. 1s after this point).
+    vi.advanceTimersByTime(2999);
     await nextTick();
     expect(wrapper.find(".sp-bubble").exists()).toBe(true);
     vi.advanceTimersByTime(1);
+    await nextTick();
+    expect(wrapper.find(".sp-bubble").exists()).toBe(false);
+  });
+
+  it("dismisses the bubble immediately via the close button", async () => {
+    vi.useFakeTimers();
+    const wrapper = await mountWithBaseline();
+    useSpcodeCodegraphStatus().status.value = {
+      enabled: true,
+      mcpRunning: true,
+      activeProject: "F:/proj",
+      fetchedAt: 2,
+    };
+    await nextTick();
+    expect(wrapper.find(".sp-bubble__close").exists()).toBe(true);
+    await wrapper.find(".sp-bubble__close").trigger("click");
+    expect(wrapper.find(".sp-bubble").exists()).toBe(false);
+    // And it stays hidden past the old expiry point.
+    vi.advanceTimersByTime(5000);
     await nextTick();
     expect(wrapper.find(".sp-bubble").exists()).toBe(false);
   });

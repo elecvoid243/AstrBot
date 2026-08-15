@@ -487,7 +487,7 @@
       "unloadAction": "卸载",
       "loadedAtPrefix": "加载于",
       "noProject": "未加载项目",
-      "loading": "加载中…",
+      "loading": "正在加载项目",
       "failed": "加载失败",
       "failedDetailTitle": "失败详情",
       "sendLocked": "项目加载中，完成后可发送",
@@ -498,7 +498,8 @@
       "codegraphInitializing": "正在初始化 codegraph",
       "codegraphRestarting": "正在重启 codegraph",
       "codegraphConnected": "Codegraph 已连接",
-      "codegraphDisconnected": "Codegraph 已断开"
+      "codegraphDisconnected": "Codegraph 已断开",
+      "dismissBubble": "关闭提示"
     },
     "diffPreview": {
       "summary": {

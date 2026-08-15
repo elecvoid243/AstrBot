@@ -498,7 +498,8 @@
       "codegraphInitializing": "Initializing codegraph",
       "codegraphRestarting": "Restarting codegraph",
       "codegraphConnected": "Codegraph connected",
-      "codegraphDisconnected": "Codegraph disconnected"
+      "codegraphDisconnected": "Codegraph disconnected",
+      "dismissBubble": "Dismiss"
     },
     "diffPreview": {
       "summary": {
