@@ -442,6 +442,7 @@
       "codegraphTitle": "设置 Codegraph 项目",
       "pathLabel": "项目路径",
       "pathPlaceholder": "例如 /Users/me/projects/my-app",
+      "browse": "浏览目录…",
       "loadStepsLabel": "加载步骤",
       "advancedSettings": "高级设置",
       "loadAgentsMd": "加载 AGENTS.md",
@@ -462,8 +463,25 @@
       "overwriteTitle": "覆盖当前项目",
       "overwriteMessage": "当前已有项目加载，是否覆盖？选择「是」将先卸载当前项目再加载新项目。"
     },
+    "directoryBrowser": {
+      "title": "打开文件浏览器",
+      "home": "返回主页",
+      "up": "上级目录",
+      "computer": "此电脑",
+      "noDrives": "没有可用的磁盘",
+      "open": "选择此文件夹",
+      "cancel": "取消",
+      "empty": "此文件夹为空",
+      "loading": "加载中…",
+      "retry": "重试",
+      "truncated": "条目过多，仅显示前 1000 条",
+      "errorPathNotFound": "路径不存在或已被删除",
+      "errorPermissionDenied": "权限不足，无法读取该目录",
+      "errorGeneric": "加载失败，请重试"
+    },
     "indicator": {
       "loadedLabel": "已加载项目",
+      "browseDirectory": "打开文件浏览器",
       "unloadAction": "卸载",
       "loadedAtPrefix": "加载于",
       "noProject": "未加载项目",

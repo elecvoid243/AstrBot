@@ -21,12 +21,21 @@ const menuStub = defineComponent({
   props: { modelValue: { type: Boolean, default: false } },
   template: `<div class="v-menu-stub"><slot name="activator" :props="{}" /><slot v-if="modelValue" /></div>`,
 });
+// ProjectDirectoryBrowser stub: records the open state via modelValue and
+// can emit a picked path on demand.
+const directoryBrowserStub = defineComponent({
+  name: "ProjectDirectoryBrowser",
+  props: { modelValue: { type: Boolean, default: false } },
+  emits: ["update:modelValue", "select"],
+  template: `<button data-testid="dir-browser-emit" @click="$emit('select','C:/picked/dir')" />`,
+});
 const stubs = {
   "v-tooltip": tooltipStub,
   "v-menu": menuStub,
   "v-card": { template: "<div><slot /></div>" },
   "v-card-text": { template: "<div><slot /></div>" },
   "v-icon": { template: "<i><slot /></i>" },
+  ProjectDirectoryBrowser: directoryBrowserStub,
 };
 
 function setProgress(
@@ -106,5 +115,24 @@ describe("SpcodeProjectIndicator progress states", () => {
     const badgeText = wrapper.find(".sp-status-badge").text();
     expect(badgeText).toContain("demo");
     expect(badgeText).not.toContain("C:\\proj");
+  });
+
+  it("opens the file browser and forwards a picked path (2026-08-15)", async () => {
+    const wrapper = mount(SpcodeProjectIndicator, { global: { stubs } });
+    // Click the "打开文件浏览器" button → browser opens (modelValue true).
+    await wrapper.find('[data-testid="open-directory-browser"]').trigger("click");
+    const browser = wrapper.findComponent({ name: "ProjectDirectoryBrowser" });
+    expect(browser.props("modelValue")).toBe(true);
+    // Pick a folder → chip forwards the backend path to ChatInput.
+    await wrapper.find('[data-testid="dir-browser-emit"]').trigger("click");
+    expect(wrapper.emitted("select-project-path")).toEqual([["C:/picked/dir"]]);
+  });
+
+  it("suppresses the file browser while a silent op is running (2026-08-15)", async () => {
+    setProgress("running", "project_load", { currentStep: "⏳ init" });
+    const wrapper = mount(SpcodeProjectIndicator, { global: { stubs } });
+    await wrapper.find('[data-testid="open-directory-browser"]').trigger("click");
+    const browser = wrapper.findComponent({ name: "ProjectDirectoryBrowser" });
+    expect(browser.props("modelValue")).toBe(false);
   });
 });

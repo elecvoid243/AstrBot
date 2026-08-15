@@ -49,11 +49,14 @@ const textFieldStub = defineComponent({
   },
   emits: ["update:modelValue"],
   template: `
-    <input
-      data-testid="project-path"
-      :value="modelValue"
-      @input="$emit('update:modelValue', $event.target.value)"
-    />
+    <div>
+      <input
+        data-testid="project-path"
+        :value="modelValue"
+        @input="$emit('update:modelValue', $event.target.value)"
+      />
+      <slot name="append-inner" />
+    </div>
   `,
 });
 
@@ -124,6 +127,15 @@ const radioGroupStub = defineComponent({
   },
 });
 
+// Stub for ProjectDirectoryBrowser: reflects browserOpen via modelValue and
+// emits a fixed picked path when its test button is clicked.
+const directoryBrowserStub = defineComponent({
+  name: "ProjectDirectoryBrowser",
+  props: { modelValue: { type: Boolean, default: false } },
+  emits: ["update:modelValue", "select"],
+  template: `<button data-testid="dir-browser-emit" @click="$emit('select','C:/picked/dir')" />`,
+});
+
 const stubs = {
   "v-dialog": dialogStub,
   "v-card": { template: "<div><slot /></div>" },
@@ -141,6 +153,9 @@ const stubs = {
   "v-list": { template: "<div><slot /></div>" },
   "v-list-item": { template: "<div><slot /></div>" },
   "v-list-item-title": { template: "<div><slot /></div>" },
+  // 2026-08-15: the in-app directory browser. Stub records the open state
+  // and can emit a picked backend path on demand.
+  ProjectDirectoryBrowser: directoryBrowserStub,
 };
 
 function mountDialog(commandMode: "project" | "codegraph" = "project") {
@@ -405,5 +420,42 @@ describe("ProjectLoadDialog load-step options", () => {
       path: "C:/projects/demo",
       legacyText: "/codegraph set C:/projects/demo",
     });
+  });
+});
+
+describe("ProjectLoadDialog in-app file browser (2026-08-15)", () => {
+  it("browse button opens the browser and a picked path fills the field", async () => {
+    const wrapper = mountDialog();
+    await openDialog(wrapper);
+
+    const browseBtn = wrapper.find('[data-testid="browse-directory"]');
+    expect(browseBtn.exists()).toBe(true);
+    await browseBtn.trigger("click");
+
+    const browser = wrapper.findComponent({ name: "ProjectDirectoryBrowser" });
+    expect(browser.props("modelValue")).toBe(true);
+
+    await wrapper.find('[data-testid="dir-browser-emit"]').trigger("click");
+    const input = wrapper.get('[data-testid="project-path"]')
+      .element as HTMLInputElement;
+    expect(input.value).toBe("C:/picked/dir");
+  });
+
+  it("submits the browser-picked path through the normal load flow", async () => {
+    const wrapper = mountDialog();
+    await openDialog(wrapper);
+
+    await wrapper.find('[data-testid="browse-directory"]').trigger("click");
+    await wrapper.find('[data-testid="dir-browser-emit"]').trigger("click");
+
+    await buttonByText(wrapper, "加载").trigger("click");
+    await nextTick();
+
+    const payload = wrapper.emitted("submit")!.at(-1)![0] as Record<
+      string,
+      unknown
+    >;
+    expect(payload.path).toBe("C:/picked/dir");
+    expect(payload.legacyText).toBe("/project load C:/picked/dir");
   });
 });

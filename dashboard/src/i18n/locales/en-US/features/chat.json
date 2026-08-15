@@ -442,6 +442,7 @@
       "codegraphTitle": "Set Codegraph Project",
       "pathLabel": "Project Path",
       "pathPlaceholder": "e.g. /Users/me/projects/my-app",
+      "browse": "Browse…",
       "loadStepsLabel": "Load steps",
       "advancedSettings": "Advanced settings",
       "loadAgentsMd": "Load AGENTS.md",
@@ -462,8 +463,25 @@
       "overwriteTitle": "Overwrite current project",
       "overwriteMessage": "A project is already loaded. Overwrite it? Choosing Yes unloads the current project before loading the new one."
     },
+    "directoryBrowser": {
+      "title": "Browse Directories",
+      "home": "Go to home",
+      "up": "Up one level",
+      "computer": "This PC",
+      "noDrives": "No drives available",
+      "open": "Select this folder",
+      "cancel": "Cancel",
+      "empty": "This folder is empty",
+      "loading": "Loading…",
+      "retry": "Retry",
+      "truncated": "Too many entries — showing first 1000",
+      "errorPathNotFound": "Path does not exist or was removed",
+      "errorPermissionDenied": "Permission denied — cannot read this directory",
+      "errorGeneric": "Failed to load, please retry"
+    },
     "indicator": {
       "loadedLabel": "Project loaded",
+      "browseDirectory": "Browse Directories",
       "unloadAction": "Unload",
       "loadedAtPrefix": "Loaded at",
       "noProject": "No project loaded",

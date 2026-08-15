@@ -441,6 +441,7 @@
       "title": "Загрузить каталог проекта",
       "pathLabel": "Путь к проекту",
       "pathPlaceholder": "напр. /Users/me/projects/my-app",
+      "browse": "Обзор…",
       "loadStepsLabel": "Этапы загрузки",
       "advancedSettings": "Расширенные настройки",
       "loadAgentsMd": "Загрузить AGENTS.md",
@@ -461,8 +462,25 @@
       "overwriteTitle": "Перезаписать текущий проект",
       "overwriteMessage": "Проект уже загружен. Перезаписать его? Выбор «Да» сначала выгрузит текущий проект, затем загрузит новый."
     },
+    "directoryBrowser": {
+      "title": "Обзор каталогов",
+      "home": "На главную",
+      "up": "На уровень выше",
+      "computer": "Этот компьютер",
+      "noDrives": "Нет доступных дисков",
+      "open": "Выбрать эту папку",
+      "cancel": "Отмена",
+      "empty": "Эта папка пуста",
+      "loading": "Загрузка…",
+      "retry": "Повторить",
+      "truncated": "Слишком много элементов — показаны первые 1000",
+      "errorPathNotFound": "Путь не существует или был удалён",
+      "errorPermissionDenied": "Нет доступа — не удаётся прочитать этот каталог",
+      "errorGeneric": "Не удалось загрузить, повторите попытку"
+    },
     "indicator": {
       "loadedLabel": "Проект загружен",
+      "browseDirectory": "Обзор каталогов",
       "unloadAction": "Выгрузить",
       "loadedAtPrefix": "Загружен",
       "noProject": "Проект не загружен",

@@ -13,7 +13,10 @@
     -->
     <div v-if="showSpcodeIndicator" class="input-area__status-row">
       <div class="input-area__status-row__left">
-        <SpcodeProjectIndicator @open-load-dialog="openLoadDialog" />
+        <SpcodeProjectIndicator
+          @open-load-dialog="openLoadDialog"
+          @select-project-path="onSelectProjectPath"
+        />
         <div class="input-area__status-row__left__chips-row">
           <SpcodeCodegraphChip @open-codegraph-dialog="openCodegraphLoadDialog" />
           <SpcodeVivadoStatusChip />
@@ -828,6 +831,7 @@ const commandSuggestionLoading = ref(false);
 // exposed `openLoadDialog()` to surface the same dialog.
 const projectLoadDialogRef = ref<{
   openLoadDialog: () => void;
+  openWithPath: (path: string) => void;
   closeLoadDialog: () => void;
 } | null>(null);
 
@@ -1710,6 +1714,21 @@ function focusInput() {
 function openLoadDialog(): void {
   if (projectLoadDialogRef.value) {
     projectLoadDialogRef.value.openLoadDialog();
+    return;
+  }
+  focusInput();
+}
+
+/**
+ * SpcodeProjectIndicator "打开文件浏览器" → picked-path handler. The chip's
+ * file browser emits a backend-returned absolute path; we pre-fill the
+ * load dialog with it and open the dialog so the user can review the
+ * load options (AGENTS.md / Codegraph / kind) and confirm. Text input
+ * remains available alongside (2026-08-15).
+ */
+function onSelectProjectPath(path: string): void {
+  if (projectLoadDialogRef.value) {
+    projectLoadDialogRef.value.openWithPath(path);
     return;
   }
   focusInput();
