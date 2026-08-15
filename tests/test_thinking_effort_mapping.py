@@ -134,6 +134,8 @@ def test_anthropic_static_config_used_without_llm_params(monkeypatch):
         {},
         {"thinking_effort": "auto"},
         {"thinking_effort": "bogus"},
+        {"thinking_effort": "max"},
+        {"thinking_effort": "xhigh"},
     ):
         payloads: dict = {}
         provider._apply_thinking_config(payloads, llm_params)
@@ -148,20 +150,23 @@ def test_anthropic_static_config_used_without_llm_params(monkeypatch):
 async def test_openai_thinking_effort_maps_to_reasoning_effort(monkeypatch):
     provider = _make_openai_provider(monkeypatch)
 
-    payloads, _ = await provider._prepare_chat_payload(
-        prompt="hello",
-        contexts=[],
-        llm_params={"thinking_effort": "high"},
-    )
-    assert payloads["reasoning_effort"] == "high"
-    # the canonical key itself must never leak into the upstream payload
-    assert "thinking_effort" not in payloads
+    # free-form passthrough: values differ per model / inference engine
+    for effort in ("high", "max", "xhigh", "none"):
+        payloads, _ = await provider._prepare_chat_payload(
+            prompt="hello",
+            contexts=[],
+            llm_params={"thinking_effort": effort},
+        )
+        assert payloads["reasoning_effort"] == effort
+        # the canonical key itself must never leak into the upstream payload
+        assert "thinking_effort" not in payloads
 
     for llm_params in (
         None,
         {},
         {"thinking_effort": "auto"},
         {"thinking_effort": "off"},
+        {"thinking_effort": ""},
     ):
         payloads, _ = await provider._prepare_chat_payload(
             prompt="hello",
@@ -226,6 +231,16 @@ async def test_gemini_3_thinking_effort_maps_to_level(monkeypatch):
         config.thinking_config.thinking_level == gemini_source.types.ThinkingLevel.LOW
     )
 
+    # unknown custom values (e.g. "max" / "xhigh") are not sent to Gemini:
+    # they fall back to the static provider config (default HIGH).
+    config = await provider._prepare_query_config(
+        {"model": "gemini-3-flash"},
+        llm_params={"thinking_effort": "max"},
+    )
+    assert (
+        config.thinking_config.thinking_level == gemini_source.types.ThinkingLevel.HIGH
+    )
+
 
 @pytest.mark.asyncio
 async def test_gemini_2_5_thinking_effort_maps_to_budget(monkeypatch):
@@ -245,4 +260,11 @@ async def test_gemini_2_5_thinking_effort_maps_to_budget(monkeypatch):
 
     # no override → static config default (budget 0)
     config = await provider._prepare_query_config({"model": "gemini-2.5-flash"})
+    assert config.thinking_config.thinking_budget == 0
+
+    # unknown custom values are not sent to Gemini 2.5 either
+    config = await provider._prepare_query_config(
+        {"model": "gemini-2.5-flash"},
+        llm_params={"thinking_effort": "xhigh"},
+    )
     assert config.thinking_config.thinking_budget == 0

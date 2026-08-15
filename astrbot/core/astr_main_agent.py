@@ -1552,7 +1552,9 @@ async def build_main_agent(
             if sel_model := event.get_extra("selected_model"):
                 req.model = sel_model
             if thinking_effort := event.get_extra("thinking_effort"):
-                if thinking_effort in ("off", "low", "medium", "high"):
+                if thinking_effort != "auto":
+                    # Values are free-form (e.g. "max" on deepseek, "xhigh" on
+                    # llama.cpp); "auto" means "use the provider static config".
                     req.llm_params["thinking_effort"] = thinking_effort
             if config.provider_wake_prefix and not event.message_str.startswith(
                 config.provider_wake_prefix

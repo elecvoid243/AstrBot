@@ -1002,9 +1002,12 @@ class ProviderOpenAIOfficial(Provider):
         llm_params = kwargs.pop("llm_params", None)
         if isinstance(llm_params, dict):
             effort = llm_params.get("thinking_effort")
-            if effort in ("low", "medium", "high"):
+            # Free-form passthrough: reasoning_effort values differ per model /
+            # inference engine (e.g. "max" on deepseek-v4 official API, "xhigh"
+            # on llama.cpp-hosted Qwen). "auto" / "off" keep the provider
+            # default since they cannot be expressed via this field.
+            if effort and effort not in ("auto", "off"):
                 payloads["reasoning_effort"] = effort
-            # "off" / "auto" → keep the provider default
 
         self._finally_convert_payload(payloads)
 

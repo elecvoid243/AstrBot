@@ -294,12 +294,13 @@ class ProviderOpenAIResponses(ProviderOpenAIOfficial):
 
         # Per-request overrides (e.g. thinking_effort) win over static config.
         # `_query`/`_query_stream` convert reasoning_effort into reasoning.effort.
+        # Values are free-form (e.g. "max" / "xhigh" / "none"); "auto" / "off"
+        # keep the provider default since they cannot be expressed via this field.
         llm_params = kwargs.pop("llm_params", None)
         if isinstance(llm_params, dict):
             effort = llm_params.get("thinking_effort")
-            if effort in ("low", "medium", "high"):
+            if effort and effort not in ("auto", "off"):
                 payloads["reasoning_effort"] = effort
-            # "off" / "auto" → keep the provider default
 
         return payloads, context_query
 
