@@ -2100,6 +2100,12 @@ defineExpose({
   overflow: visible !important;
 }
 
+/* Keep the effort dropdown visually separated from the menu label. */
+.thinking-effort-select {
+  margin-left: 16px;
+  flex-shrink: 0;
+}
+
 .input-right-actions {
   grid-area: right;
   display: flex;
