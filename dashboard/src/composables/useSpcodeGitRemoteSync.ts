@@ -14,6 +14,8 @@ import {
   parseSpcodeGitPull,
   parseSpcodeGitPush,
   parseSpcodeGitRemoteSetUrl,
+  parseSpcodeGitRemotes,
+  parseSpcodeGitRemoteRemove,
   buildPullBody,
   buildPushBody,
   buildRemoteSetUrlBody,
@@ -23,17 +25,25 @@ import {
   type SpcodePushResult,
   type SpcodeRemoteSetUrlParams,
   type SpcodeRemoteSetUrlResult,
+  type SpcodeRemotesResult,
+  type SpcodeRemoteRemoveResult,
 } from "./parseSpcodeGitRemoteSync";
 
 export interface UseSpcodeGitRemoteSync {
   isPulling: Ref<boolean>;
   isPushing: Ref<boolean>;
   isSettingRemote: Ref<boolean>;
+  isListingRemotes: Ref<boolean>;
+  isRemovingRemote: Ref<boolean>;
   pull: (params: SpcodePullParams) => Promise<SpcodePullResult>;
   push: (params: SpcodePushParams) => Promise<SpcodePushResult>;
   setRemoteUrl: (
     params: SpcodeRemoteSetUrlParams,
   ) => Promise<SpcodeRemoteSetUrlResult>;
+  /** 2026-08-16: GET /spcode/git-remotes (name + url 列表)。 */
+  listRemotes: () => Promise<SpcodeRemotesResult>;
+  /** 2026-08-16: POST /spcode/git-remote-remove。 */
+  removeRemote: (remote: string) => Promise<SpcodeRemoteRemoveResult>;
   dispose: () => void;
 }
 
@@ -57,15 +67,24 @@ const REMOTE_FALLBACK: SpcodeRemoteSetUrlResult = {
   ok: false,
   reason: "aborted",
 };
+const REMOTES_FALLBACK: SpcodeRemotesResult = { ok: false, reason: "aborted" };
+const REMOTE_REMOVE_FALLBACK: SpcodeRemoteRemoveResult = {
+  ok: false,
+  reason: "aborted",
+};
 
 export function useSpcodeGitRemoteSync(): UseSpcodeGitRemoteSync {
   const isPulling = ref(false);
   const isPushing = ref(false);
   const isSettingRemote = ref(false);
+  const isListingRemotes = ref(false);
+  const isRemovingRemote = ref(false);
   const spcodeStatus = useSpcodeProjectStatus();
   let pullAbort: AbortController | null = null;
   let pushAbort: AbortController | null = null;
   let remoteAbort: AbortController | null = null;
+  let listAbort: AbortController | null = null;
+  let removeAbort: AbortController | null = null;
   let isMounted = true;
 
   function currentUmo(): string | null {
@@ -166,6 +185,51 @@ export function useSpcodeGitRemoteSync(): UseSpcodeGitRemoteSync {
     }
   }
 
+  async function listRemotes(): Promise<SpcodeRemotesResult> {
+    if (!isMounted) return REMOTES_FALLBACK;
+    const umo = currentUmo();
+    if (!umo) return { ok: false, reason: "no_project_loaded" };
+    listAbort?.abort();
+    listAbort = new AbortController();
+    isListingRemotes.value = true;
+    try {
+      const resp = await pluginExtensionApi.get<unknown>("spcode/git-remotes", {
+        params: { umo },
+        signal: listAbort.signal,
+      });
+      if (!isMounted) return REMOTES_FALLBACK;
+      return parseSpcodeGitRemotes(resp.data);
+    } catch (err) {
+      if (!isMounted) return REMOTES_FALLBACK;
+      return { ok: false, reason: classifyThrown(err) };
+    } finally {
+      if (isMounted) isListingRemotes.value = false;
+    }
+  }
+
+  async function removeRemote(remote: string): Promise<SpcodeRemoteRemoveResult> {
+    if (!isMounted) return REMOTE_REMOVE_FALLBACK;
+    const umo = currentUmo();
+    if (!umo) return { ok: false, reason: "no_project_loaded" };
+    removeAbort?.abort();
+    removeAbort = new AbortController();
+    isRemovingRemote.value = true;
+    try {
+      const resp = await pluginExtensionApi.post<unknown>(
+        "spcode/git-remote-remove",
+        { umo, remote },
+        { signal: removeAbort.signal },
+      );
+      if (!isMounted) return REMOTE_REMOVE_FALLBACK;
+      return parseSpcodeGitRemoteRemove(resp.data);
+    } catch (err) {
+      if (!isMounted) return REMOTE_REMOVE_FALLBACK;
+      return { ok: false, reason: classifyThrown(err) };
+    } finally {
+      if (isMounted) isRemovingRemote.value = false;
+    }
+  }
+
   function dispose(): void {
     isMounted = false;
     pullAbort?.abort();
@@ -174,15 +238,23 @@ export function useSpcodeGitRemoteSync(): UseSpcodeGitRemoteSync {
     pushAbort = null;
     remoteAbort?.abort();
     remoteAbort = null;
+    listAbort?.abort();
+    listAbort = null;
+    removeAbort?.abort();
+    removeAbort = null;
   }
 
   return {
     isPulling,
     isPushing,
     isSettingRemote,
+    isListingRemotes,
+    isRemovingRemote,
     pull,
     push,
     setRemoteUrl,
+    listRemotes,
+    removeRemote,
     dispose,
   };
 }

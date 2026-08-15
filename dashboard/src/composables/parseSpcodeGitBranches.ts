@@ -24,6 +24,8 @@ export interface SpcodeGitBranchesRawResponse {
   directory: string | null;
   umo: string | null;
   branches: SpcodeGitBranchRaw[];
+  /** 2026-08-16: git remote 配置的远端名列表（即使尚无 refs/remotes/* ref）。 */
+  remotes?: string[] | null;
   total: number;
   current: string | null;
   detached: boolean;
@@ -52,6 +54,8 @@ export interface SpcodeGitBranchesSnapshot {
     fetchedAt: number;
   };
   branches: SpcodeGitBranch[];
+  /** 2026-08-16: git remote 配置的远端名列表（即使尚无 refs/remotes/* ref）。 */
+  remotes: string[];
   total: number;
   current: string | null;
   detached: boolean;
@@ -79,6 +83,9 @@ export function parseSpcodeGitBranches(
           current: Boolean(b.current),
           remote: Boolean(b.remote),
         }))
+      : [],
+    remotes: Array.isArray(data.remotes)
+      ? data.remotes.map((r) => String(r)).filter((r) => r !== "")
       : [],
     total: typeof data.total === "number" ? data.total : 0,
     current: data.current ?? null,

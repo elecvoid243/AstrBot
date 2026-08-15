@@ -172,6 +172,8 @@ export type SpcodeRemoteSetUrlResult =
       action: string; // "added" | "updated" | "unchanged"
       remote: string;
       url: string;
+      /** 2026-08-16: git remote 配置的远端名列表，供推送对话框即时刷新。 */
+      remotes: string[];
     }
   | { ok: false; reason: string; stderr?: string };
 
@@ -192,6 +194,9 @@ export function parseSpcodeGitRemoteSetUrl(
     action: asString(d.action, "updated"),
     remote: asString(d.remote),
     url: asString(d.url),
+    remotes: Array.isArray(d.remotes)
+      ? d.remotes.map((r) => String(r)).filter((r) => r !== "")
+      : [],
   };
 }
 
@@ -220,6 +225,64 @@ export function buildRemoteSetUrlBody(
   return {
     url: p.url,
     remote: p.remote ?? "origin",
+  };
+}
+
+// ── git-remotes (list) ──────────────────────────────────
+
+/** GET /spcode/git-remotes item: one configured remote (name + url). */
+export interface SpcodeRemote {
+  name: string;
+  url: string;
+}
+
+export type SpcodeRemotesResult =
+  | { ok: true; remotes: SpcodeRemote[] }
+  | { ok: false; reason: string; stderr?: string };
+
+export function parseSpcodeGitRemotes(raw: unknown): SpcodeRemotesResult {
+  const d = unwrapData(raw);
+  const reason = typeof d.reason === "string" ? d.reason : null;
+  if (reason !== null || d.success === false) {
+    return {
+      ok: false,
+      reason: reason ?? "unknown",
+      stderr: asString(d.stderr) || undefined,
+    };
+  }
+  const remotes = Array.isArray(d.remotes)
+    ? d.remotes
+        .filter((x): x is Record<string, unknown> =>
+          typeof x === "object" && x !== null,
+        )
+        .map((x) => ({ name: asString(x.name), url: asString(x.url) }))
+        .filter((r) => r.name !== "")
+    : [];
+  return { ok: true, remotes };
+}
+
+// ── git-remote-remove ───────────────────────────────────
+
+export type SpcodeRemoteRemoveResult =
+  | { ok: true; remote: string; remotes: string[] }
+  | { ok: false; reason: string; stderr?: string };
+
+export function parseSpcodeGitRemoteRemove(
+  raw: unknown,
+): SpcodeRemoteRemoveResult {
+  const d = unwrapData(raw);
+  const reason = typeof d.reason === "string" ? d.reason : null;
+  if (reason !== null || d.success === false) {
+    return {
+      ok: false,
+      reason: reason ?? "unknown",
+      stderr: asString(d.stderr) || undefined,
+    };
+  }
+  return {
+    ok: true,
+    remote: asString(d.remote),
+    remotes: asStringArray(d.remotes),
   };
 }
 
@@ -365,6 +428,10 @@ const REMOTE_REASON_CODES: Record<string, GitOpReasonMeta> = {
   },
   invalid_remote: {
     i18nKey: `${REMOTE_PREFIX}.error.invalid_remote`,
+    color: "error",
+  },
+  remote_not_found: {
+    i18nKey: `${REMOTE_PREFIX}.error.remote_not_found`,
     color: "error",
   },
   git_error: {

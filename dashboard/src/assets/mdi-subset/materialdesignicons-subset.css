@@ -1,4 +1,4 @@
-/* Auto-generated MDI subset – 365 icons */
+/* Auto-generated MDI subset – 366 icons */
 /* Do not edit manually. Run: pnpm run subset-icons */
 
 @font-face {
@@ -1278,6 +1278,10 @@
 
 .mdi-source-pull::before {
   content: "\F04C2";
+}
+
+.mdi-source-repository::before {
+  content: "\F0CCF";
 }
 
 .mdi-star::before {
