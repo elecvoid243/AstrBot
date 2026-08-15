@@ -468,6 +468,9 @@
       "up": "На уровень выше",
       "computer": "Этот компьютер",
       "noDrives": "Нет доступных дисков",
+      "pathInputPlaceholder": "Введите абсолютный путь для перехода (напр. D:\\repo), Enter",
+      "jump": "Перейти",
+      "pathInputError": "Введите абсолютный путь (напр. C:\\ или /home)",
       "open": "Выбрать эту папку",
       "cancel": "Отмена",
       "empty": "Эта папка пуста",
@@ -480,7 +483,6 @@
     },
     "indicator": {
       "loadedLabel": "Проект загружен",
-      "browseDirectory": "Обзор каталогов",
       "unloadAction": "Выгрузить",
       "loadedAtPrefix": "Загружен",
       "noProject": "Проект не загружен",

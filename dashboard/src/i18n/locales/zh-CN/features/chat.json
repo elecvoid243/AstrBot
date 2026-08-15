@@ -469,6 +469,9 @@
       "up": "上级目录",
       "computer": "此电脑",
       "noDrives": "没有可用的磁盘",
+      "pathInputPlaceholder": "输入绝对路径跳转（如 D:\\repo），回车确认",
+      "jump": "跳转",
+      "pathInputError": "请输入绝对路径（如 C:\\ 或 /home）",
       "open": "选择此文件夹",
       "cancel": "取消",
       "empty": "此文件夹为空",
@@ -481,7 +484,6 @@
     },
     "indicator": {
       "loadedLabel": "已加载项目",
-      "browseDirectory": "打开文件浏览器",
       "unloadAction": "卸载",
       "loadedAtPrefix": "加载于",
       "noProject": "未加载项目",

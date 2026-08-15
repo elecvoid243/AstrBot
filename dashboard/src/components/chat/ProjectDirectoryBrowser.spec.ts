@@ -34,6 +34,11 @@ const stubs = {
   "v-icon": { template: "<i><slot /></i>" },
   "v-alert": { template: '<div data-testid="alert"><slot /></div>' },
   "v-progress-circular": { template: '<span data-testid="loading" />' },
+  "v-text-field": defineComponent({
+    props: ["modelValue", "placeholder", "error"],
+    emits: ["update:modelValue"],
+    template: `<input :value="modelValue" :placeholder="placeholder" @input="$emit('update:modelValue', $event.target.value)" />`,
+  }),
   "v-list": { template: "<div><slot /></div>" },
   "v-list-item": defineComponent({
     emits: ["click", "dblclick"],
@@ -353,5 +358,36 @@ describe("ProjectDirectoryBrowser", () => {
     await wrapper.find('[data-testid="dir-computer"]').trigger("click");
     await flush();
     expect(wrapper.text()).toContain("加载失败，请重试");
+  });
+
+  it("jumps to a manually typed absolute path on Enter", async () => {
+    mockDirListing([dirEntry("src", "/home/user/src")]);
+    const wrapper = mountBrowser();
+    await flush();
+
+    await wrapper.get('[data-testid="dir-path-input"]').setValue("D:\\repo");
+    await wrapper.get('[data-testid="dir-path-input"]').trigger("keydown.enter");
+    await flush();
+
+    expect(getMock).toHaveBeenCalledWith("spcode/file-browser", {
+      params: { path: "D:\\repo" },
+    });
+    // The nested listing mock returns ["leaf"] for any non-home path.
+    expect(wrapper.text()).toContain("leaf");
+  });
+
+  it("shows a hint and skips the request for a non-absolute jump input", async () => {
+    mockDirListing([]);
+    const wrapper = mountBrowser();
+    await flush();
+
+    await wrapper.get('[data-testid="dir-path-input"]').setValue("repo/foo");
+    await wrapper.get('[data-testid="dir-jump"]').trigger("click");
+    await flush();
+
+    expect(wrapper.text()).toContain("请输入绝对路径");
+    expect(getMock).not.toHaveBeenCalledWith("spcode/file-browser", {
+      params: { path: "repo/foo" },
+    });
   });
 });

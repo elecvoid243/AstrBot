@@ -36,6 +36,27 @@ const { tm } = useModuleI18n("features/chat");
 const browser = useSpcodeDirectoryBrowser();
 /** Currently clicked directory (null = the browsed folder itself is the pick). */
 const selectedPath = ref<string | null>(null);
+/** Manual jump input (absolute path, Enter or button triggers). */
+const pathInput = ref("");
+/** True when the jump input was not an absolute path. */
+const pathInputError = ref(false);
+
+/** Windows drive / UNC / POSIX-root absolute path detection. */
+function isAbsolutePath(p: string): boolean {
+  return /^([A-Za-z]:[\\/]|\\\\|\/)/.test(p);
+}
+
+/** Jump to a manually typed absolute path. */
+function onJumpInput(): void {
+  const trimmed = pathInput.value.trim();
+  if (!trimmed) return;
+  if (!isAbsolutePath(trimmed)) {
+    pathInputError.value = true;
+    return;
+  }
+  pathInputError.value = false;
+  void browser.list(trimmed);
+}
 
 // Open → reset selection, jump to host home (start position). `immediate`
 // makes the initial mount with modelValue=true load home right away (and is
@@ -158,6 +179,36 @@ const errorText = computed<string>(() => {
               {{ tm("spcodeProjectLoad.directoryBrowser.loading") }}
             </span>
           </div>
+        </div>
+
+        <!-- Manual path jump (2026-08-15) -->
+        <div class="d-flex align-center ga-2 mb-1">
+          <v-text-field
+            v-model="pathInput"
+            density="compact"
+            variant="outlined"
+            hide-details
+            class="flex-grow-1"
+            data-testid="dir-path-input"
+            :placeholder="tm('spcodeProjectLoad.directoryBrowser.pathInputPlaceholder')"
+            :error="pathInputError"
+            @update:model-value="pathInputError = false"
+            @keydown.enter="onJumpInput"
+          />
+          <v-btn
+            color="primary"
+            variant="tonal"
+            data-testid="dir-jump"
+            @click="onJumpInput"
+          >
+            {{ tm("spcodeProjectLoad.directoryBrowser.jump") }}
+          </v-btn>
+        </div>
+        <div
+          v-if="pathInputError"
+          class="text-caption text-error mb-2"
+        >
+          {{ tm("spcodeProjectLoad.directoryBrowser.pathInputError") }}
         </div>
 
         <!-- Error bar -->

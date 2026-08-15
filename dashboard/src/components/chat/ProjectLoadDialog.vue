@@ -198,9 +198,9 @@ watch(projectKind, (kind) => {
 });
 
 // Reset transient input when the dialog opens (restore every option to its
-// default; preserve the history dropdown). The path is NOT reset here —
-// it is cleared in `openLoadDialog()` and pre-set in `openWithPath()` so
-// the chip's file browser can pre-fill a picked path (2026-08-15).
+// default; preserve the history dropdown). The path is cleared explicitly in
+// `openLoadDialog()` so the "浏览…" picker can pre-fill it when opened from
+// within the dialog (2026-08-15).
 watch(dialogOpen, (open) => {
   if (open) {
     loadMode.value = "existing";
@@ -223,21 +223,11 @@ function openLoadDialog(): void {
   dialogOpen.value = true;
 }
 
-/**
- * Open the dialog pre-filled with `prefill` (an absolute path from the
- * chip's file browser). Unlike `openLoadDialog`, this preserves the given
- * path so spcode "directly gets" the picked directory (2026-08-15).
- */
-function openWithPath(prefill: string): void {
-  path.value = prefill;
-  dialogOpen.value = true;
-}
-
 function closeLoadDialog(): void {
   dialogOpen.value = false;
 }
 
-defineExpose({ openLoadDialog, openWithPath, closeLoadDialog });
+defineExpose({ openLoadDialog, closeLoadDialog });
 
 // ── Handlers ────────────────────────────────────────────────────────────
 /**

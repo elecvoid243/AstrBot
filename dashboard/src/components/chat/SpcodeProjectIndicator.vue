@@ -22,19 +22,14 @@ import { computed, ref } from "vue";
 import { useModuleI18n } from "@/i18n/composables";
 import { useSpcodeProjectStatus } from "@/composables/useSpcodeProjectStatus";
 import { useSpcodeOperationProgress } from "@/composables/useSpcodeOperationProgress";
-import ProjectDirectoryBrowser from "./ProjectDirectoryBrowser.vue";
 
 const { status } = useSpcodeProjectStatus();
 const { tm } = useModuleI18n("features/chat");
 const { progress } = useSpcodeOperationProgress();
 const popoverOpen = ref(false);
-// 应用内目录选择器开关(2026-08-15):chip 的"打开文件浏览器"按钮打开它,
-// 选中绝对路径经 `select-project-path` 上抛,让 ChatInput 回填到加载对话框。
-const browserOpen = ref(false);
 
 const emit = defineEmits<{
   (e: "open-load-dialog"): void;
-  (e: "select-project-path", path: string): void;
 }>();
 
 // Only project load/unload operations drive THIS chip; codegraph_set is
@@ -124,21 +119,6 @@ function openLoadDialog(): void {
   if (isLoading.value) return; // one silent operation at a time
   emit("open-load-dialog");
 }
-
-/** Open the in-app directory browser (2026-08-15). */
-function openFileBrowser(): void {
-  if (isLoading.value) return; // one silent operation at a time
-  browserOpen.value = true;
-}
-
-/**
- * A directory was picked in the file browser: forward its backend-returned
- * absolute path so ChatInput can pre-fill the load dialog ("spcode directly
- * gets the path").
- */
-function onBrowserSelect(path: string): void {
-  emit("select-project-path", path);
-}
 </script>
 
 <template>
@@ -178,29 +158,6 @@ function onBrowserSelect(path: string): void {
       </template>
       <span>{{ tooltipText }}</span>
     </v-tooltip>
-
-    <!-- 打开文件浏览器(2026-08-15):打开后端支撑的应用内目录选择器 -->
-    <v-tooltip location="bottom" :open-delay="200">
-      <template #activator="{ props: tipProps }">
-        <button
-          v-bind="tipProps"
-          type="button"
-          class="sp-chip-browse-btn"
-          :disabled="isLoading"
-          :aria-label="tm('spcodeProjectLoad.indicator.browseDirectory')"
-          data-testid="open-directory-browser"
-          @click="openFileBrowser"
-        >
-          <v-icon size="15">mdi-folder-search-outline</v-icon>
-        </button>
-      </template>
-      <span>{{ tm("spcodeProjectLoad.indicator.browseDirectory") }}</span>
-    </v-tooltip>
-
-    <ProjectDirectoryBrowser
-      v-model="browserOpen"
-      @select="onBrowserSelect"
-    />
 
     <v-menu
       v-if="isFailed"
@@ -310,39 +267,6 @@ function onBrowserSelect(path: string): void {
   display: inline-flex;
   align-items: center;
   gap: 2px;
-}
-
-/* 打开文件浏览器按钮(2026-08-15) */
-.sp-chip-browse-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: var(--sp-chip-height);
-  border: 1px solid var(--sp-chip-border);
-  border-radius: 12px;
-  background: var(--sp-chip-bg);
-  color: rgb(var(--v-theme-primary));
-  cursor: pointer;
-  transition: background-color 150ms ease;
-}
-
-.sp-chip-browse-btn:hover:not(:disabled) {
-  background: var(--sp-chip-hover-bg);
-}
-
-.sp-chip-browse-btn:active:not(:disabled) {
-  background: var(--sp-chip-active-bg);
-}
-
-.sp-chip-browse-btn:focus-visible {
-  outline: 2px solid rgb(var(--v-theme-primary));
-  outline-offset: 1px;
-}
-
-.sp-chip-browse-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 
 .sp-status-badge--failed {
