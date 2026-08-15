@@ -1546,7 +1546,17 @@ const {
       // session's project when several umos have projects loaded
       // concurrently. Plan mode already passes umo (see below);
       // project status now mirrors the same pattern.
-      void spcodeStatus.refresh(resolveCurrentUmo(currSessionId.value));
+      //
+      // Bug fix (2026-08-15, elecvoid243): same null-umo guard as the
+      // currSessionId watcher. A bare refresh() would hit the
+      // "most-recently-loaded across all umos" fallback and display
+      // the previous session's project on the chip.
+      const resolvedUmo = resolveCurrentUmo(currSessionId.value);
+      if (resolvedUmo) {
+        void spcodeStatus.refresh(resolvedUmo);
+      } else {
+        spcodeStatus.reset();
+      }
       // Plan/build has the same race: an `/plan` or `/build`
       // response is processed during stream-end, so the chip needs
       // to be refreshed in lockstep to stay in sync with the bot's
@@ -1928,7 +1938,21 @@ watch(
     // umos" fallback branch — wrong in the multi-umo case. See the
     // matching fix in onStreamEnd above and in ChatInput.vue's
     // showSpcodeIndicator watcher.
-    await spcodeStatus.refresh(resolveCurrentUmo(next));
+    //
+    // Bug fix (2026-08-15, elecvoid243): a session id that does not
+    // (yet) resolve to a umo must NOT reach refresh() bare. This
+    // happens right after newSession() sets currSessionId but before
+    // getSessions() populates the sessions list: resolveCurrentUmo
+    // returns null, refresh(null) hits the same "most-recently-loaded
+    // across all umos" fallback, and the chip would display the
+    // previous session's project while the new conversation has no
+    // umo yet. Reset to the empty state in that window.
+    const resolvedUmo = resolveCurrentUmo(next);
+    if (resolvedUmo) {
+      await spcodeStatus.refresh(resolvedUmo);
+    } else {
+      spcodeStatus.reset();
+    }
     // Same lifecycle for plan/build: the chip is per-umo, so it
     // MUST be re-fetched on every session switch. We do not
     // optimistically carry over the previous session's flag because

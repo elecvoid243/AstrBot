@@ -1758,12 +1758,22 @@ watch(
       // backend queries THIS session's loaded project (not the global
       // "most-recently-loaded" fallback). Mirrors the Chat.vue watchers
       // and the plan-mode refresh pattern below.
-      const umo = props.currentSession
-        ? buildWebchatUmoDetails(
-            props.currentSession.session_id,
-            Boolean(props.currentSession.is_group),
-          ).umo
-        : null;
+      if (!props.currentSession) {
+        // Bug fix (2026-08-15, elecvoid243): with no session there is
+        // no umo to address the request at, and a bare refresh() makes
+        // the backend return the most-recently-loaded project across
+        // ALL umos — the previous session's project. That is exactly
+        // the window right after "new chat" is clicked (the session is
+        // only created on the first send), so the chip would keep
+        // showing the previous session's project until then. Reset to
+        // the empty state instead.
+        spcodeStatus.reset();
+        return;
+      }
+      const umo = buildWebchatUmoDetails(
+        props.currentSession.session_id,
+        Boolean(props.currentSession.is_group),
+      ).umo;
       await spcodeStatus.refresh(umo);
     }
   },

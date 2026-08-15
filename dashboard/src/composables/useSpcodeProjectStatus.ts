@@ -36,11 +36,24 @@ const status = ref<SpcodeProjectStatus>({ ...EMPTY_STATUS })
 export function useSpcodeProjectStatus() {
   /**
    * Query the spcode plugin via its registered web API and update the
-   * shared status ref. Pass `umo` to look up a specific session; omit it
-   * to receive the most-recently-loaded project (suitable for the
-   * dashboard's single-user assumption).
+   * shared status ref. Pass `umo` to look up a specific session.
+   *
+   * Bug fix (2026-08-15, elecvoid243): a missing/empty `umo` now resets
+   * the chip to the empty state instead of hitting the backend's
+   * "most-recently-loaded project across ALL umos" fallback. That
+   * fallback returns a value for whatever session happened to load
+   * last — a fixed, unrelated directory the chip would display as the
+   * CURRENT session's project. This is exactly the window right after
+   * "new chat" / a project title is clicked (no session exists yet, so
+   * there is no umo to address the request at). Every caller passes
+   * the resolved umo of the active session; when there is none the
+   * correct display is the empty state.
    */
   async function refresh(umo?: string | null): Promise<void> {
+    if (!umo) {
+      status.value = { ...EMPTY_STATUS }
+      return
+    }
     try {
       const res = await pluginExtensionApi.get<{
         loaded: boolean
@@ -49,7 +62,7 @@ export function useSpcodeProjectStatus() {
         umo: string | null
         all_loaded_count: number
       }>('spcode/project-status', {
-        params: umo ? { umo } : {},
+        params: { umo },
       })
       const data = res.data?.data
       if (!data) {
