@@ -147,6 +147,10 @@ describe("SpcodeProjectIndicator services popover", () => {
   it("renders the services side button next to the project chip", () => {
     const wrapper = mount(SpcodeProjectIndicator, { global: { stubs } });
     expect(wrapper.find(".sp-chip-services-btn").exists()).toBe(true);
+    // Icon must be one of the project's mdi subset glyphs (mdi-server-network).
+    expect(wrapper.find(".sp-chip-services-btn").text()).toContain(
+      "mdi-server-network",
+    );
   });
 
   it("opens the popover and shows codegraph + vivado status rows", async () => {
@@ -157,6 +161,11 @@ describe("SpcodeProjectIndicator services popover", () => {
     expect(wrapper.findAll(".sp-svc-row").length).toBe(2);
     expect(wrapper.text()).toContain("Codegraph 已连接");
     expect(wrapper.text()).toContain("Vivado 已就绪");
+    // The codegraph path detail is labelled as the *default* project so
+    // users don't mistake it for the only directory codegraph works on.
+    const cgDetail = wrapper.find(".sp-svc-row__detail");
+    expect(cgDetail.text()).toContain("F:/proj");
+    expect(cgDetail.text()).toContain("默认");
   });
 
   it("codegraph row falls back to the not-running label when MCP is down", async () => {

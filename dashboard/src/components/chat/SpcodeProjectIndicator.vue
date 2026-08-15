@@ -310,7 +310,7 @@ function openLoadDialog(): void {
               class="sp-chip-services-btn"
               :aria-label="tm('spcodeProjectLoad.indicator.servicesTooltip')"
             >
-              <v-icon size="14">mdi-server-outline</v-icon>
+              <v-icon size="14">mdi-server-network</v-icon>
             </button>
           </template>
           <span>{{ tm("spcodeProjectLoad.indicator.servicesTooltip") }}</span>
@@ -340,7 +340,11 @@ function openLoadDialog(): void {
               {{ tm("spcodeProjectLoad.indicator.manageCodegraph") }}
             </button>
           </div>
-          <div class="sp-svc-row__detail" :title="codegraphState.detail">
+          <div
+            class="sp-svc-row__detail"
+            :title="`${tm('spcodeProjectLoad.indicator.defaultProjectPrefix')}: ${codegraphState.detail}`"
+          >
+            {{ tm("spcodeProjectLoad.indicator.defaultProjectPrefix") }}:
             {{ codegraphState.detail }}
           </div>
           <!-- Vivado -->

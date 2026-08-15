@@ -492,7 +492,8 @@
       "sendLocked": "Проект загружается — отправка будет доступна после завершения",
       "servicesTitle": "Статус сервисов",
       "servicesTooltip": "Просмотр статуса сервисов",
-      "manageCodegraph": "Управлять"
+      "manageCodegraph": "Управлять",
+      "defaultProjectPrefix": "По умолчанию"
     },
     "diffPreview": {
       "summary": {

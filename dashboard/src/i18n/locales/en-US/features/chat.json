@@ -493,7 +493,8 @@
       "sendLocked": "Project is loading — sending will unlock when it finishes",
       "servicesTitle": "Service status",
       "servicesTooltip": "View service status",
-      "manageCodegraph": "Manage"
+      "manageCodegraph": "Manage",
+      "defaultProjectPrefix": "Default"
     },
     "diffPreview": {
       "summary": {
