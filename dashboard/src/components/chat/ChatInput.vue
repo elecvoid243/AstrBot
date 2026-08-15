@@ -312,21 +312,21 @@
                   hide-details
                   class="thinking-effort-select"
                 />
+                <v-tooltip location="top">
+                  <template #activator="{ props: gearProps }">
+                    <v-btn
+                      v-bind="gearProps"
+                      icon="mdi-cog-outline"
+                      variant="text"
+                      size="small"
+                      :aria-label="tm('input.editThinkingEffortLevels')"
+                      class="thinking-effort-gear"
+                      @click="effortLevelsDialogOpen = true"
+                    />
+                  </template>
+                  <span>{{ tm("input.editThinkingEffortLevels") }}</span>
+                </v-tooltip>
               </template>
-            </v-list-item>
-
-            <!-- Edit Thinking Effort Levels in Menu -->
-            <v-list-item
-              class="styled-menu-item"
-              rounded="md"
-              @click="effortLevelsDialogOpen = true"
-            >
-              <template v-slot:prepend>
-                <v-icon icon="mdi-pencil-outline" size="small"></v-icon>
-              </template>
-              <v-list-item-title>
-                {{ tm("input.editThinkingEffortLevels") }}
-              </v-list-item-title>
             </v-list-item>
 
             <!-- Streaming Toggle in Menu -->
@@ -2209,6 +2209,12 @@ defineExpose({
 .thinking-effort-select {
   width: 96px;
   margin-left: 16px;
+  flex-shrink: 0;
+}
+
+/* Inline gear button that opens the level editor, next to the dropdown. */
+.thinking-effort-gear {
+  margin-left: 2px;
   flex-shrink: 0;
 }
 
