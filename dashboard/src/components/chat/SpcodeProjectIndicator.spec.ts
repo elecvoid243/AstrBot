@@ -1,5 +1,7 @@
 // SpcodeProjectIndicator.spec.ts
 // Author: elecvoid243 @ 2026-08-06
+// Updated: 2026-08-15 — services popover (codegraph / vivado status
+// integrated from the removed SpcodeCodegraphChip / SpcodeVivadoStatusChip).
 import { mount } from "@vue/test-utils";
 import { defineComponent, nextTick } from "vue";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -10,16 +12,18 @@ vi.mock("@/api/v1", () => ({
 
 import { useSpcodeOperationProgress } from "@/composables/useSpcodeOperationProgress";
 import { useSpcodeProjectStatus } from "@/composables/useSpcodeProjectStatus";
+import { useSpcodeCodegraphStatus } from "@/composables/useSpcodeCodegraphStatus";
+import { useSpcodeVivadoStatus } from "@/composables/useSpcodeVivadoStatus";
 import SpcodeProjectIndicator from "./SpcodeProjectIndicator.vue";
 
 // Minimal stubs: v-tooltip renders its activator slot directly; v-menu
-// renders activator + (when open) content slot.
+// forwards an onClick to its activator so tests can toggle the popover.
 const tooltipStub = defineComponent({
   template: `<div><slot name="activator" :props="{}" /><slot /></div>`,
 });
 const menuStub = defineComponent({
   props: { modelValue: { type: Boolean, default: false } },
-  template: `<div class="v-menu-stub"><slot name="activator" :props="{}" /><slot v-if="modelValue" /></div>`,
+  template: `<div class="v-menu-stub"><slot name="activator" :props="{ onClick: () => $emit('update:modelValue', true) }" /><slot v-if="modelValue" /></div>`,
 });
 const stubs = {
   "v-tooltip": tooltipStub,
@@ -44,10 +48,33 @@ function setProgress(
   };
 }
 
+/** Put both MCP services into a healthy state so popover rows show labels. */
+function setServicesHealthy() {
+  useSpcodeCodegraphStatus().status.value = {
+    enabled: true,
+    mcpRunning: true,
+    activeProject: "F:/proj",
+    fetchedAt: 1,
+  };
+  useSpcodeVivadoStatus().status.value = {
+    overall: "ok",
+    enabled: true,
+    mcpRunning: true,
+    vivadoPath: "C:/vivado/bin/vivado",
+    installMissing: false,
+    degraded: false,
+    sessions: [{ id: "s1", state: "idle" }],
+    fetchedAt: 1,
+    message: "Vivado 运行中 · 1 会话",
+  };
+}
+
 describe("SpcodeProjectIndicator progress states", () => {
   afterEach(() => {
     useSpcodeOperationProgress().clear();
     useSpcodeProjectStatus().reset();
+    useSpcodeCodegraphStatus().reset();
+    useSpcodeVivadoStatus().reset();
   });
 
   it("shows current step while loading and suppresses click", async () => {
@@ -106,5 +133,48 @@ describe("SpcodeProjectIndicator progress states", () => {
     const badgeText = wrapper.find(".sp-status-badge").text();
     expect(badgeText).toContain("demo");
     expect(badgeText).not.toContain("C:\\proj");
+  });
+});
+
+describe("SpcodeProjectIndicator services popover", () => {
+  afterEach(() => {
+    useSpcodeOperationProgress().clear();
+    useSpcodeProjectStatus().reset();
+    useSpcodeCodegraphStatus().reset();
+    useSpcodeVivadoStatus().reset();
+  });
+
+  it("renders the services side button next to the project chip", () => {
+    const wrapper = mount(SpcodeProjectIndicator, { global: { stubs } });
+    expect(wrapper.find(".sp-chip-services-btn").exists()).toBe(true);
+  });
+
+  it("opens the popover and shows codegraph + vivado status rows", async () => {
+    setServicesHealthy();
+    const wrapper = mount(SpcodeProjectIndicator, { global: { stubs } });
+    expect(wrapper.findAll(".sp-svc-row").length).toBe(0);
+    await wrapper.find(".sp-chip-services-btn").trigger("click");
+    expect(wrapper.findAll(".sp-svc-row").length).toBe(2);
+    expect(wrapper.text()).toContain("Codegraph 已连接");
+    expect(wrapper.text()).toContain("Vivado 已就绪");
+  });
+
+  it("codegraph row falls back to the not-running label when MCP is down", async () => {
+    useSpcodeCodegraphStatus().reset();
+    const wrapper = mount(SpcodeProjectIndicator, { global: { stubs } });
+    await wrapper.find(".sp-chip-services-btn").trigger("click");
+    expect(wrapper.text()).toContain("Codegraph 未启动");
+  });
+
+  it("manage button emits open-codegraph-dialog and closes the popover", async () => {
+    setServicesHealthy();
+    const wrapper = mount(SpcodeProjectIndicator, { global: { stubs } });
+    await wrapper.find(".sp-chip-services-btn").trigger("click");
+    expect(wrapper.findAll(".sp-svc-row").length).toBe(2);
+    await wrapper.find(".sp-svc-row__action").trigger("click");
+    expect(wrapper.emitted("open-codegraph-dialog")).toHaveLength(1);
+    await nextTick();
+    // Popover closed after delegating to the codegraph dialog.
+    expect(wrapper.findAll(".sp-svc-row").length).toBe(0);
   });
 });

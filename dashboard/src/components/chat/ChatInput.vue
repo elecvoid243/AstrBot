@@ -7,17 +7,16 @@
     @drop.prevent="handleDrop"
   >
     <!--
-      Codegraph MCP server status row. Shown above the main status row
-      when the spcode plugin is enabled. Polls every 30 s for live
-      updates (see the setInterval in the script section).
+      spcode status row. Shown above the main status row when the spcode
+      plugin is enabled. The project chip exposes a services popover
+      (codegraph / vivado MCP status) via its small side button.
     -->
     <div v-if="showSpcodeIndicator" class="input-area__status-row">
       <div class="input-area__status-row__left">
-        <SpcodeProjectIndicator @open-load-dialog="openLoadDialog" />
-        <div class="input-area__status-row__left__chips-row">
-          <SpcodeCodegraphChip @open-codegraph-dialog="openCodegraphLoadDialog" />
-          <SpcodeVivadoStatusChip />
-        </div>
+        <SpcodeProjectIndicator
+          @open-load-dialog="openLoadDialog"
+          @open-codegraph-dialog="openCodegraphLoadDialog"
+        />
       </div>
       <!--
             Right-side group: keeps the plan-mode chip visually adjacent to
@@ -544,8 +543,6 @@ import ProjectLoadMenuItem from "./ProjectLoadMenuItem.vue";
 import ProjectLoadDialog from "./ProjectLoadDialog.vue";
 import type { ProjectLoadSubmitPayload } from "./ProjectLoadDialog.vue";
 import SpcodeProjectIndicator from "./SpcodeProjectIndicator.vue";
-import SpcodeCodegraphChip from "./SpcodeCodegraphChip.vue";
-import SpcodeVivadoStatusChip from "./SpcodeVivadoStatusChip.vue";
 import SpcodePlanModeChip from "./SpcodePlanModeChip.vue";
 import GitDiffChip from "./GitDiffChip.vue";
 import CommentsPreviewDialog from "./CommentsPreviewDialog.vue";
@@ -1726,9 +1723,10 @@ function openProjectLoadDialog(): void {
 }
 
 /**
- * SpcodeCodegraphChip "open codegraph dialog" handler. Delegates to
- * the second ``ProjectLoadDialog`` instance (``commandMode="codegraph"``)
- * mounted next to the project-load dialog.
+ * Project indicator services popover "manage codegraph" handler. Delegates
+ * to the second ``ProjectLoadDialog`` instance (``commandMode="codegraph"``)
+ * mounted next to the project-load dialog — the same dialog the removed
+ * SpcodeCodegraphChip used to open.
  */
 function openCodegraphLoadDialog(): void {
   if (codegraphLoadDialogRef.value) {
@@ -1912,26 +1910,16 @@ defineExpose({
 }
 
 /*
- * Left cluster: project indicator occupies its own row; the codegraph +
- * vivado chips sit together in a nested flex row below it.
+ * Left cluster: the project indicator (with its services popover side
+ * button) occupies this column. The former codegraph + vivado chips row
+ * was removed (2026-08-15) — their status now lives in the project chip's
+ * services popover.
  */
 .input-area__status-row__left {
   align-items: flex-start;
   display: flex;
   flex-direction: column;
   gap: 0;
-  min-width: 0;
-}
-
-/*
- * Nested row for codegraph + vivado chips. These share one line so they
- * do not take up three rows when the plugin is fully configured.
- */
-.input-area__status-row__left__chips-row {
-  align-items: center;
-  display: flex;
-  flex-direction: row;
-  gap: 6px;
   min-width: 0;
 }
 

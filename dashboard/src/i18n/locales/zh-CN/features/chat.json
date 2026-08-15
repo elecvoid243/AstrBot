@@ -490,7 +490,10 @@
       "loading": "加载中…",
       "failed": "加载失败",
       "failedDetailTitle": "失败详情",
-      "sendLocked": "项目加载中，完成后可发送"
+      "sendLocked": "项目加载中，完成后可发送",
+      "servicesTitle": "服务状态",
+      "servicesTooltip": "查看服务状态",
+      "manageCodegraph": "管理"
     },
     "diffPreview": {
       "summary": {

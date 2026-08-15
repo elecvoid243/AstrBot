@@ -490,7 +490,10 @@
       "loading": "Loading…",
       "failed": "Load failed",
       "failedDetailTitle": "Failure details",
-      "sendLocked": "Project is loading — sending will unlock when it finishes"
+      "sendLocked": "Project is loading — sending will unlock when it finishes",
+      "servicesTitle": "Service status",
+      "servicesTooltip": "View service status",
+      "manageCodegraph": "Manage"
     },
     "diffPreview": {
       "summary": {
