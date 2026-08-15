@@ -41,6 +41,12 @@ import { applySubAgentEvent } from "./subagentRunReducer";
 
 export type TransportMode = "sse" | "websocket";
 
+/**
+ * Per-message "thinking effort" (reasoning intensity) override sent with each
+ * chat request. "auto" keeps the provider-level static config.
+ */
+export type ThinkingEffort = "auto" | "off" | "low" | "medium" | "high";
+
 export function buildChatRequestFlags(enableStreaming = true) {
   return {
     enable_inline_genui: true,
@@ -200,6 +206,7 @@ interface SendMessageStreamOptions {
   enableStreaming?: boolean;
   selectedProvider?: string;
   selectedModel?: string;
+  thinkingEffort?: ThinkingEffort;
   userRecord?: ChatRecord;
   botRecord: ChatRecord;
   skipUserHistory?: boolean;
@@ -212,6 +219,7 @@ interface ContinueEditedMessageOptions {
   enableStreaming?: boolean;
   selectedProvider?: string;
   selectedModel?: string;
+  thinkingEffort?: ThinkingEffort;
 }
 
 interface CreateLocalExchangeOptions {
@@ -595,6 +603,7 @@ export function useMessages(options: UseMessagesOptions) {
     enableStreaming = true,
     selectedProvider = "",
     selectedModel = "",
+    thinkingEffort = "auto",
     botRecord,
     userRecord,
     skipUserHistory = false,
@@ -610,6 +619,7 @@ export function useMessages(options: UseMessagesOptions) {
         enableStreaming,
         selectedProvider,
         selectedModel,
+        thinkingEffort,
       );
       return;
     }
@@ -622,6 +632,7 @@ export function useMessages(options: UseMessagesOptions) {
       enableStreaming,
       selectedProvider,
       selectedModel,
+      thinkingEffort,
       skipUserHistory,
       llmCheckpointId,
     );
@@ -670,6 +681,7 @@ export function useMessages(options: UseMessagesOptions) {
     enableStreaming = true,
     selectedProvider = "",
     selectedModel = "",
+    thinkingEffort = "auto",
   }: ContinueEditedMessageOptions) {
     if (!sessionId) return;
     const parts = messageParts(sourceRecord).map(stripUploadOnlyFields);
@@ -697,6 +709,7 @@ export function useMessages(options: UseMessagesOptions) {
       enableStreaming,
       selectedProvider,
       selectedModel,
+      thinkingEffort,
       true,
       sourceRecord.llm_checkpoint_id || null,
     );
@@ -708,6 +721,7 @@ export function useMessages(options: UseMessagesOptions) {
     selectedProvider = "",
     selectedModel = "",
     enableStreaming = true,
+    thinkingEffort = "auto",
   ) {
     if (!sessionId || botRecord.id == null) return;
     const targetMessageId = botRecord.id;
@@ -743,6 +757,7 @@ export function useMessages(options: UseMessagesOptions) {
           body: JSON.stringify({
             selected_provider: selectedProvider,
             selected_model: selectedModel,
+            thinking_effort: thinkingEffort,
             flags: buildChatRequestFlags(enableStreaming),
           }),
           signal: abort.signal,
@@ -851,6 +866,7 @@ export function useMessages(options: UseMessagesOptions) {
     enableStreaming: boolean,
     selectedProvider: string,
     selectedModel: string,
+    thinkingEffort = "auto",
     skipUserHistory = false,
     llmCheckpointId: string | null = null,
   ) {
@@ -878,6 +894,7 @@ export function useMessages(options: UseMessagesOptions) {
         flags: buildChatRequestFlags(enableStreaming),
         selected_provider: selectedProvider,
         selected_model: selectedModel,
+        thinking_effort: thinkingEffort,
         _skip_user_history: skipUserHistory,
         _llm_checkpoint_id: llmCheckpointId || undefined,
       }),
@@ -1003,6 +1020,7 @@ export function useMessages(options: UseMessagesOptions) {
     enableStreaming: boolean,
     selectedProvider: string,
     selectedModel: string,
+    thinkingEffort = "auto",
   ) {
     const ws = getOrCreateChatWebSocket(sessionId);
 
@@ -1029,6 +1047,7 @@ export function useMessages(options: UseMessagesOptions) {
       flags: buildChatRequestFlags(enableStreaming),
       selected_provider: selectedProvider,
       selected_model: selectedModel,
+      thinking_effort: thinkingEffort,
     });
   }
 

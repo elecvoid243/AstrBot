@@ -432,7 +432,11 @@ class ProviderOpenAIOfficial(Provider):
         # to think=false, while direct think=false passthrough is not stable.
         extra_body.pop("reasoning", None)
         extra_body.pop("think", None)
-        extra_body["reasoning_effort"] = "none"
+        # Keep an explicit reasoning_effort — whether set per-request (e.g. the
+        # ChatUI thinking-effort selector, which lands in `payloads`) or via
+        # custom_extra_body — and only force "none" as a fallback.
+        if "reasoning_effort" not in payloads and "reasoning_effort" not in extra_body:
+            extra_body["reasoning_effort"] = "none"
 
     async def get_models(self):
         try:
@@ -993,6 +997,14 @@ class ProviderOpenAIOfficial(Provider):
         model = model or self.get_model()
 
         payloads = {"messages": context_query, "model": model}
+
+        # Per-request overrides (e.g. thinking_effort) win over static config.
+        llm_params = kwargs.pop("llm_params", None)
+        if isinstance(llm_params, dict):
+            effort = llm_params.get("thinking_effort")
+            if effort in ("low", "medium", "high"):
+                payloads["reasoning_effort"] = effort
+            # "off" / "auto" → keep the provider default
 
         self._finally_convert_payload(payloads)
 

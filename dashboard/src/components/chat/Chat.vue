@@ -1026,6 +1026,7 @@ import {
   type ChatRecord,
   type ChatThread,
   type MessagePart,
+  type ThinkingEffort,
   type TransportMode,
 } from "@/composables/useMessages";
 import { useMediaHandling } from "@/composables/useMediaHandling";
@@ -1728,6 +1729,11 @@ function getSelectedProviderSelection() {
     providerId: localStorage.getItem("selectedProvider") || "",
     modelName: localStorage.getItem("selectedProviderModel") || "",
   };
+}
+
+/** Per-message thinking-effort override from the chat input (auto by default). */
+function getCurrentThinkingEffort(): ThinkingEffort {
+  return inputRef.value?.getThinkingEffort() ?? "auto";
 }
 
 provide("isDark", isDark);
@@ -2952,6 +2958,7 @@ async function sendCurrentMessage() {
       enableStreaming: enableStreaming.value,
       selectedProvider: selection?.providerId || "",
       selectedModel: selection?.modelName || "",
+      thinkingEffort: getCurrentThinkingEffort(),
       userRecord,
       botRecord,
     });
@@ -3017,6 +3024,7 @@ async function sendSystemCommand(command: string) {
       enableStreaming: enableStreaming.value,
       selectedProvider: selection?.providerId || "",
       selectedModel: selection?.modelName || "",
+      thinkingEffort: getCurrentThinkingEffort(),
       userRecord,
       botRecord,
     });
@@ -3257,6 +3265,7 @@ async function saveMessageEdit() {
         enableStreaming: enableStreaming.value,
         selectedProvider: selection?.providerId || "",
         selectedModel: selection?.modelName || "",
+        thinkingEffort: getCurrentThinkingEffort(),
       });
       scrollToBottom();
     } else if (result.needsRegenerate) {
@@ -3290,6 +3299,7 @@ async function handleRegenerateMessage(
     effectiveSelection?.providerId || "",
     effectiveSelection?.modelName || "",
     enableStreaming.value,
+    getCurrentThinkingEffort(),
   );
 }
 

@@ -262,6 +262,9 @@ class WebChatAdapter(Platform):
                     "selected_provider", payload.get("selected_provider")
                 )
                 message_event.set_extra("selected_model", payload.get("selected_model"))
+                message_event.set_extra(
+                    "thinking_effort", payload.get("thinking_effort")
+                )
                 message_event.set_extra("action_type", payload.get("action_type"))
                 message_event.set_extra(
                     "llm_checkpoint_id", payload.get("llm_checkpoint_id")

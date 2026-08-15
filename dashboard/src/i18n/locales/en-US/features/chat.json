@@ -13,6 +13,14 @@
     "dropToUpload": "Drop files to upload",
     "dropToReference": "Drop to reference this file",
     "stopGenerating": "Stop generating",
+    "thinkingEffort": "Thinking Effort",
+    "thinkingEffortOptions": {
+      "auto": "Auto",
+      "off": "Off",
+      "low": "Low",
+      "medium": "Medium",
+      "high": "High"
+    },
     "references": {
       "removeAria": "Remove reference {name}"
     }

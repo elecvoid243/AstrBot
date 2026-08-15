@@ -292,6 +292,15 @@ class ProviderOpenAIResponses(ProviderOpenAIOfficial):
         if system_prompt:
             payloads["instructions"] = system_prompt
 
+        # Per-request overrides (e.g. thinking_effort) win over static config.
+        # `_query`/`_query_stream` convert reasoning_effort into reasoning.effort.
+        llm_params = kwargs.pop("llm_params", None)
+        if isinstance(llm_params, dict):
+            effort = llm_params.get("thinking_effort")
+            if effort in ("low", "medium", "high"):
+                payloads["reasoning_effort"] = effort
+            # "off" / "auto" → keep the provider default
+
         return payloads, context_query
 
     async def _query(

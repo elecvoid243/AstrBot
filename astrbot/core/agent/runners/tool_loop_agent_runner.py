@@ -475,6 +475,7 @@ class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
             "extra_user_content_parts": self.req.extra_user_content_parts,  # list[ContentPart]
             "abort_signal": self._abort_signal,
             "request_max_retries": self.request_max_retries,
+            "llm_params": self.req.llm_params,
         }
         if include_model:
             # For primary provider we keep explicit model selection if provided.

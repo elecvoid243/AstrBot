@@ -294,6 +294,25 @@
               @config-changed="handleConfigChange"
             />
 
+            <!-- Thinking Effort Selector in Menu -->
+            <v-list-item class="styled-menu-item" rounded="md">
+              <template v-slot:prepend>
+                <v-icon icon="mdi-brain" size="small"></v-icon>
+              </template>
+              <v-list-item-title>{{ tm("input.thinkingEffort") }}</v-list-item-title>
+              <template v-slot:append>
+                <v-select
+                  v-model="thinkingEffort"
+                  :items="thinkingEffortOptions"
+                  density="compact"
+                  variant="plain"
+                  hide-details
+                  style="max-width: 120px"
+                  class="thinking-effort-select"
+                />
+              </template>
+            </v-list-item>
+
             <!-- Streaming Toggle in Menu -->
             <v-list-item
               class="styled-menu-item"
@@ -491,6 +510,7 @@ import {
 } from "vue";
 import { useDisplay } from "vuetify";
 import { useModuleI18n } from "@/i18n/composables";
+import type { ThinkingEffort } from "@/composables/useMessages";
 import { useCustomizerStore } from "@/stores/customizer";
 import { isComposingEnter } from "@/utils/imeInput.mjs";
 import { buildWebchatUmoDetails } from "@/utils/chatConfigBinding";
@@ -615,6 +635,39 @@ const providerModelMenuRef = ref<InstanceType<typeof ProviderModelMenu> | null>(
 const providerSelectorAvailable = ref(true);
 const isReplyClosing = ref(false);
 const isDragging = ref(false);
+
+// Per-message "thinking effort" (reasoning intensity) override, sent with
+// each chat request. Persisted locally; "auto" keeps the provider config.
+const thinkingEffortValues: ThinkingEffort[] = [
+  "auto",
+  "off",
+  "low",
+  "medium",
+  "high",
+];
+
+const thinkingEffortOptions = computed(() =>
+  thinkingEffortValues.map((value) => ({
+    title: tm(`input.thinkingEffortOptions.${value}`),
+    value,
+  })),
+);
+
+const thinkingEffort = ref<ThinkingEffort>(
+  (() => {
+    if (typeof localStorage === "undefined") return "auto";
+    const saved = localStorage.getItem("thinkingEffort");
+    return (thinkingEffortValues as string[]).includes(saved ?? "")
+      ? (saved as ThinkingEffort)
+      : "auto";
+  })(),
+);
+watch(thinkingEffort, (value) => {
+  if (typeof localStorage !== "undefined") {
+    localStorage.setItem("thinkingEffort", value);
+  }
+});
+
 /** 2026-08-09 drag-reference: which drop overlay to show. "Files" drags
  *  upload; sidebar MIME drags reference. */
 const dragKind = ref<"upload" | "reference">("upload");
@@ -1551,6 +1604,10 @@ function getCurrentSelection() {
   return providerModelMenuRef.value?.getCurrentSelection();
 }
 
+function getThinkingEffort(): ThinkingEffort {
+  return thinkingEffort.value;
+}
+
 function focusInput() {
   if (!inputField.value) return;
   inputField.value.focus();
@@ -1736,6 +1793,7 @@ onBeforeUnmount(() => {
 
 defineExpose({
   getCurrentSelection,
+  getThinkingEffort,
   focusInput,
 });
 </script>

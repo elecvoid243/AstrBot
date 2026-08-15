@@ -1729,6 +1729,7 @@ class ChatService:
         session_id = post_data.get("session_id", post_data.get("conversation_id"))
         selected_provider = post_data.get("selected_provider")
         selected_model = post_data.get("selected_model")
+        thinking_effort = post_data.get("thinking_effort")
         flags = resolve_webchat_request_flags(post_data)
         platform_history_id = post_data.get("_platform_history_id") or "webchat"
         thread_selected_text = post_data.get("_thread_selected_text")
@@ -1793,6 +1794,7 @@ class ChatService:
                         "message": message_parts,
                         "selected_provider": selected_provider,
                         "selected_model": selected_model,
+                        "thinking_effort": thinking_effort,
                         "flags": flags,
                         "message_id": message_id,
                         "llm_checkpoint_id": llm_checkpoint_id,
@@ -2699,6 +2701,7 @@ class ChatService:
             "flags": resolve_webchat_request_flags(data),
             "selected_provider": data.get("selected_provider"),
             "selected_model": data.get("selected_model"),
+            "thinking_effort": data.get("thinking_effort"),
             "_skip_user_history": True,
             "_llm_checkpoint_id": new_checkpoint_id,
         }

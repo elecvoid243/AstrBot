@@ -13,6 +13,14 @@
     "dropToUpload": "Отпустите, чтобы загрузить файл",
     "dropToReference": "Отпустите, чтобы добавить ссылку на файл",
     "stopGenerating": "Остановить генерацию",
+    "thinkingEffort": "Интенсивность мышления",
+    "thinkingEffortOptions": {
+      "auto": "Авто",
+      "off": "Выкл",
+      "low": "Низкая",
+      "medium": "Средняя",
+      "high": "Высокая"
+    },
     "references": {
       "removeAria": "Убрать ссылку {name}"
     }
