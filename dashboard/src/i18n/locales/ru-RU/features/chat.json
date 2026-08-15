@@ -21,6 +21,19 @@
       "medium": "Средняя",
       "high": "Высокая"
     },
+    "editThinkingEffortLevels": "Уровни мышления",
+    "thinkingEffortLevelsHint": "Пользовательские значения действуют только для OpenAI-совместимых API (например max, xhigh, none). Anthropic / Gemini по-прежнему используют low / medium / high / off.",
+    "levelName": "Название",
+    "levelValue": "Значение",
+    "addLevel": "Добавить уровень",
+    "restoreDefaultLevels": "По умолчанию",
+    "levelNameRequired": "Укажите название уровня",
+    "levelValueRequired": "Укажите значение уровня",
+    "levelReservedValue": "Значение не может быть зарезервированным auto или off",
+    "levelDuplicateValue": "Дубликат значения уровня",
+    "levelDeleteAria": "Удалить уровень",
+    "save": "Сохранить",
+    "cancel": "Отмена",
     "references": {
       "removeAria": "Убрать ссылку {name}"
     }

@@ -21,6 +21,19 @@
       "medium": "Medium",
       "high": "High"
     },
+    "editThinkingEffortLevels": "Edit Thinking Effort Levels",
+    "thinkingEffortLevelsHint": "Custom values only apply to OpenAI-compatible APIs (e.g. max, xhigh, none). Anthropic / Gemini still use low / medium / high / off.",
+    "levelName": "Name",
+    "levelValue": "Value",
+    "addLevel": "Add Level",
+    "restoreDefaultLevels": "Restore Defaults",
+    "levelNameRequired": "Level name is required",
+    "levelValueRequired": "Level value is required",
+    "levelReservedValue": "Level value cannot use reserved value auto or off",
+    "levelDuplicateValue": "Duplicate level value",
+    "levelDeleteAria": "Delete level",
+    "save": "Save",
+    "cancel": "Cancel",
     "references": {
       "removeAria": "Remove reference {name}"
     }

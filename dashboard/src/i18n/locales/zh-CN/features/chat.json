@@ -21,6 +21,19 @@
       "medium": "中",
       "high": "高"
     },
+    "editThinkingEffortLevels": "编辑思考强度档位",
+    "thinkingEffortLevelsHint": "自定义档位的值仅对 OpenAI 兼容接口生效（如 max、xhigh、none）。Anthropic / Gemini 仍使用低 / 中 / 高 / 关闭。",
+    "levelName": "名称",
+    "levelValue": "值",
+    "addLevel": "添加档位",
+    "restoreDefaultLevels": "恢复默认",
+    "levelNameRequired": "档位名称不能为空",
+    "levelValueRequired": "档位值不能为空",
+    "levelReservedValue": "档位值不能使用保留值 auto 或 off",
+    "levelDuplicateValue": "档位值重复",
+    "levelDeleteAria": "删除档位",
+    "save": "保存",
+    "cancel": "取消",
     "references": {
       "removeAria": "移除引用 {name}"
     }

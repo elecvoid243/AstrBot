@@ -312,6 +312,20 @@
               </template>
             </v-list-item>
 
+            <!-- Edit Thinking Effort Levels in Menu -->
+            <v-list-item
+              class="styled-menu-item"
+              rounded="md"
+              @click="effortLevelsDialogOpen = true"
+            >
+              <template v-slot:prepend>
+                <v-icon icon="mdi-pencil-outline" size="small"></v-icon>
+              </template>
+              <v-list-item-title>
+                {{ tm("input.editThinkingEffortLevels") }}
+              </v-list-item-title>
+            </v-list-item>
+
             <!-- Streaming Toggle in Menu -->
             <v-list-item
               class="styled-menu-item"
@@ -495,6 +509,12 @@
       @delete-comment="onDeleteComment"
       @request-clear-all="onRequestClearAll"
     />
+
+    <ThinkingEffortLevelsDialog
+      v-model="effortLevelsDialogOpen"
+      :levels="userEffortLevels"
+      @save="handleEffortLevelsSave"
+    />
   </div>
 </template>
 
@@ -517,6 +537,7 @@ import { commandApi } from "@/api/v1";
 import type { CommandItem } from "@/components/extension/componentPanel/types";
 import ConfigSelector from "./ConfigSelector.vue";
 import ProviderModelMenu from "./ProviderModelMenu.vue";
+import ThinkingEffortLevelsDialog from "./ThinkingEffortLevelsDialog.vue";
 import StyledMenu from "@/components/shared/StyledMenu.vue";
 import CommandSuggestion from "./CommandSuggestion.vue";
 import ProjectLoadMenuItem from "./ProjectLoadMenuItem.vue";
@@ -637,28 +658,73 @@ const isDragging = ref(false);
 
 // Per-message "thinking effort" (reasoning intensity) override, sent with
 // each chat request. Persisted locally; "auto" keeps the provider config.
-const thinkingEffortValues: ThinkingEffort[] = [
-  "auto",
-  "off",
-  "low",
-  "medium",
-  "high",
-];
+// "auto" / "off" are reserved and always present; the remaining levels are
+// user-defined (name + raw value) and stored in localStorage
+// "thinkingEffortLevels" (e.g. { name: "深度", value: "max" }).
+const RESERVED_EFFORT_VALUES = ["auto", "off"];
 
-const thinkingEffortOptions = computed(() =>
-  thinkingEffortValues.map((value) => ({
-    title: tm(`input.thinkingEffortOptions.${value}`),
-    value,
-  })),
+interface ThinkingEffortLevel {
+  name: string;
+  value: string;
+}
+
+const defaultThinkingEffortLevels = computed<ThinkingEffortLevel[]>(() => [
+  { name: tm("input.thinkingEffortOptions.low"), value: "low" },
+  { name: tm("input.thinkingEffortOptions.medium"), value: "medium" },
+  { name: tm("input.thinkingEffortOptions.high"), value: "high" },
+]);
+
+function loadStoredEffortLevels(): ThinkingEffortLevel[] | null {
+  if (typeof localStorage === "undefined") return null;
+  try {
+    const raw = localStorage.getItem("thinkingEffortLevels");
+    if (!raw) return null;
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return null;
+    const levels = parsed
+      .filter(
+        (item): item is ThinkingEffortLevel =>
+          !!item &&
+          typeof item === "object" &&
+          typeof (item as ThinkingEffortLevel).name === "string" &&
+          typeof (item as ThinkingEffortLevel).value === "string" &&
+          (item as ThinkingEffortLevel).value.trim() !== "" &&
+          !RESERVED_EFFORT_VALUES.includes(
+            (item as ThinkingEffortLevel).value.trim(),
+          ),
+      )
+      .map((item) => ({
+        name: (item as ThinkingEffortLevel).name,
+        value: (item as ThinkingEffortLevel).value.trim(),
+      }));
+    return levels.length > 0 ? levels : null;
+  } catch {
+    return null;
+  }
+}
+
+const storedEffortLevels = ref<ThinkingEffortLevel[] | null>(
+  loadStoredEffortLevels(),
 );
+
+/** User-defined levels, falling back to the i18n defaults when not customized. */
+const userEffortLevels = computed<ThinkingEffortLevel[]>(() =>
+  storedEffortLevels.value ?? defaultThinkingEffortLevels.value,
+);
+
+const thinkingEffortOptions = computed(() => [
+  { title: tm("input.thinkingEffortOptions.auto"), value: "auto" },
+  { title: tm("input.thinkingEffortOptions.off"), value: "off" },
+  ...userEffortLevels.value.map((level) => ({
+    title: level.name,
+    value: level.value,
+  })),
+]);
 
 const thinkingEffort = ref<ThinkingEffort>(
   (() => {
     if (typeof localStorage === "undefined") return "auto";
-    const saved = localStorage.getItem("thinkingEffort");
-    return (thinkingEffortValues as string[]).includes(saved ?? "")
-      ? (saved as ThinkingEffort)
-      : "auto";
+    return (localStorage.getItem("thinkingEffort") as ThinkingEffort) || "auto";
   })(),
 );
 watch(thinkingEffort, (value) => {
@@ -666,6 +732,25 @@ watch(thinkingEffort, (value) => {
     localStorage.setItem("thinkingEffort", value);
   }
 });
+// Keep the selection valid when the level list changes (e.g. a level deleted).
+watch(
+  thinkingEffortOptions,
+  (options) => {
+    if (!options.some((option) => option.value === thinkingEffort.value)) {
+      thinkingEffort.value = "auto";
+    }
+  },
+  { immediate: true },
+);
+
+const effortLevelsDialogOpen = ref(false);
+
+function handleEffortLevelsSave(levels: ThinkingEffortLevel[]) {
+  storedEffortLevels.value = levels;
+  if (typeof localStorage !== "undefined") {
+    localStorage.setItem("thinkingEffortLevels", JSON.stringify(levels));
+  }
+}
 
 /** 2026-08-09 drag-reference: which drop overlay to show. "Files" drags
  *  upload; sidebar MIME drags reference. */

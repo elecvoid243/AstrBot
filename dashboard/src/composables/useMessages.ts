@@ -42,10 +42,13 @@ import { applySubAgentEvent } from "./subagentRunReducer";
 export type TransportMode = "sse" | "websocket";
 
 /**
- * Per-message "thinking effort" (reasoning intensity) override sent with each
- * chat request. "auto" keeps the provider-level static config.
+ * Per-message "thinking effort" value sent with each chat request. "auto"
+ * keeps the provider-level static config; "off" disables thinking where the
+ * provider supports it. Any other string is passed through to OpenAI-family
+ * `reasoning_effort` verbatim (values differ per model / engine, e.g. "max"
+ * on deepseek-v4 official API, "xhigh" on llama.cpp-hosted Qwen).
  */
-export type ThinkingEffort = "auto" | "off" | "low" | "medium" | "high";
+export type ThinkingEffort = "auto" | "off" | (string & {});
 
 export function buildChatRequestFlags(enableStreaming = true) {
   return {
