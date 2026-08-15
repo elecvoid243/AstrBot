@@ -307,7 +307,6 @@
                   density="compact"
                   variant="plain"
                   hide-details
-                  style="max-width: 120px"
                   class="thinking-effort-select"
                 />
               </template>
@@ -2100,10 +2099,25 @@ defineExpose({
   overflow: visible !important;
 }
 
-/* Keep the effort dropdown visually separated from the menu label. */
+/* Keep the effort dropdown visually separated from the menu label and
+   vertically centered against it (the field's default 8px top padding
+   pushes the selection text off-center). */
 .thinking-effort-select {
+  width: 96px;
   margin-left: 16px;
   flex-shrink: 0;
+}
+
+.thinking-effort-select :deep(.v-input__control) {
+  min-height: 0;
+}
+
+.thinking-effort-select :deep(.v-field),
+.thinking-effort-select :deep(.v-field__input) {
+  min-height: 28px;
+  padding-top: 0;
+  padding-bottom: 0;
+  align-items: center;
 }
 
 .input-right-actions {
