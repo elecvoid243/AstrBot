@@ -36,6 +36,19 @@
     "cancel": "Cancel",
     "references": {
       "removeAria": "Remove reference {name}"
+    },
+    "skillGuide": {
+      "button": "Load Skill",
+      "buttonAria": "Load Skill (hover to pick one)",
+      "menuTitle": "Load Skill guidance",
+      "menuHint": "Pick a skill to inject a one-shot guidance prompt into the next message (persona and global skill state are untouched)",
+      "loading": "Loading skills…",
+      "loadFailed": "Failed to load skills",
+      "empty": "No active skills in this session",
+      "queued": "Queued",
+      "pendingLabel": "Skill guidance",
+      "removeTitle": "Undo {name}: not injected into the next message",
+      "clearAll": "Undo all"
     }
   },
   "message": {

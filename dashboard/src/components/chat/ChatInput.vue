@@ -232,6 +232,42 @@
         </div>
       </transition>
 
+      <!--
+        2026-08-16 skill-guide: pending one-shot skill nudges, shown above
+        the composer exactly like staged uploads. Each badge mirrors a skill
+        queued via POST /skill-guide/load; it is consumed when the message
+        is sent (the plugin drains the queue on the next LLM request).
+      -->
+      <transition name="attachments">
+        <div
+          v-if="skillGuide.queued.value.length > 0"
+          class="skill-guide-preview"
+        >
+          <span class="skill-guide-preview__label">
+            <v-icon icon="mdi-lightbulb-on-outline" size="14"></v-icon>
+            {{ tm("input.skillGuide.pendingLabel") }}
+          </span>
+          <div
+            v-for="name in skillGuide.queued.value"
+            :key="name"
+            class="skill-guide-chip"
+          >
+            <span class="skill-guide-chip__name" :title="name">{{
+              name
+            }}</span>
+            <button
+              type="button"
+              class="skill-guide-chip__remove"
+              :aria-label="tm('input.skillGuide.removeTitle', { name })"
+              :title="tm('input.skillGuide.removeTitle', { name })"
+              @click="skillGuide.toggleSkill(name)"
+            >
+              <v-icon icon="mdi-close" size="12"></v-icon>
+            </button>
+          </div>
+        </div>
+      </transition>
+
       <CommandSuggestion
         :visible="showCommandSuggestion"
         :commands="filteredCommands"
@@ -271,6 +307,23 @@
                 {{ tm("input.upload") }}
               </v-list-item-title>
             </v-list-item>
+
+            <!--
+              2026-08-16 skill-guide: "手动加载 Skill" entry. Rendered as a
+              regular "+" menu item; hovering/clicking it opens a SEPARATE
+              compact popover with the session's skills (see
+              SkillGuideMenuItem) — the popover is absolutely positioned, so
+              it never changes the "+" menu's width. The plugin is gated on
+              GET /skill-guide/active having answered once
+              (useSkillGuide.available); queued skills are mirrored by the
+              pending badges row below the composer.
+            -->
+            <SkillGuideMenuItem
+              v-if="skillGuide.available.value"
+              :session-id="sessionId || null"
+              :is-group="sessionIsGroup"
+              :disabled="disabled"
+            />
 
             <!--
               spcode project load trigger (lives inside the + menu's
@@ -545,6 +598,8 @@ import type { ProjectLoadSubmitPayload } from "./ProjectLoadDialog.vue";
 import SpcodeProjectIndicator from "./SpcodeProjectIndicator.vue";
 import SpcodePlanModeChip from "./SpcodePlanModeChip.vue";
 import GitDiffChip from "./GitDiffChip.vue";
+import SkillGuideMenuItem from "./SkillGuideMenuItem.vue";
+import { useSkillGuide } from "@/composables/useSkillGuide";
 import CommentsPreviewDialog from "./CommentsPreviewDialog.vue";
 import { useSpcodeProjectStatus } from "@/composables/useSpcodeProjectStatus";
 import { useSpcodeCodegraphStatus } from "@/composables/useSpcodeCodegraphStatus";
@@ -994,6 +1049,25 @@ const sessionPlatformId = computed(
 );
 const sessionIsGroup = computed(() => Boolean(props.currentSession?.is_group));
 
+// 2026-08-16 skill-guide: singleton state for the Skill Guide plugin.
+// ChatInput owns `setSession` (session switch → re-fetch the active
+// skill list for the new umo); the SkillGuideMenuItem and the pending
+// badges row below read the same refs, so the popover ✓ marks and the
+// badges can never diverge.
+const skillGuide = useSkillGuide();
+watch(
+  () => [props.sessionId, sessionIsGroup.value] as const,
+  async ([sessionId, isGroup]) => {
+    if (!sessionId) {
+      await skillGuide.setSession(null);
+      return;
+    }
+    const umo = buildWebchatUmoDetails(sessionId, isGroup).umo;
+    await skillGuide.setSession(umo);
+  },
+  { immediate: true },
+);
+
 const canSend = computed(() => {
   return (
     (props.prompt && props.prompt.trim()) ||
@@ -1198,7 +1272,7 @@ function handleKeyDown(e: KeyboardEvent) {
     }
     if (canSend.value && !sendLocked.value) {
       applyOptimisticCodegraphStatus(localPrompt.value);
-      emit("send");
+      sendMessage();
     }
     return;
   }
@@ -1320,6 +1394,18 @@ function applyOptimisticProjectStatus(text: string): void {
 function handleSendClick(): void {
   if (sendLocked.value) return; // project load/unload in flight
   applyOptimisticCodegraphStatus(localPrompt.value);
+  sendMessage();
+}
+
+/**
+ * 2026-08-16 skill-guide: single send funnel for every path that
+ * dispatches the staged prompt (click / Enter hotkey / legacy project
+ * load). Consumes the pending skill-guide queue — the plugin drains it
+ * on the next LLM request, so the pending badges have served their
+ * purpose once a message actually goes out (one-shot semantics).
+ */
+function sendMessage(): void {
+  skillGuide.consumeQueued();
   emit("send");
 }
 
@@ -1390,7 +1476,7 @@ async function handleProjectLoadSubmit(
       applyOptimisticProjectStatus(payload.legacyText);
     }
     localPrompt.value = payload.legacyText;
-    emit("send");
+    sendMessage();
     return;
   }
   const umo = buildWebchatUmoDetails(
@@ -2804,6 +2890,56 @@ defineExpose({
   color: rgba(var(--v-theme-on-surface), 0.55);
 }
 .reference-chip__remove:hover {
+  color: rgb(var(--v-theme-error));
+}
+
+/* 2026-08-16 skill-guide: pending one-shot skill nudge badges, styled to
+   match the reference/attachment chips above the composer. */
+.skill-guide-preview {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  width: 100%;
+  flex: 0 0 auto;
+  padding: 8px 12px 0;
+}
+.skill-guide-preview__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: rgba(var(--v-theme-on-surface), 0.55);
+  white-space: nowrap;
+}
+.skill-guide-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 220px;
+  padding: 3px 6px 3px 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(var(--v-theme-primary), 0.35);
+  background: rgba(var(--v-theme-primary), 0.08);
+  font-size: 12px;
+  color: rgb(var(--v-theme-on-surface));
+}
+.skill-guide-chip__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.skill-guide-chip__remove {
+  display: inline-flex;
+  align-items: center;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 1px;
+  border-radius: 50%;
+  color: rgba(var(--v-theme-on-surface), 0.55);
+}
+.skill-guide-chip__remove:hover {
   color: rgb(var(--v-theme-error));
 }
 </style>

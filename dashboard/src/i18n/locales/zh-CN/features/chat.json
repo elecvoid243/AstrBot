@@ -36,6 +36,19 @@
     "cancel": "取消",
     "references": {
       "removeAria": "移除引用 {name}"
+    },
+    "skillGuide": {
+      "button": "手动加载 Skill",
+      "buttonAria": "手动加载 Skill（悬停弹出 Skill 列表）",
+      "menuTitle": "加载 Skill 引导",
+      "menuHint": "点击选择一个 Skill，将在下一条消息生效（一次性，不修改人格与 Skill 全局状态）",
+      "loading": "正在加载 Skill 列表…",
+      "loadFailed": "Skill 列表加载失败",
+      "empty": "当前会话没有可用的 Skill",
+      "queued": "已加载",
+      "pendingLabel": "Skill 引导",
+      "removeTitle": "撤销 {name}：下一条消息不再注入",
+      "clearAll": "撤销全部"
     }
   },
   "message": {
