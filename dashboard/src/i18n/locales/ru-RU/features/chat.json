@@ -493,7 +493,11 @@
       "servicesTitle": "Статус сервисов",
       "servicesTooltip": "Просмотр статуса сервисов",
       "manageCodegraph": "Управлять",
-      "defaultProjectPrefix": "По умолчанию"
+      "defaultProjectPrefix": "По умолчанию",
+      "codegraphInitializing": "Инициализация codegraph",
+      "codegraphRestarting": "Перезапуск codegraph",
+      "codegraphConnected": "Codegraph подключен",
+      "codegraphDisconnected": "Codegraph отключен"
     },
     "diffPreview": {
       "summary": {

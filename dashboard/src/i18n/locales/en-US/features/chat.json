@@ -494,7 +494,11 @@
       "servicesTitle": "Service status",
       "servicesTooltip": "View service status",
       "manageCodegraph": "Manage",
-      "defaultProjectPrefix": "Default"
+      "defaultProjectPrefix": "Default",
+      "codegraphInitializing": "Initializing codegraph",
+      "codegraphRestarting": "Restarting codegraph",
+      "codegraphConnected": "Codegraph connected",
+      "codegraphDisconnected": "Codegraph disconnected"
     },
     "diffPreview": {
       "summary": {

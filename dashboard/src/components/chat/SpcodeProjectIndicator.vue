@@ -18,7 +18,7 @@
       with the full substep log; click still opens the dialog for retry
 -->
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { useModuleI18n } from "@/i18n/composables";
 import { useSpcodeProjectStatus } from "@/composables/useSpcodeProjectStatus";
 import { useSpcodeOperationProgress } from "@/composables/useSpcodeOperationProgress";
@@ -218,6 +218,96 @@ function openCodegraphManager(): void {
   emit("open-codegraph-dialog");
 }
 
+// ── 状态气泡 (2026-08-15) ─────────────────────────────────────────────
+// 原 codegraph chip 移除后,初始化/重启等过程状态失去常驻显示。这里在
+// codegraph 状态变更(或 codegraph 相关操作进行中)时,于 services 按钮旁
+// 弹一个漫画式气泡实时提示,5s 后消失;显示期间状态再次更新则重置计时。
+const BUBBLE_DURATION_MS = 5000;
+
+const bubbleText = ref("");
+const bubbleVisible = ref(false);
+let bubbleTimer: number | undefined;
+
+function showBubble(text: string): void {
+  bubbleText.value = text;
+  bubbleVisible.value = true;
+  if (bubbleTimer !== undefined) {
+    window.clearTimeout(bubbleTimer);
+  }
+  bubbleTimer = window.setTimeout(() => {
+    bubbleVisible.value = false;
+    bubbleTimer = undefined;
+  }, BUBBLE_DURATION_MS);
+}
+
+// 挂载后的首次观察只建立基线,不弹气泡——避免打开页面时把
+// "已经连接/未连接" 的既有状态误当作变更(否则每次刷新都会弹)。
+let bubbleBaselineSet = false;
+
+interface BubbleSnapshot {
+  mcp: boolean;
+  proj: string;
+  op: string | null;
+  st: string;
+  step: string;
+}
+
+/**
+ * 由 (codegraph 状态, 操作进度) 推导气泡文案;无值得展示的变化返回 null。
+ * 优先级: 进行中的 codegraph 相关操作 > MCP 状态转变 > 运行中切换项目。
+ */
+function deriveBubbleMessage(now: BubbleSnapshot, prev: BubbleSnapshot): string | null {
+  // 1) 进行中操作(最高优先): project_load 含 codegraph 步骤 / codegraph_set
+  if (now.st === "running") {
+    if (now.op === "codegraph_set") {
+      return tm("spcodeProjectLoad.indicator.codegraphRestarting");
+    }
+    if (now.op === "project_load" && /codegraph/i.test(now.step)) {
+      return tm("spcodeProjectLoad.indicator.codegraphInitializing");
+    }
+  }
+  // 2) MCP 状态转变
+  if (now.mcp && !prev.mcp) {
+    return tm("spcodeProjectLoad.indicator.codegraphConnected");
+  }
+  if (!now.mcp && prev.mcp) {
+    // 运行→停止。操作进行中已由 1 覆盖(显示"初始化/重启中"),
+    // 走到这里说明是真正被关闭/掉线。
+    return tm("spcodeProjectLoad.indicator.codegraphDisconnected");
+  }
+  // 3) 运行中切换默认项目(codegraph set 完成后 mcp 保持 true,靠 proj 变化感知)
+  if (now.mcp && now.proj !== prev.proj) {
+    return tm("spcodeProjectLoad.indicator.codegraphConnected");
+  }
+  return null;
+}
+
+watch(
+  () => ({
+    mcp: codegraph.status.value.mcpRunning,
+    proj: codegraph.status.value.activeProject,
+    op: progress.value.operation,
+    st: progress.value.status,
+    step: progress.value.currentStep,
+  }),
+  (now, prev) => {
+    if (!bubbleBaselineSet) {
+      bubbleBaselineSet = true;
+      return;
+    }
+    const msg = deriveBubbleMessage(now, prev);
+    if (msg) showBubble(msg);
+  },
+  { flush: "post" },
+);
+
+onBeforeUnmount(() => {
+  if (bubbleTimer !== undefined) {
+    window.clearTimeout(bubbleTimer);
+    bubbleTimer = undefined;
+  }
+});
+
 function openLoadDialog(): void {
   if (isLoading.value) return; // one silent operation at a time
   emit("open-load-dialog");
@@ -365,6 +455,24 @@ function openLoadDialog(): void {
         </v-card-text>
       </v-card>
     </v-menu>
+
+    <!--
+      Comic-style status bubble (2026-08-15): pops next to the services
+      button when codegraph state changes (initializing / restarting /
+      connected / disconnected). Auto-hides after 5 s; a state update
+      while visible resets the timer.
+    -->
+    <Transition name="sp-bubble">
+      <div
+        v-if="bubbleVisible"
+        class="sp-bubble"
+        role="status"
+        :aria-label="bubbleText"
+      >
+        {{ bubbleText }}
+        <span class="sp-bubble__tail" aria-hidden="true" />
+      </div>
+    </Transition>
   </div>
 </template>
 
@@ -447,6 +555,7 @@ function openLoadDialog(): void {
   display: inline-flex;
   align-items: center;
   gap: 2px;
+  position: relative; /* anchor for the status bubble */
 }
 
 .sp-status-badge--failed {
@@ -586,5 +695,48 @@ function openLoadDialog(): void {
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 100%;
+}
+
+/* ── Status bubble (2026-08-15) ── */
+.sp-bubble {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 10px);
+  z-index: 30;
+  max-width: 280px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--sp-text-primary);
+  background: var(--sp-chip-bg);
+  border: 1px solid var(--sp-chip-border);
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+}
+
+.sp-bubble__tail {
+  position: absolute;
+  top: 100%;
+  right: 16px;
+  width: 0;
+  height: 0;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-top: 8px solid var(--sp-chip-bg);
+  filter: drop-shadow(0 1px 0 var(--sp-chip-border));
+}
+
+.sp-bubble-enter-active,
+.sp-bubble-leave-active {
+  transition: opacity 150ms ease, transform 150ms ease;
+}
+
+.sp-bubble-enter-from,
+.sp-bubble-leave-to {
+  opacity: 0;
+  transform: translateY(4px);
 }
 </style>

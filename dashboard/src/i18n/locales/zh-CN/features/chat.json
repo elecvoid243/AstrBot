@@ -494,7 +494,11 @@
       "servicesTitle": "服务状态",
       "servicesTooltip": "查看服务状态",
       "manageCodegraph": "管理",
-      "defaultProjectPrefix": "默认"
+      "defaultProjectPrefix": "默认",
+      "codegraphInitializing": "正在初始化 codegraph",
+      "codegraphRestarting": "正在重启 codegraph",
+      "codegraphConnected": "Codegraph 已连接",
+      "codegraphDisconnected": "Codegraph 已断开"
     },
     "diffPreview": {
       "summary": {
