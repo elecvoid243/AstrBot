@@ -164,7 +164,7 @@ class ConversationCommands:
             message.set_result(MessageEventResult().message("✅ 会话重置成功。"))
             return
 
-        if not self.context.get_using_provider(umo):
+        if not await self.context.get_using_provider_async(umo):
             message.set_result(
                 MessageEventResult().message("😕 未找到任何 LLM Provider，请先配置。"),
             )

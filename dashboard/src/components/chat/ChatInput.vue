@@ -2,9 +2,6 @@
   <div
     class="input-area fade-in"
     :class="{ 'is-dark': isDark }"
-    @dragover.prevent="handleDragOver"
-    @dragleave.prevent="handleDragLeave"
-    @drop.prevent="handleDrop"
   >
     <!--
       spcode status row. Shown above the main status row when the spcode
@@ -105,20 +102,13 @@
         transition: 'min-height 0.2s ease, padding 0.2s ease',
       }"
     >
-      <!-- 拖拽遮罩：原生文件拖入=上传；sidebar 拖入=引用 -->
+      <!-- 拖拽遮罩：仅 sidebar 拖入时显示引用遮罩；原生文件拖入由
+           Chat.vue 的全区域拖拽热区（useDragUpload）统一处理。 -->
       <transition name="fade">
-        <div v-if="isDragging" class="drop-overlay">
+        <div v-if="isDragging && dragKind === 'reference'" class="drop-overlay">
           <div class="drop-overlay-content">
-            <v-icon size="48" color="primary">{{
-              dragKind === "reference"
-                ? "mdi-file-link-outline"
-                : "mdi-cloud-upload"
-            }}</v-icon>
-            <span class="drop-text">{{
-              dragKind === "reference"
-                ? tm("input.dropToReference")
-                : tm("input.dropToUpload")
-            }}</span>
+            <v-icon size="48" color="primary">mdi-file-link-outline</v-icon>
+            <span class="drop-text">{{ tm("input.dropToReference") }}</span>
           </div>
         </div>
       </transition>
@@ -1707,6 +1697,8 @@ function handleDrop(e: DragEvent) {
   // 如果 dataTransfer 同时携带 Files（极少见,例如从外部桌面把同一个
   // 文件既通过路径也通过 File 拖入），优先信任自定义类型 — 它意味着
   // 这是 sidebar 的拖拽。
+  // 原生 FileList 拖入不在此处理：事件冒泡到 Chat.vue 的全局拖拽热区
+  // （useDragUpload on <main>）统一走上传链路，避免双重上传。
   const sidebarPayload = e.dataTransfer?.getData(SIDEBAR_FILE_MIME);
   if (sidebarPayload) {
     try {
@@ -1719,13 +1711,8 @@ function handleDrop(e: DragEvent) {
         return;
       }
     } catch {
-      // JSON 解析失败 → 回退到原生 FileList 流程
+      // JSON 解析失败 → 回退到原生 FileList 流程（冒泡给全局热区）
     }
-  }
-
-  const files = e.dataTransfer?.files;
-  if (files && files.length > 0) {
-    emit("fileSelect", files);
   }
 }
 
@@ -2343,47 +2330,6 @@ defineExpose({
 .input-area:not(.is-dark) .input-action-btn:disabled {
   background: #f2f5f3 !important;
   color: rgba(0, 0, 0, 0.18) !important;
-}
-
-/* 拖拽上传遮罩 */
-.drop-overlay {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: rgba(var(--v-theme-primary), 0.12);
-  border: 2px dashed rgba(var(--v-theme-primary), 0.45);
-  border-radius: 24px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 100;
-  pointer-events: none;
-}
-
-.drop-overlay-content {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-}
-
-.drop-text {
-  font-size: 16px;
-  font-weight: 500;
-  color: rgb(var(--v-theme-primary));
-}
-
-/* Fade transition for drop overlay */
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.2s ease;
-}
-
-.fade-enter-from,
-.fade-leave-to {
-  opacity: 0;
 }
 
 .reply-preview {
