@@ -8,9 +8,11 @@
       <v-card-title class="text-h3 pa-4 pb-0 pl-6">
         {{ tm("input.editThinkingEffortLevels") }}
       </v-card-title>
-      <v-card-subtitle class="pa-4 pt-2 pb-0 pl-6">
+      <!-- Plain div (not v-card-subtitle, which is nowrap/ellipsis) so the
+           hint wraps fully across lines. -->
+      <div class="thinking-effort-levels-hint pa-4 pt-2 pb-0 pl-6">
         {{ tm("input.thinkingEffortLevelsHint") }}
-      </v-card-subtitle>
+      </div>
 
       <v-card-text class="pa-4">
         <div
@@ -161,6 +163,15 @@ function save() {
 <style scoped>
 .thinking-effort-levels-dialog {
   background-color: rgb(var(--v-theme-surface));
+}
+
+/* Hint note below the title — wraps across lines (v-card-subtitle would
+   truncate it with an ellipsis). */
+.thinking-effort-levels-hint {
+  color: rgba(var(--v-theme-on-surface), var(--v-medium-emphasis-opacity, 0.62));
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: normal;
 }
 
 .effort-level-row {
