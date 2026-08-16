@@ -1592,7 +1592,10 @@ function onLogAmendRequest(commit: {
   amendDialogOpen.value = true;
 }
 
-async function onAmendSubmit(p: { sha: string; message: string }): Promise<void> {
+async function onAmendSubmit(p: {
+  sha: string;
+  message: string;
+}): Promise<void> {
   const target = pendingAmend.value;
   if (!target) return;
   const result = await gitCommitAmend.amend({
@@ -2804,6 +2807,25 @@ async function onConflictResolved(): Promise<void> {
   // A file was rewritten + staged on disk → refresh the diff/status views.
   await Promise.allSettled([composable.refresh(), gitStatus.refresh()]);
 }
+
+// 2026-08-16: the conflict panel can take over the whole sidebar when
+// expanded — track that here so the sidebar's own body hides while
+// the panel is open and releases when it collapses.
+const conflictBodyHidden = ref(false);
+function onConflictExpandChange(open: boolean): void {
+  conflictBodyHidden.value = open;
+}
+// Safety net: if the conflict operation ends (continue/abort) while
+// the panel is expanded, force the sidebar body back into view even
+// though the panel unmounts without emitting expand-change(false).
+watch(
+  () => gitConflict.state.value,
+  (s) => {
+    if (s.kind === "ok" && !s.snapshot.inConflict) {
+      conflictBodyHidden.value = false;
+    }
+  },
+);
 
 async function onConflictCompleted(): Promise<void> {
   // continue/abort moved or restored HEAD → full cascade.
@@ -4018,7 +4040,7 @@ onBeforeUnmount(() => {
   gitStage.dispose();
   gitUnstage.dispose();
   gitCommit.dispose();
-    gitCommitAmend.dispose();
+  gitCommitAmend.dispose();
   gitRevert.dispose();
   gitSquash.dispose();
   gitIgnoreFileWrite.dispose();
@@ -5002,6 +5024,7 @@ watch(
           @resolved="onConflictResolved"
           @completed="onConflictCompleted"
           @failed="onConflictFailed"
+          @expand-change="onConflictExpandChange"
         />
 
         <!-- Diff-only sub-UI: scope bar + truncation warning -->
@@ -5091,7 +5114,11 @@ watch(
         </div>
 
         <!-- Body: Files / Diff / History -->
-        <div ref="sidebarBodyRef" class="git-diff-sidebar-body">
+        <div
+          ref="sidebarBodyRef"
+          class="git-diff-sidebar-body"
+          v-show="!conflictBodyHidden"
+        >
           <!-- 2026-07-18 workspace-search-parity: the files-view search
              toolbar moved INTO FileBrowserView (mirroring
              DocumentManager) so it travels with the file-area
@@ -5169,8 +5196,8 @@ watch(
             @refresh="onLogRefresh"
             @revert="onLogRevertRequest"
             @cherry-pick="onLogCherryPickRequest"
-                        @amend="onLogAmendRequest"
-                        @cherry-pick-blank="onToolbarCherryPickRequest"
+            @amend="onLogAmendRequest"
+            @cherry-pick-blank="onToolbarCherryPickRequest"
             @squash="onLogSquashRequest"
             @changelog="onChangelogRequest"
           />
@@ -5363,16 +5390,16 @@ watch(
           @submit="onCherryPickSubmit"
         />
 
-                <!-- 2026-08-13 git-commit-amend: dialog for editing the HEAD
+        <!-- 2026-08-13 git-commit-amend: dialog for editing the HEAD
                      commit message. -->
-                <GitCommitAmendDialog
-                  v-model="amendDialogOpen"
-                  :commit="pendingAmend"
-                  :loading="gitCommitAmend.isAmending.value"
-                  @submit="onAmendSubmit"
-                />
+        <GitCommitAmendDialog
+          v-model="amendDialogOpen"
+          :commit="pendingAmend"
+          :loading="gitCommitAmend.isAmending.value"
+          @submit="onAmendSubmit"
+        />
 
-                <!-- 2026-08-03 git-squash: dialog for the history-view
+        <!-- 2026-08-03 git-squash: dialog for the history-view
              multi-commit squash (commits listed oldest → newest). -->
         <GitSquashDialog
           v-model="squashDialogOpen"
