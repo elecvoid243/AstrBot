@@ -2,6 +2,9 @@
   <div
     class="input-area fade-in"
     :class="{ 'is-dark': isDark }"
+    @dragover.prevent="handleDragOver"
+    @dragleave.prevent="handleDragLeave"
+    @drop.prevent="handleDrop"
   >
     <!--
       spcode status row. Shown above the main status row when the spcode
