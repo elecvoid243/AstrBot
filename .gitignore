@@ -66,3 +66,5 @@ GenieData/
 .worktrees/
 
 dashboard/bun.lock
+start.bat
+start_bg.bat
