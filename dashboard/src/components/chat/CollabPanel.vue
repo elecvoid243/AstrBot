@@ -13,6 +13,14 @@
         {{ m.alias }}{{ m.session_id === group.moderator_session_id ? ' · 主持' : '' }}
       </v-chip>
       <span class="text-caption ml-2">{{ hopInfo.count }}/{{ hopInfo.limit }}</span>
+      <v-spacer />
+      <v-btn
+        icon="mdi-close"
+        size="x-small"
+        variant="text"
+        title="收起协作面板"
+        @click="emit('close')"
+      />
     </div>
     <div class="px-3 pb-2 d-flex">
       <template v-if="status === 'idle' || status === 'stopped'">
@@ -85,6 +93,7 @@ import { computed, ref } from 'vue';
 import { useAgentCollab, type CollabGroup } from '@/composables/useAgentCollab';
 
 const props = defineProps<{ group: CollabGroup }>();
+const emit = defineEmits<{ close: [] }>();
 const { timeline, status, hopInfo, busySessions, startDiscussion, stop, resume, manualRoute } =
   useAgentCollab();
 

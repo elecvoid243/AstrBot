@@ -130,6 +130,16 @@
           <button
             type="button"
             class="sidebar-top-action-btn"
+            :class="{ active: collabBindMode }"
+            title="绑定协作会话：选择若干会话组建协作分组"
+            @click="startCollabBinding"
+          >
+            <Link2 :size="16" />
+            <span>绑定协作</span>
+          </button>
+          <button
+            type="button"
+            class="sidebar-top-action-btn"
             :title="tm('search.title')"
             @click="searchDialogOpen = true"
           >
@@ -155,6 +165,17 @@
             {{ tm("batch.selected", { count: checkedSessionIds.size }) }}
           </span>
           <v-btn
+            v-if="collabBindMode"
+            size="x-small"
+            variant="tonal"
+            class="batch-select-archive"
+            :disabled="checkedSessionIds.size < 2"
+            @click="openCollabBindFromSelection"
+          >
+            绑定协作（{{ checkedSessionIds.size }}）
+          </v-btn>
+          <v-btn
+            v-else
             size="x-small"
             variant="text"
             class="batch-select-archive"
@@ -165,6 +186,7 @@
             {{ tm("batch.archive") }}
           </v-btn>
           <v-btn
+            v-if="!collabBindMode"
             size="x-small"
             variant="text"
             color="error"
@@ -275,6 +297,21 @@
               aria-hidden="true"
             />
             <span class="session-title">{{ sessionTitle(session) }}</span>
+            <button
+              v-for="badge in collabBadges(session.session_id)"
+              :key="badge.groupId"
+              type="button"
+              class="collab-chain-badge"
+              :class="{
+                moderator: badge.isModerator,
+                active: activeCollabGroupId === badge.groupId,
+              }"
+              :style="{ color: badge.color, backgroundColor: badge.bgColor }"
+              :title="badge.title"
+              @click.stop="toggleActiveCollabGroup(badge.groupId)"
+            >
+              <Link2 :size="12" />
+            </button>
             <div
               v-if="
                 !selectionMode &&
@@ -780,30 +817,11 @@
           />
         </div>
 
-        <div v-if="!isReadonlySession" class="collab-toolbar px-3">
-          <v-btn
-            icon
-            size="small"
-            variant="text"
-            class="mr-2"
-            title="绑定协作会话"
-            @click="collabDialogOpen = true"
-          >
-            <v-icon size="18">mdi-account-multiple-outline</v-icon>
-          </v-btn>
-          <v-select
-            v-if="collabGroups.length"
-            v-model="activeCollabGroupId"
-            :items="collabGroupItems"
-            item-title="title"
-            item-value="value"
-            label="协作分组"
-            density="compact"
-            hide-details
-            style="max-width: 220px"
-          />
-        </div>
-        <CollabPanel v-if="activeCollabGroup" :group="activeCollabGroup" />
+        <CollabPanel
+          v-if="activeCollabGroup"
+          :group="activeCollabGroup"
+          @close="activeCollabGroupId = null"
+        />
 
         <section ref="composerShell" class="composer-shell">
           <template v-if="!isReadonlySession">
@@ -981,6 +999,7 @@
 <CollabBindDialog
   v-model="collabDialogOpen"
   :sessions="sessions"
+  :initial-members="collabBindPrefill"
   @saved="onCollabSaved"
 />
 <ArchivedSessionsDialog
@@ -1015,6 +1034,7 @@ import {
   CornerUpLeft,
   GitBranch,
   Languages,
+  Link2,
   ListChecks,
   Moon,
   PanelLeft,
@@ -1160,13 +1180,72 @@ const activeCollabGroupId = ref<string | null>(null);
 const activeCollabGroup = computed(
   () => collabGroups.value.find((g) => g.id === activeCollabGroupId.value) ?? null,
 );
-const collabGroupItems = computed(() =>
-  collabGroups.value.map((g) => ({ title: g.name, value: g.id })),
-);
+// Sidebar "bind collab" flow: selection mode variant that feeds the checked
+// sessions into CollabBindDialog as initial members.
+const collabBindMode = ref(false);
+const collabBindPrefill = ref<string[]>([]);
+
+function startCollabBinding() {
+  collabBindMode.value = true;
+  if (!selectionMode.value) selectionMode.value = true;
+}
+
+function openCollabBindFromSelection() {
+  collabBindPrefill.value = [...checkedSessionIds.value];
+  collabDialogOpen.value = true;
+}
+
 async function onCollabSaved() {
   await loadCollabGroups();
   const latest = collabGroups.value[collabGroups.value.length - 1];
   if (latest) activeCollabGroupId.value = latest.id;
+  if (selectionMode.value) toggleSelectionMode();
+}
+
+// Per-group chain badge colors: stable across reloads (hash of group id).
+const COLLAB_CHAIN_COLORS = [
+  "#e53935",
+  "#8e24aa",
+  "#3949ab",
+  "#00897b",
+  "#f4511e",
+  "#d81b60",
+  "#6d4c41",
+  "#43a047",
+];
+
+function collabChainColor(groupId: string) {
+  const hash = [...groupId].reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
+  return COLLAB_CHAIN_COLORS[hash % COLLAB_CHAIN_COLORS.length];
+}
+
+function withAlpha(hex: string, alpha: number) {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+function collabBadges(sessionId: string) {
+  return collabGroups.value
+    .filter((g) => g.members.some((m) => m.session_id === sessionId))
+    .map((g) => {
+      const color = collabChainColor(g.id);
+      const isModerator = g.moderator_session_id === sessionId;
+      return {
+        groupId: g.id,
+        color,
+        isModerator,
+        // Moderator sessions get a visibly deeper badge background.
+        bgColor: withAlpha(color, isModerator ? 0.45 : 0.14),
+        title: `${g.name}${isModerator ? " · 主持人" : ""}（点击切换协作面板）`,
+      };
+    });
+}
+
+function toggleActiveCollabGroup(groupId: string) {
+  activeCollabGroupId.value =
+    activeCollabGroupId.value === groupId ? null : groupId;
 }
 const {
   projects,
@@ -2617,6 +2696,11 @@ function toggleSelectionMode() {
     checkedSessionIds.value = new Set();
   }
 }
+
+// Leaving selection mode also leaves the collab-bind variant of it.
+watch(selectionMode, (active) => {
+  if (!active) collabBindMode.value = false;
+});
 
 function toggleSessionChecked(sessionId: string) {
   const next = new Set(checkedSessionIds.value);
@@ -4849,10 +4933,26 @@ function toggleTheme() {
   cursor: pointer;
 }
 
-.collab-toolbar {
-  display: flex;
+.collab-chain-badge {
+  display: inline-flex;
   align-items: center;
-  min-height: 34px;
+  justify-content: center;
+  flex: none;
+  margin-left: 4px;
+  padding: 1px 3px;
+  border-radius: 4px;
+  line-height: 1;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.collab-chain-badge.moderator {
+  border-color: currentColor;
+}
+
+.collab-chain-badge.active {
+  outline: 1.5px solid currentColor;
+  outline-offset: 1px;
 }
 
 .composer-shell {
