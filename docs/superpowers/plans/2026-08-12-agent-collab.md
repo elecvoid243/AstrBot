@@ -1951,7 +1951,7 @@ git commit -m "feat(dashboard): add collab bind dialog and panel to chat page"
 - [x] **Step 2:** `uv run pytest tests/unit/test_agent_collab_directive.py tests/unit/test_agent_collab_groups.py tests/unit/test_agent_collab_runner.py tests/test_agent_collab_integration.py tests/test_agent_collab_api.py -v` — 全 PASS
 - [x] **Step 3:** `uv run pytest tests/test_webchat_system_stream.py tests/unit/test_session_lock.py -v` — 既有相关测试无回归
 - [x] **Step 4:** `cd dashboard && pnpm typecheck && pnpm build` — 通过
-- [x] **Step 5:** 手工冒烟：`uv run main.py` 启动，创建两个 webchat 会话 → 绑定成组 → 发起讨论，确认两会话页实时可见、面板时间线正常、`end` 指令终止
+- [ ] **Step 5:** 手工冒烟：`uv run main.py` 启动，创建两个 webchat 会话 → 绑定成组 → 发起讨论，确认两会话页实时可见、面板时间线正常、`end` 指令终止
 - [x] **Step 6:** Commit（如有改动）
 
 ---
