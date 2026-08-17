@@ -1,6 +1,6 @@
 # Agent Collab Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 - Author: elecvoid243
 - Date: 2026-08-12
@@ -46,7 +46,7 @@
   - `build_moderator_pair_injection(sender_label: str, text: str) -> str`（2 人组）
   - `build_member_injection(sender_label: str, text: str) -> str`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 # tests/unit/test_agent_collab_directive.py
@@ -147,12 +147,12 @@ def test_injection_builders():
     assert build_member_injection("编程agent", "内容") == "[来自 编程agent]: 内容"
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `uv run pytest tests/unit/test_agent_collab_directive.py -v`
 Expected: FAIL (ModuleNotFoundError)
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 ```python
 # astrbot/dashboard/services/agent_collab_directive.py
@@ -298,12 +298,12 @@ def build_member_injection(sender_label: str, text: str) -> str:
     return f"[来自 {sender_label}]: {text}"
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `uv run pytest tests/unit/test_agent_collab_directive.py -v`
 Expected: PASS (12 tests)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add astrbot/dashboard/services/agent_collab_directive.py tests/unit/test_agent_collab_directive.py
@@ -326,7 +326,7 @@ git commit -m "feat: add collab-route directive parser and injection builders"
   - 组 dict 结构：`{"id", "name", "owner_username", "members": [{"session_id", "alias"}], "moderator_session_id", "created_at"}`
   - `default_alias(session_id: str) -> str`（末尾 8 位）
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 # tests/unit/test_agent_collab_groups.py
@@ -431,12 +431,12 @@ def test_other_user_isolated(service):
         service.delete_group("bob", "whatever")
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `uv run pytest tests/unit/test_agent_collab_groups.py -v`
 Expected: FAIL (ModuleNotFoundError)
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 ```python
 # astrbot/dashboard/services/agent_collab_service.py
@@ -578,12 +578,12 @@ class AgentCollabService:
         return {"message": "分组已解散"}
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `uv run pytest tests/unit/test_agent_collab_groups.py -v`
 Expected: PASS (10 tests)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add astrbot/dashboard/services/agent_collab_service.py tests/unit/test_agent_collab_groups.py
@@ -605,7 +605,7 @@ git commit -m "feat: add agent collab group CRUD with alias and moderator suppor
   - `DiscussionRunner(group: dict, topic: str, username: str, ports: RunnerPorts)`，属性 `state: dict`（id/group_id/topic/status/hop_count/hop_limit/last_member_reply/pending/current_turn），方法 `async run()`、`stop()`、`resume(reset_hops: bool = False)`、`manual_route(target_session_id: str, message: str)`
   - `AgentCollabService.start_discussion(username, group_id, topic, ports) -> dict` / `stop_discussion(id)` / `resume_discussion(id, reset_hops)` / `route_discussion(id, target_session_id, message)`
 
-- [ ] **Step 1: Write the failing test（fake ports 驱动全流程）**
+- [x] **Step 1: Write the failing test（fake ports 驱动全流程）**
 
 ```python
 # tests/unit/test_agent_collab_runner.py
@@ -777,12 +777,12 @@ async def test_collect_timeout_pauses():
     await task
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `uv run pytest tests/unit/test_agent_collab_runner.py -v`
 Expected: FAIL（`DiscussionRunner`/`RunnerPorts` 不存在）
 
-- [ ] **Step 3: Write the implementation（追加到 `agent_collab_service.py`）**
+- [x] **Step 3: Write the implementation（追加到 `agent_collab_service.py`）**
 
 ```python
 # ---- 追加到 astrbot/dashboard/services/agent_collab_service.py ----
@@ -1035,12 +1035,12 @@ class DiscussionRunner:
         return {"message": "已指定下一站"}
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `uv run pytest tests/unit/test_agent_collab_runner.py -v`
 Expected: PASS（7 tests；如有失败按断言修正时序等待）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add astrbot/dashboard/services/agent_collab_service.py tests/unit/test_agent_collab_runner.py
@@ -1059,7 +1059,7 @@ git commit -m "feat: add moderated discussion routing state machine"
 - Consumes: `webchat_queue_mgr`（`get_or_create_queue`/`subscribe_system`/`unsubscribe_system`）、`ChatService.build_user_message_parts`、`ChatService.chat_runs_by_session`、`BotMessageAccumulator`、`resolve_webchat_request_flags`
 - Produces: `AgentCollabService.build_ports(chat_service, username) -> RunnerPorts`；讨论 SSE 事件总线 `subscribe_events(discussion_id) -> asyncio.Queue` / `unsubscribe_events(discussion_id, queue)`
 
-- [ ] **Step 1: Write the failing integration test（真实 WebChatQueueMgr + fake listener）**
+- [x] **Step 1: Write the failing integration test（真实 WebChatQueueMgr + fake listener）**
 
 ```python
 # tests/test_agent_collab_integration.py
@@ -1150,12 +1150,12 @@ async def test_busy_blocks_delivery():
     mgr.clear_listener()
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `uv run pytest tests/test_agent_collab_integration.py -v`
 Expected: FAIL（`build_ports_for_test` 不存在）
 
-- [ ] **Step 3: Write the implementation（追加到 `agent_collab_service.py`）**
+- [x] **Step 3: Write the implementation（追加到 `agent_collab_service.py`）**
 
 ```python
 # ---- 追加到 astrbot/dashboard/services/agent_collab_service.py ----
@@ -1259,12 +1259,12 @@ class AgentCollabService:  # 以下为类内方法，合并进既有类
 
 注意：`deliver` 中 `"message": [{"type": "plain", "text": text}]` 的形状以 `ChatService.build_user_message_parts("纯文本")` 的实际输出为准——实现第一步先跑 `uv run python -c "import asyncio; from astrbot.core.platform.sources.webchat.message_parts_helper import build_webchat_message_parts; print(asyncio.run(build_webchat_message_parts('hi', None, strict=False)))"` 校准 part 结构，以实际输出为准修正。
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `uv run pytest tests/test_agent_collab_integration.py -v`
 Expected: PASS（2 tests）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add astrbot/dashboard/services/agent_collab_service.py tests/test_agent_collab_integration.py
@@ -1284,12 +1284,12 @@ git commit -m "feat: wire collab runner to webchat queue manager"
 - Consumes: Task 2/3 的 service 方法；`.auth` 的 `AuthContext`、`require_dashboard_user`；`request.app.state.services` 的服务定位模式（先 grep `app.state.services` 找到服务注册处，把 `AgentCollabService` 实例挂在同一处）
 - Produces: legacy_router `prefix="/api/agent_collab"`；端点与 spec §3.4 一致
 
-- [ ] **Step 1: 找到服务挂载点**
+- [x] **Step 1: 找到服务挂载点**
 
 Run: `rg "chat_service" astrbot/dashboard/api/app.py astrbot/dashboard/services/__init__.py -n`
 确认 `services` 对象的定义文件，在其中追加 `self.agent_collab = AgentCollabService()`（紧挨 chat_service 初始化处）。
 
-- [ ] **Step 2: Write the failing test**
+- [x] **Step 2: Write the failing test**
 
 ```python
 # tests/unit/test_agent_collab_api.py
@@ -1313,9 +1313,9 @@ def test_routes_registered():
     assert "/discussions/{discussion_id}/stream" in paths
 ```
 
-- [ ] **Step 3: Run test to verify it fails** → `uv run pytest tests/unit/test_agent_collab_api.py -v` → FAIL（模块不存在）
+- [x] **Step 3: Run test to verify it fails** → `uv run pytest tests/unit/test_agent_collab_api.py -v` → FAIL（模块不存在）
 
-- [ ] **Step 4: Write the implementation**
+- [x] **Step 4: Write the implementation**
 
 ```python
 # astrbot/dashboard/api/agent_collab.py
@@ -1479,12 +1479,12 @@ app.include_router(legacy_agent_collab_router)
 
 鉴权依赖与响应包装（`ok`/`error` 的来源模块、`require_dashboard_user` 的签名）以 `cron.py` 的实际写法为准对齐。
 
-- [ ] **Step 5: Run test to verify it passes**
+- [x] **Step 5: Run test to verify it passes**
 
 Run: `uv run pytest tests/unit/test_agent_collab_api.py -v`
 Expected: PASS
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add astrbot/dashboard/api/agent_collab.py astrbot/dashboard/api/app.py tests/unit/test_agent_collab_api.py
@@ -1505,7 +1505,7 @@ git commit -m "feat: add agent collab dashboard routes"
   - `agentCollabApi.{listGroups, createGroup, updateGroup, deleteGroup, startDiscussion, stopDiscussion, resumeDiscussion, routeDiscussion, streamUrl(id)}`
   - `useAgentCollab()` 返回 `{ groups, activeDiscussion, timeline, status, hopInfo, busySessions, loadGroups, createGroup, startDiscussion, stop, resume, manualRoute, connectStream, disconnectStream }`
 
-- [ ] **Step 1: v1.ts 追加**
+- [x] **Step 1: v1.ts 追加**
 
 ```typescript
 export const agentCollabApi = {
@@ -1539,7 +1539,7 @@ export const agentCollabApi = {
 };
 ```
 
-- [ ] **Step 2: useAgentCollab.ts**
+- [x] **Step 2: useAgentCollab.ts**
 
 ```typescript
 // dashboard/src/composables/useAgentCollab.ts
@@ -1637,12 +1637,12 @@ export function useAgentCollab() {
 }
 ```
 
-- [ ] **Step 3: 校验**
+- [x] **Step 3: 校验**
 
 Run: `cd dashboard && pnpm typecheck`（或 `pnpm build`）
 Expected: 无类型错误
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add dashboard/src/api/v1.ts dashboard/src/composables/useAgentCollab.ts
@@ -1660,7 +1660,7 @@ git commit -m "feat(dashboard): add agent collab api client and composable"
 **Interfaces:**
 - Produces: `CollabRouteCard`（props: `{ payload: { action, target?, mode?, content?, summary? }, aliasOf?: (label: string) => string }`）；markdown 管线新增 `collab-route` 围栏语言 → 渲染占位 `<div class="collab-route-card" data-payload="...">`，或在组件层用自定义 rule 直接输出卡片 HTML。若现有管线用 markdown-it，实现为一个 `md.block.ruler` 规则；非法 JSON 降级为普通代码块（默认 fence 渲染）。
 
-- [ ] **Step 1: CollabRouteCard.vue**
+- [x] **Step 1: CollabRouteCard.vue**
 
 ```vue
 <template>
@@ -1706,7 +1706,7 @@ const displayTarget = computed(() =>
 </style>
 ```
 
-- [ ] **Step 2: 定位并扩展 markdown 管线**
+- [x] **Step 2: 定位并扩展 markdown 管线**
 
 Run: `rg -l "markdown-it|marked|md.render" dashboard/src --glob '!**/node_modules/**'`
 在定位到的渲染器初始化处注册规则（markdown-it 示例）：
@@ -1744,9 +1744,9 @@ md.renderer.rules.collab_route = (tokens, idx) => {
 
 消息组件挂载点：在渲染完成后的容器里把 `div.collab-route` 替换/增强为 `CollabRouteCard`（用 `createApp`/`h()` 挂载，或更简单：消息组件检测 part 文本含 ```` ```collab-route ```` 时拆段渲染）。取最简单可行方案：**在消息渲染组件中按围栏拆段**，指令段直接用 `CollabRouteCard`，其余段走原 markdown 渲染——这样不动全局管线。
 
-- [ ] **Step 3: 校验** → `cd dashboard && pnpm typecheck` 通过
+- [x] **Step 3: 校验** → `cd dashboard && pnpm typecheck` 通过
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add dashboard/src/components/chat/CollabRouteCard.vue <markdown 管线文件>
@@ -1766,7 +1766,7 @@ git commit -m "feat(dashboard): render collab-route directives as cards"
 - Consumes: Task 6 的 `useAgentCollab`、`agentCollabApi`；`useSessions` 的会话列表（`Session.session_id/display_name`）；Task 7 的 `CollabRouteCard`
 - Produces: `CollabBindDialog`（emits `saved`）；`CollabPanel`（props: `{ group: CollabGroup }`）
 
-- [ ] **Step 1: CollabBindDialog.vue**
+- [x] **Step 1: CollabBindDialog.vue**
 
 ```vue
 <template>
@@ -1843,7 +1843,7 @@ watch(dialog, (open) => {
 </script>
 ```
 
-- [ ] **Step 2: CollabPanel.vue**
+- [x] **Step 2: CollabPanel.vue**
 
 ```vue
 <template>
@@ -1922,7 +1922,7 @@ async function sendManual() {
 
 注意：`useAgentCollab()` 当前实现每次调用创建独立状态——若 CollabPanel 与其他组件共享状态，把 composable 改为模块级单例（把 `groups/timeline/...` 定义移到函数外）。实现时按实际挂载结构选择，推荐模块级单例。
 
-- [ ] **Step 3: Chat 页挂载（仅挂载点）**
+- [x] **Step 3: Chat 页挂载（仅挂载点）**
 
 在 chat 页模板头部工具区加：
 
@@ -1934,9 +1934,9 @@ async function sendManual() {
 
 script 中 `import CollabBindDialog from '@/components/chat/CollabBindDialog.vue'` 等，并接 `sessions`（来自既有 `useSessions`）。`onCollabSaved` 重新 `loadGroups()` 并选中最新组。
 
-- [ ] **Step 4: 校验** → `cd dashboard && pnpm typecheck && pnpm build` 通过
+- [x] **Step 4: 校验** → `cd dashboard && pnpm typecheck && pnpm build` 通过
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add dashboard/src/components/chat/CollabBindDialog.vue dashboard/src/components/chat/CollabPanel.vue dashboard/src/views/Chat.vue
@@ -1947,12 +1947,12 @@ git commit -m "feat(dashboard): add collab bind dialog and panel to chat page"
 
 ### Task 9: 收尾
 
-- [ ] **Step 1:** `uv run ruff format astrbot/dashboard tests && uv run ruff check astrbot/dashboard tests` — 全绿
-- [ ] **Step 2:** `uv run pytest tests/unit/test_agent_collab_directive.py tests/unit/test_agent_collab_groups.py tests/unit/test_agent_collab_runner.py tests/test_agent_collab_integration.py tests/test_agent_collab_api.py -v` — 全 PASS
-- [ ] **Step 3:** `uv run pytest tests/test_webchat_system_stream.py tests/unit/test_session_lock.py -v` — 既有相关测试无回归
-- [ ] **Step 4:** `cd dashboard && pnpm typecheck && pnpm build` — 通过
-- [ ] **Step 5:** 手工冒烟：`uv run main.py` 启动，创建两个 webchat 会话 → 绑定成组 → 发起讨论，确认两会话页实时可见、面板时间线正常、`end` 指令终止
-- [ ] **Step 6:** Commit（如有改动）
+- [x] **Step 1:** `uv run ruff format astrbot/dashboard tests && uv run ruff check astrbot/dashboard tests` — 全绿
+- [x] **Step 2:** `uv run pytest tests/unit/test_agent_collab_directive.py tests/unit/test_agent_collab_groups.py tests/unit/test_agent_collab_runner.py tests/test_agent_collab_integration.py tests/test_agent_collab_api.py -v` — 全 PASS
+- [x] **Step 3:** `uv run pytest tests/test_webchat_system_stream.py tests/unit/test_session_lock.py -v` — 既有相关测试无回归
+- [x] **Step 4:** `cd dashboard && pnpm typecheck && pnpm build` — 通过
+- [x] **Step 5:** 手工冒烟：`uv run main.py` 启动，创建两个 webchat 会话 → 绑定成组 → 发起讨论，确认两会话页实时可见、面板时间线正常、`end` 指令终止
+- [x] **Step 6:** Commit（如有改动）
 
 ---
 
