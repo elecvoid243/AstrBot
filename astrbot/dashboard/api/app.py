@@ -11,6 +11,7 @@ from astrbot.core.core_lifecycle import AstrBotCoreLifecycle
 from astrbot.core.db import BaseDatabase
 from astrbot.core.log import LogManager
 from astrbot.dashboard.responses import ApiError, error
+from astrbot.dashboard.services.agent_collab_service import AgentCollabService
 from astrbot.dashboard.services.api_key_service import ApiKeyService
 from astrbot.dashboard.services.auth_service import AuthService
 from astrbot.dashboard.services.backup_service import BackupService
@@ -50,6 +51,7 @@ from astrbot.dashboard.services.update_service import (
     call_pip_install,
 )
 
+from .agent_collab import legacy_router as legacy_agent_collab_router
 from .api_keys import legacy_router as legacy_api_keys_router
 from .auth import legacy_router as legacy_auth_router
 from .backups import legacy_router as legacy_backups_router
@@ -110,6 +112,7 @@ def create_dashboard_asgi_app(
         config_display=ConfigDisplayService(core_lifecycle),
         config_files=ConfigFileService(core_lifecycle),
         config_routes=ConfigRoutingService(core_lifecycle),
+        agent_collab=AgentCollabService(),
         api_keys=ApiKeyService(db),
         auth=AuthService(db, core_lifecycle.astrbot_config),
         backups=BackupService(db, core_lifecycle),
@@ -186,6 +189,7 @@ def create_dashboard_asgi_app(
 
     # Legacy dashboard routes keep old /api/* callers working without entering OpenAPI.
     app.include_router(legacy_api_keys_router)
+    app.include_router(legacy_agent_collab_router)
     app.include_router(legacy_auth_router)
     app.include_router(legacy_backups_router)
     app.include_router(legacy_config_profiles_router)
