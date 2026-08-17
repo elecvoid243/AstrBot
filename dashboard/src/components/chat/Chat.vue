@@ -4535,13 +4535,19 @@ function toggleTheme() {
 }
 
 .batch-select-bar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
   display: flex;
   align-items: center;
   gap: 4px;
   margin: 0 4px 6px;
   padding: 2px 6px;
   border-radius: 8px;
-  background: var(--chat-session-active-bg);
+  /* Opaque backdrop so scrolled sessions don't show through the stuck bar
+     (dark-mode --chat-session-active-bg is translucent). */
+  background: var(--chat-sidebar-bg);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.14);
   font-size: 12px;
   color: var(--chat-muted);
 }
