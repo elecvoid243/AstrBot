@@ -7,6 +7,14 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from astrbot.core import sp
+from astrbot.core.platform.sources.webchat.request_flags import (
+    resolve_webchat_request_flags,
+)
+from astrbot.core.platform.sources.webchat.webchat_queue_mgr import (
+    _extract_conversation_id,
+    webchat_queue_mgr,
+)
+from astrbot.core.umo_alias import parse_umo
 from astrbot.dashboard.services.agent_collab_directive import (
     EndDirective,
     RouteDirective,
@@ -19,6 +27,17 @@ from astrbot.dashboard.services.agent_collab_directive import (
 
 _GROUPS_KEY = "agent_collab_groups"
 _ALIAS_MAX_LEN = 32
+
+
+def _conversation_id(session_id: str) -> str:
+    """Map a group member session id (UMO or webchat event id) to the raw
+    webchat conversation id used by the queue manager."""
+    if session_id.startswith("webchat!"):
+        return _extract_conversation_id(session_id)
+    parsed = parse_umo(session_id)
+    if parsed["platform"] == "webchat":
+        return parsed["session_id"]
+    return session_id
 
 
 class AgentCollabServiceError(Exception):
@@ -194,6 +213,113 @@ class AgentCollabService:
         runner.manual_route(target_session_id, message)
         runner.resume()
         return {"message": "已指定下一站"}
+
+    # ---------- webchat wiring ----------
+
+    def build_ports_for_test(
+        self,
+        mgr,
+        username: str,
+        emit: Callable[[dict], None],
+        reply_timeout: float = 180.0,
+        busy_poll_interval: float = 2.0,
+        is_busy_override: Callable[[str], bool] | None = None,
+    ) -> "RunnerPorts":
+        """Build RunnerPorts over a given WebChatQueueMgr (test seam)."""
+
+        # One system-event subscription per conversation, created in deliver()
+        # BEFORE the input item is queued. Subscribing after delivery would
+        # race the adapter listener and drop the first reply chunks.
+        subscriptions: dict[str, asyncio.Queue] = {}
+
+        async def deliver(session_id: str, text: str) -> str:
+            cid = _conversation_id(session_id)
+            message_id = uuid.uuid4().hex
+            queue = mgr.get_or_create_queue(cid)
+            subscriptions.setdefault(cid, mgr.subscribe_system(cid))
+            await queue.put(
+                (
+                    username,
+                    cid,
+                    {
+                        "message": [{"type": "plain", "text": text}],
+                        "selected_provider": None,
+                        "selected_model": None,
+                        "flags": resolve_webchat_request_flags({}),
+                        "message_id": message_id,
+                        "llm_checkpoint_id": uuid.uuid4().hex,
+                        "thread_selected_text": None,
+                        "_api_key_allow_admin_role": None,
+                    },
+                )
+            )
+            return message_id
+
+        async def collect(session_id: str, message_id: str) -> str:
+            from astrbot.dashboard.services.chat_service import BotMessageAccumulator
+
+            cid = _conversation_id(session_id)
+            queue = subscriptions.get(cid)
+            if queue is None:
+                raise asyncio.TimeoutError(
+                    f"no subscription for {cid}; deliver() must run first"
+                )
+            acc = BotMessageAccumulator()
+            while True:
+                payload = await queue.get()
+                if (
+                    not isinstance(payload, dict)
+                    or payload.get("message_id") != message_id
+                ):
+                    continue
+                msg_type = payload.get("type")
+                if msg_type == "plain":
+                    acc.add_plain(
+                        payload.get("data", ""),
+                        chain_type=payload.get("chain_type"),
+                        streaming=bool(payload.get("streaming")),
+                    )
+                elif msg_type in ("complete", "end"):
+                    if (
+                        msg_type == "complete"
+                        and not payload.get("streaming")
+                        and payload.get("data")
+                    ):
+                        acc.add_plain(
+                            payload["data"],
+                            chain_type=payload.get("chain_type"),
+                            streaming=False,
+                        )
+                    return acc.plain_text()
+
+        return RunnerPorts(
+            deliver=deliver,
+            collect=collect,
+            is_busy=is_busy_override or (lambda sid: False),
+            emit=emit,
+            reply_timeout=reply_timeout,
+            busy_poll_interval=busy_poll_interval,
+        )
+
+    def build_ports(
+        self, chat_service, username: str, emit: Callable[[dict], None]
+    ) -> "RunnerPorts":
+        """Build production RunnerPorts bound to the real ChatService.
+
+        Args:
+            chat_service: The dashboard ChatService (busy detection via
+                chat_runs_by_session, keyed by webchat conversation id).
+            username: Discussion owner, used as the sender of injected turns.
+            emit: Router event sink (SSE multiplexer).
+
+        Returns:
+            RunnerPorts wired to the global webchat queue manager.
+        """
+        ports = self.build_ports_for_test(webchat_queue_mgr, username, emit)
+        ports.is_busy = lambda sid: bool(
+            chat_service.chat_runs_by_session.get(_conversation_id(sid))
+        )
+        return ports
 
 
 @dataclass
