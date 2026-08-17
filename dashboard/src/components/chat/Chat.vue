@@ -780,6 +780,31 @@
           />
         </div>
 
+        <div v-if="!isReadonlySession" class="collab-toolbar px-3">
+          <v-btn
+            icon
+            size="small"
+            variant="text"
+            class="mr-2"
+            title="绑定协作会话"
+            @click="collabDialogOpen = true"
+          >
+            <v-icon size="18">mdi-account-multiple-outline</v-icon>
+          </v-btn>
+          <v-select
+            v-if="collabGroups.length"
+            v-model="activeCollabGroupId"
+            :items="collabGroupItems"
+            item-title="title"
+            item-value="value"
+            label="协作分组"
+            density="compact"
+            hide-details
+            style="max-width: 220px"
+          />
+        </div>
+        <CollabPanel v-if="activeCollabGroup" :group="activeCollabGroup" />
+
         <section ref="composerShell" class="composer-shell">
           <template v-if="!isReadonlySession">
           <ChatInput
@@ -953,6 +978,11 @@
   </div>
 
 <ChatMessageSearchDialog v-model="searchDialogOpen" />
+<CollabBindDialog
+  v-model="collabDialogOpen"
+  :sessions="sessions"
+  @saved="onCollabSaved"
+/>
 <ArchivedSessionsDialog
   v-model="archivedDialogOpen"
   @restore="onArchivedRestored"
@@ -1022,7 +1052,10 @@ import RefsSidebar from "@/components/chat/message_list_comps/RefsSidebar.vue";
 import TodoSidebar from "@/components/chat/message_list_comps/TodoSidebar.vue";
 import GitDiffSidebar from "@/components/chat/GitDiffSidebar.vue";
 import ChatMessageSearchDialog from "@/components/chat/ChatMessageSearchDialog.vue";
+import CollabBindDialog from "@/components/chat/CollabBindDialog.vue";
+import CollabPanel from "@/components/chat/CollabPanel.vue";
 import ArchivedSessionsDialog from "@/components/chat/ArchivedSessionsDialog.vue";
+import { useAgentCollab } from "@/composables/useAgentCollab";
 import {
   useSessions,
   type ArchivedSession,
@@ -1117,6 +1150,24 @@ const {
   setSessionArchived,
   updateSessionTitle,
 } = useSessions(props.chatboxMode);
+// Agent collab: binding groups + moderated discussions across webchat sessions.
+const {
+  groups: collabGroups,
+  loadGroups: loadCollabGroups,
+} = useAgentCollab();
+const collabDialogOpen = ref(false);
+const activeCollabGroupId = ref<string | null>(null);
+const activeCollabGroup = computed(
+  () => collabGroups.value.find((g) => g.id === activeCollabGroupId.value) ?? null,
+);
+const collabGroupItems = computed(() =>
+  collabGroups.value.map((g) => ({ title: g.name, value: g.id })),
+);
+async function onCollabSaved() {
+  await loadCollabGroups();
+  const latest = collabGroups.value[collabGroups.value.length - 1];
+  if (latest) activeCollabGroupId.value = latest.id;
+}
 const {
   projects,
   selectedProjectId,
@@ -1829,6 +1880,7 @@ onMounted(async () => {
       getArchivedSessions(),
       getProjects(),
       loadTokenProviders(),
+      loadCollabGroups(),
     ]);
     const routeSessionId = getRouteSessionId();
     if (routeSessionId === "models") {
@@ -4795,6 +4847,12 @@ function toggleTheme() {
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
+}
+
+.collab-toolbar {
+  display: flex;
+  align-items: center;
+  min-height: 34px;
 }
 
 .composer-shell {
