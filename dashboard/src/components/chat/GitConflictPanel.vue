@@ -8,7 +8,11 @@
   <!-- The computed below already filters to inConflict-only snapshots, so
        a bare `v-if="snapshot"` is the full guard (also keeps vue-tsc
        narrowing happy for the children). -->
-  <div v-if="snapshot" class="git-conflict-panel">
+  <div
+    v-if="snapshot"
+    class="git-conflict-panel"
+    :class="{ 'is-expanded': expanded }"
+  >
     <!-- Banner: operation + subject + progress; click toggles the panel. -->
     <button
       type="button"
@@ -19,7 +23,9 @@
       <span class="git-conflict-banner-text">
         {{
           tm(
-            `spcodeProjectLoad.diffSidebar.conflict.banner.${snapshot.operation ?? "merge"}`,
+            `spcodeProjectLoad.diffSidebar.conflict.banner.${
+              snapshot.operation ?? "merge"
+            }`,
           )
         }}
         <template v-if="snapshot.operationSubject">
@@ -127,7 +133,10 @@
                       )
                     }}
                   </div>
-                  <pre>{{ h.ours }}</pre>
+                  <div
+                    class="git-conflict-hunk-code"
+                    v-html="hunkHtml(f, h, 'ours')"
+                  ></div>
                 </div>
                 <div class="git-conflict-hunk-col">
                   <div class="git-conflict-hunk-label">
@@ -138,7 +147,10 @@
                       )
                     }}
                   </div>
-                  <pre>{{ h.theirs }}</pre>
+                  <div
+                    class="git-conflict-hunk-code"
+                    v-html="hunkHtml(f, h, 'theirs')"
+                  ></div>
                 </div>
               </div>
             </div>
@@ -146,21 +158,19 @@
 
           <!-- Custom editor (prefilled with the full ours content) -->
           <div v-if="customEditing === f.path" class="git-conflict-custom">
-            <v-textarea
+            <CodeMirrorEditor
               v-model="customContent"
-              rows="12"
-              auto-grow
-              density="compact"
-              variant="outlined"
+              :file-path="f.path"
               class="git-conflict-custom-editor"
-              name="conflict-custom-content"
             />
             <div class="git-conflict-actions">
-              <v-btn size="x-small" variant="text" @click="customEditing = null">
+              <v-btn
+                size="x-small"
+                variant="text"
+                @click="customEditing = null"
+              >
                 {{
-                  tm(
-                    "spcodeProjectLoad.diffSidebar.conflict.file.customCancel",
-                  )
+                  tm("spcodeProjectLoad.diffSidebar.conflict.file.customCancel")
                 }}
               </v-btn>
               <v-btn
@@ -401,15 +411,23 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useModuleI18n } from "@/i18n/composables";
+import CodeMirrorEditor from "@/components/chat/message_list_comps/CodeMirrorEditor.vue";
 import type { UseSpcodeGitConflict } from "@/composables/useSpcodeGitConflict";
 import type {
   ConflictedFile,
+  ConflictHunk,
   ConflictSnapshot,
   SpcodeResolveResult,
   SpcodeConflictActionResult,
 } from "@/composables/parseSpcodeGitConflict";
+import {
+  ensureShikiLanguages,
+  renderShikiCode,
+  detectLanguage,
+  escapeHtml,
+} from "@/utils/shiki";
 
 const props = defineProps<{ conflict: UseSpcodeGitConflict }>();
 
@@ -420,6 +438,7 @@ const emit = defineEmits<{
     e: "failed",
     payload: { reason: string; stderr?: string; count?: number },
   ): void;
+  (e: "expand-change", open: boolean): void;
 }>();
 
 const { tm } = useModuleI18n("features/chat");
@@ -431,12 +450,61 @@ const snapshot = computed<ConflictSnapshot | null>(() => {
 
 const opLabel = computed(() =>
   tm(
-    `spcodeProjectLoad.diffSidebar.conflict.op.${snapshot.value?.operation ?? "merge"}`,
+    `spcodeProjectLoad.diffSidebar.conflict.op.${
+      snapshot.value?.operation ?? "merge"
+    }`,
   ),
 );
 
+// 2026-08-16 syntax highlighting: same Shiki pipeline as the file
+// browser (FileBrowserFilePreview.vue) — one shared highlighter for
+// the whole panel, initialized lazily once mounted.
+const shikiHighlighter = ref<any>(null);
+const shikiReady = ref(false);
+
+onMounted(async () => {
+  try {
+    shikiHighlighter.value = await ensureShikiLanguages();
+    shikiReady.value = true;
+  } catch (err) {
+    console.error("Shiki init failed:", err);
+  }
+});
+
+/** Render one conflict side (ours/theirs) as highlighted HTML.
+ *  Falls back to escaped plain text while Shiki is loading or when
+ *  rendering fails, so the hunk stays readable either way. */
+function hunkHtml(
+  f: ConflictedFile,
+  h: ConflictHunk,
+  side: "ours" | "theirs",
+): string {
+  const code = side === "ours" ? h.ours : h.theirs;
+  if (!shikiReady.value || !shikiHighlighter.value) {
+    return `<pre><code>${escapeHtml(code)}</code></pre>`;
+  }
+  try {
+    return renderShikiCode(
+      shikiHighlighter.value,
+      code,
+      detectLanguage(f.path),
+      "auto",
+    );
+  } catch (err) {
+    console.error("Shiki render failed:", err);
+    return `<pre><code>${escapeHtml(code)}</code></pre>`;
+  }
+}
+
 const expanded = ref(false);
 const openFile = ref<string | null>(null);
+
+// 2026-08-16: when expanded, the panel takes over the whole sidebar
+// (the sidebar hides its own body via the expand-change event); tell
+// the parent so it can swap the layout.
+watch(expanded, (open) => {
+  emit("expand-change", open);
+});
 const choices = ref<Record<string, Record<number, "ours" | "theirs" | "base">>>(
   {},
 );
@@ -491,7 +559,8 @@ function handleResult(
     }
     return;
   }
-  const remaining = "remainingConflicts" in r ? r.remainingConflicts : undefined;
+  const remaining =
+    "remainingConflicts" in r ? r.remainingConflicts : undefined;
   emit("failed", {
     reason: r.reason,
     stderr: r.stderr,
@@ -505,7 +574,11 @@ async function applyHunks(f: ConflictedFile): Promise<void> {
     index: Number(idx),
     choice,
   }));
-  const r = await props.conflict.resolve({ mode: "hunks", file: f.path, hunks });
+  const r = await props.conflict.resolve({
+    mode: "hunks",
+    file: f.path,
+    hunks,
+  });
   if (r.ok && !r.partial) {
     const next = { ...choices.value };
     delete next[f.path];
@@ -514,9 +587,16 @@ async function applyHunks(f: ConflictedFile): Promise<void> {
   handleResult(r, "resolve");
 }
 
-async function applyWhole(path: string, side: "ours" | "theirs"): Promise<void> {
+async function applyWhole(
+  path: string,
+  side: "ours" | "theirs",
+): Promise<void> {
   handleResult(
-    await props.conflict.resolve({ mode: "whole", file: path, resolution: side }),
+    await props.conflict.resolve({
+      mode: "whole",
+      file: path,
+      resolution: side,
+    }),
     "resolve",
   );
 }
@@ -567,6 +647,20 @@ async function doAbort(): Promise<void> {
 <style scoped>
 .git-conflict-panel {
   border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+  /* The panel lives OUTSIDE the sidebar's scroll container
+     (.git-diff-sidebar-body), so it needs its own bounded flex
+     column with an internally scrolling body. */
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex-shrink: 0;
+}
+/* 2026-08-16: expanded panels take over the whole sidebar — the
+   sidebar hides its own body while the panel is open, so flex:1
+   here fills all remaining space. Collapsing the banner releases
+   it back. */
+.git-conflict-panel.is-expanded {
+  flex: 1 1 0%;
 }
 .git-conflict-banner {
   display: flex;
@@ -595,6 +689,9 @@ async function doAbort(): Promise<void> {
 .git-conflict-body {
   padding: 8px 12px;
   font-size: 12px;
+  overflow-y: auto;
+  min-height: 0;
+  flex: 1 1 0%;
 }
 .git-conflict-group-label {
   font-weight: 600;
@@ -644,13 +741,33 @@ async function doAbort(): Promise<void> {
   font-family: monospace;
   opacity: 0.8;
 }
+/* 2026-08-16 fix: shrink Vuetify's default radio controls (≈24px icon
+   against a 12px label) to sit inline with the hunk line numbers. */
+.git-conflict-hunk-head :deep(.v-radio-group) {
+  margin: 0;
+}
+.git-conflict-hunk-head :deep(.v-radio) {
+  margin-inline: 0 4px;
+}
+.git-conflict-hunk-head :deep(.v-selection-control) {
+  min-height: 18px;
+}
+.git-conflict-hunk-head :deep(.v-selection-control__input) {
+  width: 16px;
+  height: 16px;
+}
+.git-conflict-hunk-head :deep(.v-selection-control__input .v-icon) {
+  font-size: 16px;
+}
 .git-conflict-hunk-cols {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 6px;
   margin-top: 2px;
 }
-.git-conflict-hunk-col pre {
+/* :deep() — the <pre> is injected via v-html, so it carries no scoped
+   attribute and plain `.git-conflict-hunk-col pre` would not match. */
+.git-conflict-hunk-code :deep(pre) {
   font-size: 11px;
   font-family: monospace;
   background: rgba(var(--v-theme-on-surface), 0.04);
@@ -692,8 +809,19 @@ async function doAbort(): Promise<void> {
   opacity: 0.7;
   padding: 4px 0;
 }
-.git-conflict-custom-editor :deep(textarea) {
-  font-family: monospace;
-  font-size: 11px;
+/* 2026-08-16 fix: CodeMirrorEditor replaces the former v-textarea —
+   give it a bounded height so the editor fills it and scrolls. */
+.git-conflict-custom {
+  margin-top: 6px;
+  height: 280px;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+  border-radius: 4px;
+  overflow: hidden;
+}
+.git-conflict-custom-editor {
+  flex: 1;
+  min-height: 0;
 }
 </style>

@@ -114,6 +114,8 @@ class ProviderRequest:
     """附加的上次请求后工具调用的结果。参考: https://platform.openai.com/docs/guides/function-calling#handling-function-calls"""
     model: str | None = None
     """模型名称，为 None 时使用提供商的默认模型"""
+    llm_params: dict = field(default_factory=dict)
+    """逐条请求的额外 LLM 参数（如 thinking_effort 思考强度），会覆盖提供商级静态配置。"""
 
     def __repr__(self) -> str:
         return (

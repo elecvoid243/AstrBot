@@ -18,10 +18,12 @@
       with the full substep log; click still opens the dialog for retry
 -->
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { useModuleI18n } from "@/i18n/composables";
 import { useSpcodeProjectStatus } from "@/composables/useSpcodeProjectStatus";
 import { useSpcodeOperationProgress } from "@/composables/useSpcodeOperationProgress";
+import { useSpcodeCodegraphStatus } from "@/composables/useSpcodeCodegraphStatus";
+import { useSpcodeVivadoStatus } from "@/composables/useSpcodeVivadoStatus";
 
 const { status } = useSpcodeProjectStatus();
 const { tm } = useModuleI18n("features/chat");
@@ -30,10 +32,12 @@ const popoverOpen = ref(false);
 
 const emit = defineEmits<{
   (e: "open-load-dialog"): void;
+  (e: "open-codegraph-dialog"): void;
 }>();
 
-// Only project load/unload operations drive THIS chip; codegraph_set is
-// rendered by SpcodeCodegraphChip.
+// Only project load/unload operations drive THIS chip. codegraph_set
+// progress had a dedicated badge on the removed SpcodeCodegraphChip; the
+// services popover now reflects codegraph state reactively instead.
 const isProjectOp = computed(
   () =>
     progress.value.operation === "project_load" ||
@@ -82,10 +86,11 @@ const icon = computed(() => {
 });
 
 const label = computed(() => {
+  // 加载中一律显示统一定位文案(2026-08-15):不再实时打印 yield 的
+  // current_step(如"⏳ [2/3] codegraph init")——细节交给 codegraph
+  // 状态气泡;加载失败时 yield 信息仍可在失败 popover 中查看。
   if (isLoading.value) {
-    return (
-      progress.value.currentStep || tm("spcodeProjectLoad.indicator.loading")
-    );
+    return tm("spcodeProjectLoad.indicator.loading");
   }
   if (isFailed.value) return tm("spcodeProjectLoad.indicator.failed");
   return status.value.loaded
@@ -113,6 +118,205 @@ const tooltipText = computed(() => {
     return parts.join(" · ");
   }
   return tm("spcodeProjectLoad.indicator.noProject");
+});
+
+// ── 服务状态 popover (2026-08-15) ─────────────────────────────────────
+// 原 SpcodeCodegraphChip / SpcodeVivadoStatusChip 移除后,两个 MCP 服务的
+// 状态查看整合到 project chip 旁的小按钮 popover 中。数据源仍是同一对
+// 模块级单例 composable(useSpcodeCodegraphStatus / useSpcodeVivadoStatus),
+// ChatInput 的轮询/前台刷新逻辑继续驱动它们。
+const servicesMenuOpen = ref(false);
+
+const codegraph = useSpcodeCodegraphStatus();
+const vivado = useSpcodeVivadoStatus();
+
+// codegraph 状态只保留 3 态(mcpRunning × activeProject 两个维度)。
+// 旧 SpcodeCodegraphChip 的"路径不匹配"(activeProject ≠ 当前加载项目目录,
+// warning dot + "Codegraph 不匹配")已于 2026-08-15 随 chip 移除:system_prompt
+// 已强制 LLM 每次调用 codegraph_explore 显式传 projectPath,默认目录与加载
+// 项目是否一致不再影响查询结果,该提醒失去意义。
+const codegraphState = computed(() => {
+  const s = codegraph.status.value;
+  const hasProject = s.activeProject.length > 0;
+  if (s.mcpRunning && hasProject) {
+    return {
+      dot: "success",
+      icon: "mdi-database-check",
+      label: "Codegraph 已连接",
+      detail: s.activeProject,
+    };
+  }
+  if (s.mcpRunning) {
+    return {
+      dot: "neutral",
+      icon: "mdi-database-remove-outline",
+      label: "Codegraph 未加载",
+      detail: "MCP 运行中但未设置项目",
+    };
+  }
+  return {
+    dot: "neutral",
+    icon: "mdi-database-off-outline",
+    label: "Codegraph 未启动",
+    detail: "MCP 未运行, codegraph 不可用",
+  };
+});
+
+const vivadoState = computed(() => {
+  const s = vivado.status.value;
+  switch (s.overall) {
+    case "ok":
+      return {
+        dot: "success",
+        icon: "mdi-chip",
+        label: "Vivado 已就绪",
+        detail: s.message,
+      };
+    case "degraded":
+      return {
+        dot: "warning",
+        icon: "mdi-alert-circle-outline",
+        label: "会话数据暂不可用",
+        detail: s.message,
+      };
+    case "not_installed":
+      return {
+        dot: "error",
+        icon: "mdi-package-variant-closed",
+        label: "vivado-mcp 未安装",
+        detail: s.message,
+      };
+    case "toolchain_missing":
+      return {
+        dot: "error",
+        icon: "mdi-tools",
+        label: "找不到Vivado",
+        detail: s.message,
+      };
+    case "not_running":
+      return {
+        dot: "neutral",
+        icon: "mdi-server-off",
+        label: "Vivado 未启动",
+        detail: s.message,
+      };
+    default:
+      return {
+        dot: "neutral",
+        icon: "mdi-server-off-outline",
+        label: "Vivado 未启用",
+        detail: s.message,
+      };
+  }
+});
+
+/**
+ * Codegraph 管理入口:关闭 popover 并委托给 ChatInput 打开
+ * ``ProjectLoadDialog command-mode="codegraph"``(原 codegraph chip 的 click 行为)。
+ */
+function openCodegraphManager(): void {
+  servicesMenuOpen.value = false;
+  emit("open-codegraph-dialog");
+}
+
+// ── 状态气泡 (2026-08-15) ─────────────────────────────────────────────
+// 原 codegraph chip 移除后,初始化/重启等过程状态失去常驻显示。这里在
+// codegraph 状态变更(或 codegraph 相关操作进行中)时,于 services 按钮旁
+// 弹一个漫画式气泡实时提示,3s 后消失;显示期间状态再次更新则重置计时。
+// 气泡右上角提供 ✕ 按钮可立即关闭。
+const BUBBLE_DURATION_MS = 3000;
+
+const bubbleText = ref("");
+const bubbleVisible = ref(false);
+let bubbleTimer: number | undefined;
+
+function showBubble(text: string): void {
+  bubbleText.value = text;
+  bubbleVisible.value = true;
+  if (bubbleTimer !== undefined) {
+    window.clearTimeout(bubbleTimer);
+  }
+  bubbleTimer = window.setTimeout(() => {
+    bubbleVisible.value = false;
+    bubbleTimer = undefined;
+  }, BUBBLE_DURATION_MS);
+}
+
+/** 立即关闭气泡(✕ 按钮 / 卸载时)。 */
+function closeBubble(): void {
+  if (bubbleTimer !== undefined) {
+    window.clearTimeout(bubbleTimer);
+    bubbleTimer = undefined;
+  }
+  bubbleVisible.value = false;
+}
+
+// 挂载后的首次观察只建立基线,不弹气泡——避免打开页面时把
+// "已经连接/未连接" 的既有状态误当作变更(否则每次刷新都会弹)。
+let bubbleBaselineSet = false;
+
+interface BubbleSnapshot {
+  mcp: boolean;
+  proj: string;
+  op: string | null;
+  st: string;
+  step: string;
+}
+
+/**
+ * 由 (codegraph 状态, 操作进度) 推导气泡文案;无值得展示的变化返回 null。
+ * 优先级: 进行中的 codegraph 相关操作 > MCP 状态转变 > 运行中切换项目。
+ */
+function deriveBubbleMessage(now: BubbleSnapshot, prev: BubbleSnapshot): string | null {
+  // 1) 进行中操作(最高优先): project_load 含 codegraph 步骤 / codegraph_set
+  if (now.st === "running") {
+    if (now.op === "codegraph_set") {
+      return tm("spcodeProjectLoad.indicator.codegraphRestarting");
+    }
+    if (now.op === "project_load" && /codegraph/i.test(now.step)) {
+      return tm("spcodeProjectLoad.indicator.codegraphInitializing");
+    }
+  }
+  // 2) MCP 状态转变
+  if (now.mcp && !prev.mcp) {
+    return tm("spcodeProjectLoad.indicator.codegraphConnected");
+  }
+  if (!now.mcp && prev.mcp) {
+    // 运行→停止。操作进行中已由 1 覆盖(显示"初始化/重启中"),
+    // 走到这里说明是真正被关闭/掉线。
+    return tm("spcodeProjectLoad.indicator.codegraphDisconnected");
+  }
+  // 3) 运行中切换默认项目(codegraph set 完成后 mcp 保持 true,靠 proj 变化感知)
+  if (now.mcp && now.proj !== prev.proj) {
+    return tm("spcodeProjectLoad.indicator.codegraphConnected");
+  }
+  return null;
+}
+
+watch(
+  () => ({
+    mcp: codegraph.status.value.mcpRunning,
+    proj: codegraph.status.value.activeProject,
+    op: progress.value.operation,
+    st: progress.value.status,
+    step: progress.value.currentStep,
+  }),
+  (now, prev) => {
+    if (!bubbleBaselineSet) {
+      bubbleBaselineSet = true;
+      return;
+    }
+    const msg = deriveBubbleMessage(now, prev);
+    if (msg) showBubble(msg);
+  },
+  { flush: "post" },
+);
+
+onBeforeUnmount(() => {
+  if (bubbleTimer !== undefined) {
+    window.clearTimeout(bubbleTimer);
+    bubbleTimer = undefined;
+  }
 });
 
 function openLoadDialog(): void {
@@ -158,6 +362,7 @@ function openLoadDialog(): void {
       </template>
       <span>{{ tooltipText }}</span>
     </v-tooltip>
+
     <v-menu
       v-if="isFailed"
       v-model="popoverOpen"
@@ -184,6 +389,109 @@ function openLoadDialog(): void {
         </v-card-text>
       </v-card>
     </v-menu>
+
+    <!--
+      Services status popover (2026-08-15): the codegraph + vivado status
+      chips were removed from the input row; their status is now reachable
+      through this small button next to the project chip. The popover shows
+      both MCP services' state, plus a manage entry that re-opens the
+      codegraph load dialog (same one the old chip opened).
+    -->
+    <v-menu
+      v-model="servicesMenuOpen"
+      location="bottom start"
+      transition="none"
+    >
+      <template #activator="{ props: menuProps }">
+        <v-tooltip location="bottom" :open-delay="200">
+          <template #activator="{ props: tipProps }">
+            <button
+              v-bind="{ ...tipProps, ...menuProps }"
+              type="button"
+              class="sp-chip-services-btn"
+              :aria-label="tm('spcodeProjectLoad.indicator.servicesTooltip')"
+            >
+              <v-icon size="14">mdi-server-network</v-icon>
+            </button>
+          </template>
+          <span>{{ tm("spcodeProjectLoad.indicator.servicesTooltip") }}</span>
+        </v-tooltip>
+      </template>
+      <v-card min-width="320" max-width="420">
+        <v-card-text>
+          <div class="sp-chip-popover-title">
+            {{ tm("spcodeProjectLoad.indicator.servicesTitle") }}
+          </div>
+          <!-- Codegraph -->
+          <div class="sp-svc-row">
+            <span
+              class="sp-svc-row__dot"
+              :class="`sp-svc-row__dot--${codegraphState.dot}`"
+              aria-hidden="true"
+            />
+            <v-icon size="14" class="sp-svc-row__icon">
+              {{ codegraphState.icon }}
+            </v-icon>
+            <span class="sp-svc-row__label">{{ codegraphState.label }}</span>
+            <button
+              type="button"
+              class="sp-svc-row__action"
+              @click="openCodegraphManager"
+            >
+              {{ tm("spcodeProjectLoad.indicator.manageCodegraph") }}
+            </button>
+          </div>
+          <div
+            class="sp-svc-row__detail"
+            :title="`${tm('spcodeProjectLoad.indicator.defaultProjectPrefix')}: ${codegraphState.detail}`"
+          >
+            {{ tm("spcodeProjectLoad.indicator.defaultProjectPrefix") }}:
+            {{ codegraphState.detail }}
+          </div>
+          <!-- Vivado -->
+          <div class="sp-svc-row">
+            <span
+              class="sp-svc-row__dot"
+              :class="`sp-svc-row__dot--${vivadoState.dot}`"
+              aria-hidden="true"
+            />
+            <v-icon size="14" class="sp-svc-row__icon">
+              {{ vivadoState.icon }}
+            </v-icon>
+            <span class="sp-svc-row__label">{{ vivadoState.label }}</span>
+          </div>
+          <div class="sp-svc-row__detail" :title="vivadoState.detail">
+            {{ vivadoState.detail }}
+          </div>
+        </v-card-text>
+      </v-card>
+    </v-menu>
+
+    <!--
+      Comic-style status bubble (2026-08-15): pops next to the services
+      button when codegraph state changes (initializing / restarting /
+      connected / disconnected). Auto-hides after 5 s; a state update
+      while visible resets the timer.
+    -->
+    <Transition name="sp-bubble">
+      <div
+        v-if="bubbleVisible"
+        class="sp-bubble"
+        role="status"
+        :aria-label="bubbleText"
+      >
+        <span class="sp-bubble__text">{{ bubbleText }}</span>
+        <button
+          type="button"
+          class="sp-bubble__close"
+          :aria-label="tm('spcodeProjectLoad.indicator.dismissBubble')"
+          @click="closeBubble"
+        >
+          <v-icon size="12">mdi-close</v-icon>
+        </button>
+        <span class="sp-bubble__tail" aria-hidden="true" />
+      </div>
+    </Transition>
   </div>
 </template>
 
@@ -266,6 +574,7 @@ function openLoadDialog(): void {
   display: inline-flex;
   align-items: center;
   gap: 2px;
+  position: relative; /* anchor for the status bubble */
 }
 
 .sp-status-badge--failed {
@@ -309,5 +618,171 @@ function openLoadDialog(): void {
   line-height: 1.5;
   max-height: 240px;
   overflow-y: auto;
+}
+
+/* ── Services status popover (2026-08-15) ── */
+.sp-chip-services-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--sp-chip-height);
+  height: var(--sp-chip-height);
+  padding: 0;
+  border: 1px solid var(--sp-chip-border);
+  border-radius: 10px;
+  background: var(--sp-chip-bg);
+  color: var(--sp-text-primary);
+  cursor: pointer;
+  transition: background-color 150ms ease;
+}
+
+.sp-chip-services-btn:hover {
+  background: var(--sp-chip-hover-bg);
+}
+.sp-chip-services-btn:active {
+  background: var(--sp-chip-active-bg);
+}
+.sp-chip-services-btn:focus-visible {
+  outline: 2px solid rgb(var(--v-theme-primary));
+  outline-offset: 1px;
+}
+
+.sp-svc-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.sp-svc-row__dot {
+  flex: 0 0 6px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.sp-svc-row__dot--success {
+  background: var(--sp-status-dot-success);
+}
+.sp-svc-row__dot--warning {
+  background: var(--sp-status-dot-warning);
+}
+.sp-svc-row__dot--error {
+  background: var(--sp-status-dot-error);
+}
+.sp-svc-row__dot--neutral {
+  background: var(--sp-status-dot-neutral);
+}
+
+.sp-svc-row__icon {
+  flex: 0 0 14px;
+  color: rgb(var(--v-theme-primary));
+}
+
+.sp-svc-row__label {
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sp-svc-row__action {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  color: rgb(var(--v-theme-primary));
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.sp-svc-row__action:hover {
+  background: var(--sp-chip-hover-bg);
+}
+
+.sp-svc-row__detail {
+  margin: 2px 0 0 20px;
+  font-size: 11px;
+  color: var(--sp-text-path);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+/* ── Status bubble (2026-08-15) ── */
+.sp-bubble {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 10px);
+  z-index: 30;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 280px;
+  padding: 6px 6px 6px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--sp-text-primary);
+  background: var(--sp-chip-bg);
+  border: 1px solid var(--sp-chip-border);
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+}
+
+.sp-bubble__text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.sp-bubble__close {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--sp-text-path);
+  cursor: pointer;
+}
+
+.sp-bubble__close:hover {
+  background: var(--sp-chip-hover-bg);
+  color: var(--sp-text-primary);
+}
+
+.sp-bubble__tail {
+  position: absolute;
+  top: 100%;
+  right: 16px;
+  width: 0;
+  height: 0;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-top: 8px solid var(--sp-chip-bg);
+  filter: drop-shadow(0 1px 0 var(--sp-chip-border));
+}
+
+.sp-bubble-enter-active,
+.sp-bubble-leave-active {
+  transition: opacity 150ms ease, transform 150ms ease;
+}
+
+.sp-bubble-enter-from,
+.sp-bubble-leave-to {
+  opacity: 0;
+  transform: translateY(4px);
 }
 </style>

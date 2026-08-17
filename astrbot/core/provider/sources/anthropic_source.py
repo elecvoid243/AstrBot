@@ -141,7 +141,23 @@ class ProviderAnthropic(Provider):
             httpx_module=httpx_module,
         )
 
-    def _apply_thinking_config(self, payloads: dict) -> None:
+    def _apply_thinking_config(
+        self, payloads: dict, llm_params: dict | None = None
+    ) -> None:
+        # Per-request override (e.g. thinking_effort from the ChatUI) takes
+        # precedence over the static provider config.
+        if llm_params and (effort := llm_params.get("thinking_effort")):
+            if effort == "off":
+                payloads.pop("thinking", None)
+                payloads.pop("output_config", None)
+                return
+            if effort in ("low", "medium", "high"):
+                payloads["thinking"] = {"type": "adaptive"}
+                output_cfg = dict(payloads.get("output_config", {}))
+                output_cfg["effort"] = effort
+                payloads["output_config"] = output_cfg
+                return
+
         thinking_type = self.thinking_config.get("type", "")
         if thinking_type == "adaptive":
             payloads["thinking"] = {"type": "adaptive"}
@@ -497,6 +513,7 @@ class ProviderAnthropic(Provider):
         tools: ToolSet | None,
         *,
         request_max_retries: int | None = None,
+        llm_params: dict | None = None,
     ) -> LLMResponse:
         if tools:
             if tool_list := tools.get_func_desc_anthropic_style():
@@ -510,7 +527,7 @@ class ProviderAnthropic(Provider):
         if "max_tokens" not in payloads:
             payloads["max_tokens"] = 65536
         self._apply_explicit_prompt_cache_breakpoints(payloads)
-        self._apply_thinking_config(payloads)
+        self._apply_thinking_config(payloads, llm_params)
         self._sanitize_assistant_messages(payloads)
 
         try:
@@ -590,6 +607,7 @@ class ProviderAnthropic(Provider):
         tools: ToolSet | None,
         *,
         request_max_retries: int | None = None,
+        llm_params: dict | None = None,
     ) -> AsyncGenerator[LLMResponse, None]:
         if tools:
             if tool_list := tools.get_func_desc_anthropic_style():
@@ -612,7 +630,7 @@ class ProviderAnthropic(Provider):
         if "max_tokens" not in payloads:
             payloads["max_tokens"] = 65536
         self._apply_explicit_prompt_cache_breakpoints(payloads)
-        self._apply_thinking_config(payloads)
+        self._apply_thinking_config(payloads, llm_params)
         self._sanitize_assistant_messages(payloads)
 
         async with retry_provider_request_context(
@@ -806,11 +824,13 @@ class ProviderAnthropic(Provider):
             )
 
         llm_response = None
+        llm_params = kwargs.pop("llm_params", None)
         try:
             llm_response = await self._query(
                 payloads,
                 func_tool,
                 request_max_retries=request_max_retries,
+                llm_params=llm_params,
             )
         except Exception as e:
             raise e
@@ -881,6 +901,7 @@ class ProviderAnthropic(Provider):
             payloads,
             func_tool,
             request_max_retries=request_max_retries,
+            llm_params=kwargs.pop("llm_params", None),
         ):
             yield llm_response
 

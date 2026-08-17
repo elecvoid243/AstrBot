@@ -517,6 +517,7 @@ class LiveChatService:
         session_id = message.get("session_id") or session.session_id
         selected_provider = message.get("selected_provider")
         selected_model = message.get("selected_model")
+        thinking_effort = message.get("thinking_effort")
         selected_stt_provider = message.get("selected_stt_provider")
         selected_tts_provider = message.get("selected_tts_provider")
         persona_prompt = message.get("persona_prompt")
@@ -569,6 +570,7 @@ class LiveChatService:
                         "message": message_parts,
                         "selected_provider": selected_provider,
                         "selected_model": selected_model,
+                        "thinking_effort": thinking_effort,
                         "selected_stt_provider": selected_stt_provider,
                         "selected_tts_provider": selected_tts_provider,
                         "persona_prompt": persona_prompt,

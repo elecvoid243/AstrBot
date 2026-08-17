@@ -12,9 +12,11 @@ vi.mock("../useSpcodeProjectStatus", () => ({
 }));
 
 const mockPost = vi.fn();
+const mockGet = vi.fn();
 vi.mock("@/api/v1", () => ({
   pluginExtensionApi: {
     post: (...args: unknown[]) => mockPost(...args),
+    get: (...args: unknown[]) => mockGet(...args),
   },
 }));
 
@@ -136,6 +138,7 @@ describe("useSpcodeGitRemoteSync", () => {
           action: "added",
           remote: "origin",
           url: "https://example.com/o/r.git",
+          remotes: ["origin"],
           reason: null,
           stderr: "",
           elapsed_ms: 5,
@@ -144,7 +147,11 @@ describe("useSpcodeGitRemoteSync", () => {
     });
     const { setRemoteUrl } = withSetup(() => useSpcodeGitRemoteSync());
     const r = await setRemoteUrl({ url: "https://example.com/o/r.git" });
-    expect(r).toMatchObject({ ok: true, action: "added" });
+    expect(r).toMatchObject({
+      ok: true,
+      action: "added",
+      remotes: ["origin"],
+    });
     const [endpoint, body] = mockPost.mock.calls[0];
     expect(endpoint).toBe("spcode/git-remote-set-url");
     expect(body).toMatchObject({
@@ -162,6 +169,76 @@ describe("useSpcodeGitRemoteSync", () => {
     const { push } = withSetup(() => useSpcodeGitRemoteSync());
     const r = await push({});
     expect(r).toMatchObject({ ok: false, reason: "network" });
+  });
+
+  it("listRemotes() GETs spcode/git-remotes and parses name + url", async () => {
+    mockGet.mockResolvedValueOnce({
+      data: {
+        status: "ok",
+        data: {
+          success: true,
+          reason: null,
+          remotes: [
+            { name: "origin", url: "https://example.com/o/r.git" },
+            { name: "upstream", url: "git@github.com:org/up.git" },
+          ],
+          total: 2,
+          elapsed_ms: 3,
+        },
+      },
+    });
+    const { listRemotes } = withSetup(() => useSpcodeGitRemoteSync());
+    const r = await listRemotes();
+    expect(r).toMatchObject({
+      ok: true,
+      remotes: [
+        { name: "origin", url: "https://example.com/o/r.git" },
+        { name: "upstream", url: "git@github.com:org/up.git" },
+      ],
+    });
+    const [endpoint, config] = mockGet.mock.calls[0];
+    expect(endpoint).toBe("spcode/git-remotes");
+    expect(config).toMatchObject({ params: { umo: "umo-test" } });
+  });
+
+  it("removeRemote() POSTs spcode/git-remote-remove and parses result", async () => {
+    mockPost.mockResolvedValueOnce({
+      data: {
+        status: "ok",
+        data: {
+          success: true,
+          removed: true,
+          remote: "upstream",
+          remotes: ["origin"],
+          reason: null,
+          elapsed_ms: 4,
+        },
+      },
+    });
+    const { removeRemote } = withSetup(() => useSpcodeGitRemoteSync());
+    const r = await removeRemote("upstream");
+    expect(r).toMatchObject({ ok: true, remote: "upstream", remotes: ["origin"] });
+    const [endpoint, body] = mockPost.mock.calls[0];
+    expect(endpoint).toBe("spcode/git-remote-remove");
+    expect(body).toEqual({ umo: "umo-test", remote: "upstream" });
+  });
+
+  it("removeRemote() maps remote_not_found failure", async () => {
+    mockPost.mockResolvedValueOnce({
+      data: {
+        status: "ok",
+        data: {
+          success: false,
+          reason: "remote_not_found",
+          removed: false,
+          stderr: "No such remote",
+          elapsed_ms: 2,
+        },
+      },
+    });
+    const { removeRemote } = withSetup(() => useSpcodeGitRemoteSync());
+    const r = await removeRemote("nope");
+    expect(r).toMatchObject({ ok: false, reason: "remote_not_found" });
   });
 
   it("returns aborted after dispose()", async () => {

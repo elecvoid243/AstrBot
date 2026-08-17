@@ -7,17 +7,16 @@
     @drop.prevent="handleDrop"
   >
     <!--
-      Codegraph MCP server status row. Shown above the main status row
-      when the spcode plugin is enabled. Polls every 30 s for live
-      updates (see the setInterval in the script section).
+      spcode status row. Shown above the main status row when the spcode
+      plugin is enabled. The project chip exposes a services popover
+      (codegraph / vivado MCP status) via its small side button.
     -->
     <div v-if="showSpcodeIndicator" class="input-area__status-row">
       <div class="input-area__status-row__left">
-        <SpcodeProjectIndicator @open-load-dialog="openLoadDialog" />
-        <div class="input-area__status-row__left__chips-row">
-          <SpcodeCodegraphChip @open-codegraph-dialog="openCodegraphLoadDialog" />
-          <SpcodeVivadoStatusChip />
-        </div>
+        <SpcodeProjectIndicator
+          @open-load-dialog="openLoadDialog"
+          @open-codegraph-dialog="openCodegraphLoadDialog"
+        />
       </div>
       <!--
             Right-side group: keeps the plan-mode chip visually adjacent to
@@ -106,20 +105,13 @@
         transition: 'min-height 0.2s ease, padding 0.2s ease',
       }"
     >
-      <!-- 拖拽遮罩：原生文件拖入=上传；sidebar 拖入=引用 -->
+      <!-- 拖拽遮罩：仅 sidebar 拖入时显示引用遮罩；原生文件拖入由
+           Chat.vue 的全区域拖拽热区（useDragUpload）统一处理。 -->
       <transition name="fade">
-        <div v-if="isDragging" class="drop-overlay">
+        <div v-if="isDragging && dragKind === 'reference'" class="drop-overlay">
           <div class="drop-overlay-content">
-            <v-icon size="48" color="primary">{{
-              dragKind === "reference"
-                ? "mdi-file-link-outline"
-                : "mdi-cloud-upload"
-            }}</v-icon>
-            <span class="drop-text">{{
-              dragKind === "reference"
-                ? tm("input.dropToReference")
-                : tm("input.dropToUpload")
-            }}</span>
+            <v-icon size="48" color="primary">mdi-file-link-outline</v-icon>
+            <span class="drop-text">{{ tm("input.dropToReference") }}</span>
           </div>
         </div>
       </transition>
@@ -233,6 +225,42 @@
         </div>
       </transition>
 
+      <!--
+        2026-08-16 skill-guide: pending one-shot skill nudges, shown above
+        the composer exactly like staged uploads. Each badge mirrors a skill
+        queued via POST /skill-guide/load; it is consumed when the message
+        is sent (the plugin drains the queue on the next LLM request).
+      -->
+      <transition name="attachments">
+        <div
+          v-if="skillGuide.queued.value.length > 0"
+          class="skill-guide-preview"
+        >
+          <span class="skill-guide-preview__label">
+            <v-icon icon="mdi-lightbulb-on-outline" size="14"></v-icon>
+            {{ tm("input.skillGuide.pendingLabel") }}
+          </span>
+          <div
+            v-for="name in skillGuide.queued.value"
+            :key="name"
+            class="skill-guide-chip"
+          >
+            <span class="skill-guide-chip__name" :title="name">{{
+              name
+            }}</span>
+            <button
+              type="button"
+              class="skill-guide-chip__remove"
+              :aria-label="tm('input.skillGuide.removeTitle', { name })"
+              :title="tm('input.skillGuide.removeTitle', { name })"
+              @click="skillGuide.toggleSkill(name)"
+            >
+              <v-icon icon="mdi-close" size="12"></v-icon>
+            </button>
+          </div>
+        </div>
+      </transition>
+
       <CommandSuggestion
         :visible="showCommandSuggestion"
         :commands="filteredCommands"
@@ -274,6 +302,23 @@
             </v-list-item>
 
             <!--
+              2026-08-16 skill-guide: "手动加载 Skill" entry. Rendered as a
+              regular "+" menu item; hovering/clicking it opens a SEPARATE
+              compact popover with the session's skills (see
+              SkillGuideMenuItem) — the popover is absolutely positioned, so
+              it never changes the "+" menu's width. The plugin is gated on
+              GET /skill-guide/active having answered once
+              (useSkillGuide.available); queued skills are mirrored by the
+              pending badges row below the composer.
+            -->
+            <SkillGuideMenuItem
+              v-if="skillGuide.available.value"
+              :session-id="sessionId || null"
+              :is-group="sessionIsGroup"
+              :disabled="disabled"
+            />
+
+            <!--
               spcode project load trigger (lives inside the + menu's
               popover slot, which is mounted lazily). It only emits
               "open"; the dialog itself is mounted at the ChatInput
@@ -293,6 +338,38 @@
               :initial-config-id="props.configId"
               @config-changed="handleConfigChange"
             />
+
+            <!-- Thinking Effort Selector in Menu -->
+            <v-list-item class="styled-menu-item" rounded="md">
+              <template v-slot:prepend>
+                <v-icon icon="mdi-brain" size="small"></v-icon>
+              </template>
+              <v-list-item-title>{{ tm("input.thinkingEffort") }}</v-list-item-title>
+              <template v-slot:append>
+                <v-select
+                  v-model="thinkingEffort"
+                  :items="thinkingEffortOptions"
+                  density="compact"
+                  variant="plain"
+                  hide-details
+                  class="thinking-effort-select"
+                />
+                <v-tooltip location="top">
+                  <template #activator="{ props: gearProps }">
+                    <v-btn
+                      v-bind="gearProps"
+                      icon="mdi-cog-outline"
+                      variant="text"
+                      size="small"
+                      :aria-label="tm('input.editThinkingEffortLevels')"
+                      class="thinking-effort-gear"
+                      @click="effortLevelsDialogOpen = true"
+                    />
+                  </template>
+                  <span>{{ tm("input.editThinkingEffortLevels") }}</span>
+                </v-tooltip>
+              </template>
+            </v-list-item>
 
             <!-- Streaming Toggle in Menu -->
             <v-list-item
@@ -477,6 +554,12 @@
       @delete-comment="onDeleteComment"
       @request-clear-all="onRequestClearAll"
     />
+
+    <ThinkingEffortLevelsDialog
+      v-model="effortLevelsDialogOpen"
+      :levels="userEffortLevels"
+      @save="handleEffortLevelsSave"
+    />
   </div>
 </template>
 
@@ -491,6 +574,7 @@ import {
 } from "vue";
 import { useDisplay } from "vuetify";
 import { useModuleI18n } from "@/i18n/composables";
+import type { ThinkingEffort } from "@/composables/useMessages";
 import { useCustomizerStore } from "@/stores/customizer";
 import { isComposingEnter } from "@/utils/imeInput.mjs";
 import { buildWebchatUmoDetails } from "@/utils/chatConfigBinding";
@@ -498,16 +582,17 @@ import { commandApi } from "@/api/v1";
 import type { CommandItem } from "@/components/extension/componentPanel/types";
 import ConfigSelector from "./ConfigSelector.vue";
 import ProviderModelMenu from "./ProviderModelMenu.vue";
+import ThinkingEffortLevelsDialog from "./ThinkingEffortLevelsDialog.vue";
 import StyledMenu from "@/components/shared/StyledMenu.vue";
 import CommandSuggestion from "./CommandSuggestion.vue";
 import ProjectLoadMenuItem from "./ProjectLoadMenuItem.vue";
 import ProjectLoadDialog from "./ProjectLoadDialog.vue";
 import type { ProjectLoadSubmitPayload } from "./ProjectLoadDialog.vue";
 import SpcodeProjectIndicator from "./SpcodeProjectIndicator.vue";
-import SpcodeCodegraphChip from "./SpcodeCodegraphChip.vue";
-import SpcodeVivadoStatusChip from "./SpcodeVivadoStatusChip.vue";
 import SpcodePlanModeChip from "./SpcodePlanModeChip.vue";
 import GitDiffChip from "./GitDiffChip.vue";
+import SkillGuideMenuItem from "./SkillGuideMenuItem.vue";
+import { useSkillGuide } from "@/composables/useSkillGuide";
 import CommentsPreviewDialog from "./CommentsPreviewDialog.vue";
 import { useSpcodeProjectStatus } from "@/composables/useSpcodeProjectStatus";
 import { useSpcodeCodegraphStatus } from "@/composables/useSpcodeCodegraphStatus";
@@ -615,6 +700,103 @@ const providerModelMenuRef = ref<InstanceType<typeof ProviderModelMenu> | null>(
 const providerSelectorAvailable = ref(true);
 const isReplyClosing = ref(false);
 const isDragging = ref(false);
+
+// Per-message "thinking effort" (reasoning intensity) override, sent with
+// each chat request. Persisted locally; "auto" keeps the provider config.
+// "auto" / "off" are reserved and always present; the remaining levels are
+// user-defined (name + raw value) and stored in localStorage
+// "thinkingEffortLevels" (e.g. { name: "深度", value: "max" }).
+const RESERVED_EFFORT_VALUES = ["auto", "off"];
+
+interface ThinkingEffortLevel {
+  name: string;
+  value: string;
+}
+
+const defaultThinkingEffortLevels = computed<ThinkingEffortLevel[]>(() => [
+  { name: tm("input.thinkingEffortOptions.low"), value: "low" },
+  { name: tm("input.thinkingEffortOptions.medium"), value: "medium" },
+  { name: tm("input.thinkingEffortOptions.high"), value: "high" },
+]);
+
+function loadStoredEffortLevels(): ThinkingEffortLevel[] | null {
+  if (typeof localStorage === "undefined") return null;
+  try {
+    const raw = localStorage.getItem("thinkingEffortLevels");
+    if (!raw) return null;
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return null;
+    const levels = parsed
+      .filter(
+        (item): item is ThinkingEffortLevel =>
+          !!item &&
+          typeof item === "object" &&
+          typeof (item as ThinkingEffortLevel).name === "string" &&
+          typeof (item as ThinkingEffortLevel).value === "string" &&
+          (item as ThinkingEffortLevel).value.trim() !== "" &&
+          !RESERVED_EFFORT_VALUES.includes(
+            (item as ThinkingEffortLevel).value.trim(),
+          ),
+      )
+      .map((item) => ({
+        name: (item as ThinkingEffortLevel).name,
+        value: (item as ThinkingEffortLevel).value.trim(),
+      }));
+    return levels.length > 0 ? levels : null;
+  } catch {
+    return null;
+  }
+}
+
+const storedEffortLevels = ref<ThinkingEffortLevel[] | null>(
+  loadStoredEffortLevels(),
+);
+
+/** User-defined levels, falling back to the i18n defaults when not customized. */
+const userEffortLevels = computed<ThinkingEffortLevel[]>(() =>
+  storedEffortLevels.value ?? defaultThinkingEffortLevels.value,
+);
+
+const thinkingEffortOptions = computed(() => [
+  { title: tm("input.thinkingEffortOptions.auto"), value: "auto" },
+  { title: tm("input.thinkingEffortOptions.off"), value: "off" },
+  ...userEffortLevels.value.map((level) => ({
+    title: level.name,
+    value: level.value,
+  })),
+]);
+
+const thinkingEffort = ref<ThinkingEffort>(
+  (() => {
+    if (typeof localStorage === "undefined") return "auto";
+    return (localStorage.getItem("thinkingEffort") as ThinkingEffort) || "auto";
+  })(),
+);
+watch(thinkingEffort, (value) => {
+  if (typeof localStorage !== "undefined") {
+    localStorage.setItem("thinkingEffort", value);
+  }
+});
+// Keep the selection valid when the level list changes (e.g. a level deleted).
+watch(
+  thinkingEffortOptions,
+  (options) => {
+    if (!options.some((option) => option.value === thinkingEffort.value)) {
+      thinkingEffort.value = "auto";
+    }
+  },
+  { immediate: true },
+);
+
+const effortLevelsDialogOpen = ref(false);
+
+function handleEffortLevelsSave(levels: ThinkingEffortLevel[]) {
+  storedEffortLevels.value = levels;
+  if (typeof localStorage !== "undefined") {
+    localStorage.setItem("thinkingEffortLevels", JSON.stringify(levels));
+  }
+}
+
 /** 2026-08-09 drag-reference: which drop overlay to show. "Files" drags
  *  upload; sidebar MIME drags reference. */
 const dragKind = ref<"upload" | "reference">("upload");
@@ -860,6 +1042,25 @@ const sessionPlatformId = computed(
 );
 const sessionIsGroup = computed(() => Boolean(props.currentSession?.is_group));
 
+// 2026-08-16 skill-guide: singleton state for the Skill Guide plugin.
+// ChatInput owns `setSession` (session switch → re-fetch the active
+// skill list for the new umo); the SkillGuideMenuItem and the pending
+// badges row below read the same refs, so the popover ✓ marks and the
+// badges can never diverge.
+const skillGuide = useSkillGuide();
+watch(
+  () => [props.sessionId, sessionIsGroup.value] as const,
+  async ([sessionId, isGroup]) => {
+    if (!sessionId) {
+      await skillGuide.setSession(null);
+      return;
+    }
+    const umo = buildWebchatUmoDetails(sessionId, isGroup).umo;
+    await skillGuide.setSession(umo);
+  },
+  { immediate: true },
+);
+
 const canSend = computed(() => {
   return (
     (props.prompt && props.prompt.trim()) ||
@@ -1064,7 +1265,7 @@ function handleKeyDown(e: KeyboardEvent) {
     }
     if (canSend.value && !sendLocked.value) {
       applyOptimisticCodegraphStatus(localPrompt.value);
-      emit("send");
+      sendMessage();
     }
     return;
   }
@@ -1186,6 +1387,18 @@ function applyOptimisticProjectStatus(text: string): void {
 function handleSendClick(): void {
   if (sendLocked.value) return; // project load/unload in flight
   applyOptimisticCodegraphStatus(localPrompt.value);
+  sendMessage();
+}
+
+/**
+ * 2026-08-16 skill-guide: single send funnel for every path that
+ * dispatches the staged prompt (click / Enter hotkey / legacy project
+ * load). Consumes the pending skill-guide queue — the plugin drains it
+ * on the next LLM request, so the pending badges have served their
+ * purpose once a message actually goes out (one-shot semantics).
+ */
+function sendMessage(): void {
+  skillGuide.consumeQueued();
   emit("send");
 }
 
@@ -1256,7 +1469,7 @@ async function handleProjectLoadSubmit(
       applyOptimisticProjectStatus(payload.legacyText);
     }
     localPrompt.value = payload.legacyText;
-    emit("send");
+    sendMessage();
     return;
   }
   const umo = buildWebchatUmoDetails(
@@ -1487,6 +1700,8 @@ function handleDrop(e: DragEvent) {
   // 如果 dataTransfer 同时携带 Files（极少见,例如从外部桌面把同一个
   // 文件既通过路径也通过 File 拖入），优先信任自定义类型 — 它意味着
   // 这是 sidebar 的拖拽。
+  // 原生 FileList 拖入不在此处理：事件冒泡到 Chat.vue 的全局拖拽热区
+  // （useDragUpload on <main>）统一走上传链路，避免双重上传。
   const sidebarPayload = e.dataTransfer?.getData(SIDEBAR_FILE_MIME);
   if (sidebarPayload) {
     try {
@@ -1499,13 +1714,8 @@ function handleDrop(e: DragEvent) {
         return;
       }
     } catch {
-      // JSON 解析失败 → 回退到原生 FileList 流程
+      // JSON 解析失败 → 回退到原生 FileList 流程（冒泡给全局热区）
     }
-  }
-
-  const files = e.dataTransfer?.files;
-  if (files && files.length > 0) {
-    emit("fileSelect", files);
   }
 }
 
@@ -1551,6 +1761,10 @@ function getCurrentSelection() {
   return providerModelMenuRef.value?.getCurrentSelection();
 }
 
+function getThinkingEffort(): ThinkingEffort {
+  return thinkingEffort.value;
+}
+
 function focusInput() {
   if (!inputField.value) return;
   inputField.value.focus();
@@ -1585,9 +1799,10 @@ function openProjectLoadDialog(): void {
 }
 
 /**
- * SpcodeCodegraphChip "open codegraph dialog" handler. Delegates to
- * the second ``ProjectLoadDialog`` instance (``commandMode="codegraph"``)
- * mounted next to the project-load dialog.
+ * Project indicator services popover "manage codegraph" handler. Delegates
+ * to the second ``ProjectLoadDialog`` instance (``commandMode="codegraph"``)
+ * mounted next to the project-load dialog — the same dialog the removed
+ * SpcodeCodegraphChip used to open.
  */
 function openCodegraphLoadDialog(): void {
   if (codegraphLoadDialogRef.value) {
@@ -1617,12 +1832,22 @@ watch(
       // backend queries THIS session's loaded project (not the global
       // "most-recently-loaded" fallback). Mirrors the Chat.vue watchers
       // and the plan-mode refresh pattern below.
-      const umo = props.currentSession
-        ? buildWebchatUmoDetails(
-            props.currentSession.session_id,
-            Boolean(props.currentSession.is_group),
-          ).umo
-        : null;
+      if (!props.currentSession) {
+        // Bug fix (2026-08-15, elecvoid243): with no session there is
+        // no umo to address the request at, and a bare refresh() makes
+        // the backend return the most-recently-loaded project across
+        // ALL umos — the previous session's project. That is exactly
+        // the window right after "new chat" is clicked (the session is
+        // only created on the first send), so the chip would keep
+        // showing the previous session's project until then. Reset to
+        // the empty state instead.
+        spcodeStatus.reset();
+        return;
+      }
+      const umo = buildWebchatUmoDetails(
+        props.currentSession.session_id,
+        Boolean(props.currentSession.is_group),
+      ).umo;
       await spcodeStatus.refresh(umo);
     }
   },
@@ -1736,6 +1961,7 @@ onBeforeUnmount(() => {
 
 defineExpose({
   getCurrentSelection,
+  getThinkingEffort,
   focusInput,
 });
 </script>
@@ -1760,26 +1986,16 @@ defineExpose({
 }
 
 /*
- * Left cluster: project indicator occupies its own row; the codegraph +
- * vivado chips sit together in a nested flex row below it.
+ * Left cluster: the project indicator (with its services popover side
+ * button) occupies this column. The former codegraph + vivado chips row
+ * was removed (2026-08-15) — their status now lives in the project chip's
+ * services popover.
  */
 .input-area__status-row__left {
   align-items: flex-start;
   display: flex;
   flex-direction: column;
   gap: 0;
-  min-width: 0;
-}
-
-/*
- * Nested row for codegraph + vivado chips. These share one line so they
- * do not take up three rows when the plugin is fully configured.
- */
-.input-area__status-row__left__chips-row {
-  align-items: center;
-  display: flex;
-  flex-direction: row;
-  gap: 6px;
   min-width: 0;
 }
 
@@ -2042,6 +2258,33 @@ defineExpose({
   overflow: visible !important;
 }
 
+/* Keep the effort dropdown visually separated from the menu label and
+   vertically centered against it (the field's default 8px top padding
+   pushes the selection text off-center). */
+.thinking-effort-select {
+  width: 96px;
+  margin-left: 16px;
+  flex-shrink: 0;
+}
+
+/* Inline gear button that opens the level editor, next to the dropdown. */
+.thinking-effort-gear {
+  margin-left: 2px;
+  flex-shrink: 0;
+}
+
+.thinking-effort-select :deep(.v-input__control) {
+  min-height: 0;
+}
+
+.thinking-effort-select :deep(.v-field),
+.thinking-effort-select :deep(.v-field__input) {
+  min-height: 28px;
+  padding-top: 0;
+  padding-bottom: 0;
+  align-items: center;
+}
+
 .input-right-actions {
   grid-area: right;
   display: flex;
@@ -2090,47 +2333,6 @@ defineExpose({
 .input-area:not(.is-dark) .input-action-btn:disabled {
   background: #f2f5f3 !important;
   color: rgba(0, 0, 0, 0.18) !important;
-}
-
-/* 拖拽上传遮罩 */
-.drop-overlay {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: rgba(var(--v-theme-primary), 0.12);
-  border: 2px dashed rgba(var(--v-theme-primary), 0.45);
-  border-radius: 24px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 100;
-  pointer-events: none;
-}
-
-.drop-overlay-content {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-}
-
-.drop-text {
-  font-size: 16px;
-  font-weight: 500;
-  color: rgb(var(--v-theme-primary));
-}
-
-/* Fade transition for drop overlay */
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.2s ease;
-}
-
-.fade-enter-from,
-.fade-leave-to {
-  opacity: 0;
 }
 
 .reply-preview {
@@ -2637,6 +2839,56 @@ defineExpose({
   color: rgba(var(--v-theme-on-surface), 0.55);
 }
 .reference-chip__remove:hover {
+  color: rgb(var(--v-theme-error));
+}
+
+/* 2026-08-16 skill-guide: pending one-shot skill nudge badges, styled to
+   match the reference/attachment chips above the composer. */
+.skill-guide-preview {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  width: 100%;
+  flex: 0 0 auto;
+  padding: 8px 12px 0;
+}
+.skill-guide-preview__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: rgba(var(--v-theme-on-surface), 0.55);
+  white-space: nowrap;
+}
+.skill-guide-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 220px;
+  padding: 3px 6px 3px 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(var(--v-theme-primary), 0.35);
+  background: rgba(var(--v-theme-primary), 0.08);
+  font-size: 12px;
+  color: rgb(var(--v-theme-on-surface));
+}
+.skill-guide-chip__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.skill-guide-chip__remove {
+  display: inline-flex;
+  align-items: center;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 1px;
+  border-radius: 50%;
+  color: rgba(var(--v-theme-on-surface), 0.55);
+}
+.skill-guide-chip__remove:hover {
   color: rgb(var(--v-theme-error));
 }
 </style>

@@ -1729,6 +1729,7 @@ class ChatService:
         session_id = post_data.get("session_id", post_data.get("conversation_id"))
         selected_provider = post_data.get("selected_provider")
         selected_model = post_data.get("selected_model")
+        thinking_effort = post_data.get("thinking_effort")
         flags = resolve_webchat_request_flags(post_data)
         platform_history_id = post_data.get("_platform_history_id") or "webchat"
         thread_selected_text = post_data.get("_thread_selected_text")
@@ -1742,6 +1743,25 @@ class ChatService:
             raise ChatServiceError(
                 "Message content is empty (reply only is not allowed)"
             )
+
+        if platform_history_id == "webchat":
+            try:
+                platform_session = await self.db.get_platform_session_by_id(
+                    webchat_conv_id
+                )
+                if platform_session is None:
+                    await self.db.create_platform_session(
+                        creator=username,
+                        platform_id="webchat",
+                        session_id=webchat_conv_id,
+                        is_group=0,
+                    )
+            except Exception as exc:
+                logger.warning(
+                    "Failed to ensure WebChat platform session %s: %s",
+                    webchat_conv_id,
+                    exc,
+                )
 
         message_id = str(uuid.uuid4())
         llm_checkpoint_id = post_data.get("_llm_checkpoint_id") or str(uuid.uuid4())
@@ -1793,6 +1813,7 @@ class ChatService:
                         "message": message_parts,
                         "selected_provider": selected_provider,
                         "selected_model": selected_model,
+                        "thinking_effort": thinking_effort,
                         "flags": flags,
                         "message_id": message_id,
                         "llm_checkpoint_id": llm_checkpoint_id,
@@ -2699,6 +2720,7 @@ class ChatService:
             "flags": resolve_webchat_request_flags(data),
             "selected_provider": data.get("selected_provider"),
             "selected_model": data.get("selected_model"),
+            "thinking_effort": data.get("thinking_effort"),
             "_skip_user_history": True,
             "_llm_checkpoint_id": new_checkpoint_id,
         }

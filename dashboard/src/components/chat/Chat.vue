@@ -547,7 +547,19 @@
       </div>
     </aside>
 
-    <main class="chat-main" :class="{ 'empty-chat': isEmptyChat }">
+    <main
+      class="chat-main"
+      :class="{ 'empty-chat': isEmptyChat }"
+      v-on="dragEvents"
+    >
+      <transition name="drop-fade">
+        <div v-if="isDragging && !isProviderWorkspace" class="chat-drop-overlay">
+          <div class="chat-drop-overlay-content">
+            <v-icon size="48" color="primary">mdi-cloud-upload</v-icon>
+            <span class="chat-drop-text">{{ tm("input.dropToUpload") }}</span>
+          </div>
+        </div>
+      </transition>
       <section v-if="isProviderWorkspace" class="provider-workspace-shell">
         <ProviderChatCompletionPanel
           class="provider-workspace-page"
@@ -1026,11 +1038,13 @@ import {
   type ChatRecord,
   type ChatThread,
   type MessagePart,
+  type ThinkingEffort,
   type TransportMode,
 } from "@/composables/useMessages";
 import { useMediaHandling } from "@/composables/useMediaHandling";
 import { useRecording } from "@/composables/useRecording";
 import { useProjects } from "@/composables/useProjects";
+import { useDragUpload } from "@/composables/useDragUpload";
 import { useChatHeaderStore } from "@/stores/chatHeader";
 import { useCustomizerStore } from "@/stores/customizer";
 import ProviderChatCompletionPanel from "@/components/provider/ProviderChatCompletionPanel.vue";
@@ -1129,6 +1143,11 @@ const {
   clearStaged,
   cleanupMediaCache,
 } = useMediaHandling();
+
+const { isDragging, dragEvents } = useDragUpload((files) => {
+  if (isProviderWorkspace.value) return;
+  handleFilesSelected(files);
+});
 
 type WorkspaceView = "chat" | "providers";
 
@@ -1545,7 +1564,17 @@ const {
       // session's project when several umos have projects loaded
       // concurrently. Plan mode already passes umo (see below);
       // project status now mirrors the same pattern.
-      void spcodeStatus.refresh(resolveCurrentUmo(currSessionId.value));
+      //
+      // Bug fix (2026-08-15, elecvoid243): same null-umo guard as the
+      // currSessionId watcher. A bare refresh() would hit the
+      // "most-recently-loaded across all umos" fallback and display
+      // the previous session's project on the chip.
+      const resolvedUmo = resolveCurrentUmo(currSessionId.value);
+      if (resolvedUmo) {
+        void spcodeStatus.refresh(resolvedUmo);
+      } else {
+        spcodeStatus.reset();
+      }
       // Plan/build has the same race: an `/plan` or `/build`
       // response is processed during stream-end, so the chip needs
       // to be refreshed in lockstep to stay in sync with the bot's
@@ -1728,6 +1757,11 @@ function getSelectedProviderSelection() {
     providerId: localStorage.getItem("selectedProvider") || "",
     modelName: localStorage.getItem("selectedProviderModel") || "",
   };
+}
+
+/** Per-message thinking-effort override from the chat input (auto by default). */
+function getCurrentThinkingEffort(): ThinkingEffort {
+  return inputRef.value?.getThinkingEffort() ?? "auto";
 }
 
 provide("isDark", isDark);
@@ -1922,7 +1956,21 @@ watch(
     // umos" fallback branch — wrong in the multi-umo case. See the
     // matching fix in onStreamEnd above and in ChatInput.vue's
     // showSpcodeIndicator watcher.
-    await spcodeStatus.refresh(resolveCurrentUmo(next));
+    //
+    // Bug fix (2026-08-15, elecvoid243): a session id that does not
+    // (yet) resolve to a umo must NOT reach refresh() bare. This
+    // happens right after newSession() sets currSessionId but before
+    // getSessions() populates the sessions list: resolveCurrentUmo
+    // returns null, refresh(null) hits the same "most-recently-loaded
+    // across all umos" fallback, and the chip would display the
+    // previous session's project while the new conversation has no
+    // umo yet. Reset to the empty state in that window.
+    const resolvedUmo = resolveCurrentUmo(next);
+    if (resolvedUmo) {
+      await spcodeStatus.refresh(resolvedUmo);
+    } else {
+      spcodeStatus.reset();
+    }
     // Same lifecycle for plan/build: the chip is per-umo, so it
     // MUST be re-fetched on every session switch. We do not
     // optimistically carry over the previous session's flag because
@@ -2912,6 +2960,8 @@ async function sendCurrentMessage() {
         const umo = resolveCurrentUmo(sessionId);
         if (umo) void tryAutoLoadSpcodeForSession(umo, sessionId);
       }
+      // 关联项目后再刷新，否则新会话会短暂出现在"对话"列表
+      await getSessions();
     }
 
     const userText = draft.value.trim();
@@ -2952,6 +3002,7 @@ async function sendCurrentMessage() {
       enableStreaming: enableStreaming.value,
       selectedProvider: selection?.providerId || "",
       selectedModel: selection?.modelName || "",
+      thinkingEffort: getCurrentThinkingEffort(),
       userRecord,
       botRecord,
     });
@@ -3017,6 +3068,7 @@ async function sendSystemCommand(command: string) {
       enableStreaming: enableStreaming.value,
       selectedProvider: selection?.providerId || "",
       selectedModel: selection?.modelName || "",
+      thinkingEffort: getCurrentThinkingEffort(),
       userRecord,
       botRecord,
     });
@@ -3257,6 +3309,7 @@ async function saveMessageEdit() {
         enableStreaming: enableStreaming.value,
         selectedProvider: selection?.providerId || "",
         selectedModel: selection?.modelName || "",
+        thinkingEffort: getCurrentThinkingEffort(),
       });
       scrollToBottom();
     } else if (result.needsRegenerate) {
@@ -3290,6 +3343,7 @@ async function handleRegenerateMessage(
     effectiveSelection?.providerId || "",
     effectiveSelection?.modelName || "",
     enableStreaming.value,
+    getCurrentThinkingEffort(),
   );
 }
 
@@ -4629,6 +4683,46 @@ function toggleTheme() {
   display: flex;
   flex-direction: column;
   position: relative;
+}
+
+/* 全区域拖拽上传遮罩 */
+.chat-drop-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 100;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: rgba(var(--v-theme-primary), 0.12);
+  border: 2px dashed rgba(var(--v-theme-primary), 0.45);
+  border-radius: 16px;
+}
+
+.chat-drop-overlay-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.chat-drop-text {
+  font-size: 16px;
+  font-weight: 500;
+  color: rgb(var(--v-theme-primary));
+}
+
+.drop-fade-enter-active,
+.drop-fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.drop-fade-enter-from,
+.drop-fade-leave-to {
+  opacity: 0;
 }
 
 .conversation-stack.is-empty {

@@ -416,6 +416,7 @@ class OpenApiService:
         message_id = str(post_data.get("message_id") or uuid4())
         selected_provider = post_data.get("selected_provider")
         selected_model = post_data.get("selected_model")
+        thinking_effort = post_data.get("thinking_effort")
         flags = resolve_webchat_request_flags(post_data)
 
         back_queue = webchat_queue_mgr.get_or_create_back_queue(message_id, session_id)
@@ -429,6 +430,7 @@ class OpenApiService:
                         "message": message_parts,
                         "selected_provider": selected_provider,
                         "selected_model": selected_model,
+                        "thinking_effort": thinking_effort,
                         "flags": flags,
                         "message_id": message_id,
                         "_api_key_allow_admin_role": allow_admin_username,

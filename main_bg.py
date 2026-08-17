@@ -3,7 +3,8 @@
 与 ``main.py`` 功能完全一致（保持同步），但额外提供：
 1. 适配 ``pythonw.exe`` 运行（无控制台窗口）；
 2. 在 Windows 右下角系统托盘显示图标；
-3. 托盘菜单提供「打开 WebUI / 打开日志 / 退出」操作。
+3. 托盘菜单提供「打开 WebUI / 打开日志 / 退出」操作；
+4. ``--open-browser`` 参数：服务就绪后自动用默认浏览器打开 WebUI。
 
 依赖：
     - pystray   (托盘图标)
@@ -17,8 +18,12 @@
 
     python main_bg.py
 
+启动后自动打开浏览器::
+
+    python main_bg.py --open-browser
+
 作者: elecvoid243
-同步时间: 2026-08-08 15:30 (CST)
+同步时间: 2026-08-16 21:20 (CST)
 同步基线: main.py @ 21f41c239 (refactor: simplify updater architecture, #9493)
 """
 
@@ -28,10 +33,13 @@ import argparse
 import asyncio
 import mimetypes
 import os
+import socket
 import sys
 import threading
+import time
 import webbrowser
 from pathlib import Path
+from urllib.parse import urlparse
 
 # -----------------------------------------------------------------------------
 # pythonw 下 stdout/stderr 为 None，loguru / print 写日志时会抛 OSError。
@@ -119,28 +127,47 @@ _CMD_CONFIG_PATH = Path(__file__).parent / "data" / "cmd_config.json"
 
 
 def _get_default_webui_url() -> str:
-    """从 cmd_config.json 读取 dashboard 的 host 和 port，构造 WebUI 地址。
+    """构造 WebUI 访问地址，与服务端绑定逻辑保持一致。
 
-    fallback 到硬编码默认值，避免因配置文件缺失或字段不全导致托盘异常。
+    读取优先级与 ``astrbot.dashboard.server.AstrBotDashboard.run()`` 对齐：
+    环境变量 DASHBOARD_HOST / ASTRBOT_DASHBOARD_HOST / DASHBOARD_PORT /
+    ASTRBOT_DASHBOARD_PORT 优先于 cmd_config.json 中 dashboard.host / dashboard.port。
+    通配监听地址（如 0.0.0.0）对浏览器不可达，映射为 127.0.0.1；
+    dashboard.ssl.enable 开启时使用 https 协议。
+    配置读取失败时回退到 http://127.0.0.1:6185，不阻断托盘功能。
+
+    Returns:
+        WebUI 的浏览器可访问地址。
     """
     import json
 
+    default_host, default_port = "127.0.0.1", 6185
+
+    # 环境变量优先，与 dashboard server 的绑定逻辑保持一致
+    host = os.environ.get("DASHBOARD_HOST") or os.environ.get("ASTRBOT_DASHBOARD_HOST")
+    port = os.environ.get("DASHBOARD_PORT") or os.environ.get("ASTRBOT_DASHBOARD_PORT")
+    scheme = "http"
+
     try:
         with open(_CMD_CONFIG_PATH, encoding="utf-8-sig") as f:
-            conf_str = f.read()
-            # Handle UTF-8 BOM if present
-            if conf_str.startswith("\ufeff"):
-                conf_str = conf_str[1:]
-            conf = json.loads(conf_str)
-            dashboard = conf.get("dashboard")
-            host = dashboard.get("host", "127.0.0.1")
-            port = dashboard.get("port", 6185)
-            return f"http://{host}:{port}"
+            dashboard = json.load(f).get("dashboard") or {}
+        if not host:
+            host = dashboard.get("host", default_host)
+        if not port:
+            port = dashboard.get("port", default_port)
+        ssl_config = dashboard.get("ssl") or {}
+        if ssl_config.get("enable"):
+            scheme = "https"
     except Exception:
         # 读取失败时回退到默认值，不阻断托盘功能
         pass
 
-    return "http://127.0.0.1:6185"
+    host = host or default_host
+    if host in ("0.0.0.0", "::", "[::]"):
+        host = "127.0.0.1"
+    port = port or default_port
+
+    return f"{scheme}://{host}:{port}"
 
 
 # =============================================================================
@@ -253,8 +280,9 @@ async def main_async(
 class AstrBotBackground:
     """AstrBot 后台运行管理器，负责协调 asyncio loop 与 pystray 托盘。"""
 
-    def __init__(self, webui_dir_arg: str | None) -> None:
+    def __init__(self, webui_dir_arg: str | None, open_browser: bool = False) -> None:
         self.webui_dir_arg = webui_dir_arg
+        self.open_browser = open_browser
         self.loop: asyncio.AbstractEventLoop | None = None
         self.stop_event: asyncio.Event | None = None
         self.core_thread: threading.Thread | None = None
@@ -317,7 +345,9 @@ class AstrBotBackground:
         if TRAY_ICON_PATH.exists():
             image = Image.open(TRAY_ICON_PATH)
         else:
-            logger.warning(f"Tray icon not found at {TRAY_ICON_PATH}, using placeholder.")
+            logger.warning(
+                f"Tray icon not found at {TRAY_ICON_PATH}, using placeholder."
+            )
             image = Image.new("RGBA", (64, 64), (66, 133, 244, 255))
 
         def on_open_webui(icon, item):  # noqa: ARG001
@@ -352,9 +382,44 @@ class AstrBotBackground:
         )
         return icon
 
+    def _open_browser_when_ready(self) -> None:
+        """等待 dashboard 端口可连接后，用默认浏览器打开 WebUI。
+
+        每 0.5s 探测一次 TCP 端口，最长等待 60s，确保浏览器打开时页面
+        已经可以访问。本方法运行在 daemon 线程中，任何失败仅记录日志，
+        绝不阻断托盘与退出流程。
+
+        Returns:
+            None
+        """
+        url = _get_default_webui_url()
+        host = urlparse(url).hostname or "127.0.0.1"
+        port = urlparse(url).port or 6185
+        deadline = time.monotonic() + 60
+
+        while time.monotonic() < deadline:
+            try:
+                with socket.create_connection((host, port), timeout=1):
+                    webbrowser.open(url)
+                    logger.info("Opened WebUI in browser: %s", url)
+                    return
+            except OSError:
+                time.sleep(0.5)
+
+        logger.warning(
+            "WebUI did not become reachable at %s within 60s, skipping browser open.",
+            url,
+        )
+
     def run(self) -> None:
         # 先启动核心
         self.start_core()
+        if self.open_browser:
+            threading.Thread(
+                target=self._open_browser_when_ready,
+                name="open-browser",
+                daemon=True,
+            ).start()
         # 再启动托盘（阻塞主线程，直到 icon.stop() 被调用）
         self.tray_icon = self._build_tray_icon()
         self.tray_icon.run()
@@ -383,12 +448,17 @@ if __name__ == "__main__":
             "startup logs"
         ),
     )
+    parser.add_argument(
+        "--open-browser",
+        action="store_true",
+        help="Automatically open the WebUI in the default browser after startup",
+    )
     args = parser.parse_args()
 
     check_env()
 
     try:
-        app = AstrBotBackground(args.webui_dir)
+        app = AstrBotBackground(args.webui_dir, args.open_browser)
         app.run()
     except Exception as e:  # noqa: BLE001
         logger.exception(f"Failed to start main_bg.py: {e}")

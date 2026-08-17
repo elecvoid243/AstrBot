@@ -165,6 +165,7 @@ class ProviderGoogleGenAI(Provider):
         system_instruction: str | None = None,
         modalities: list[str] | None = None,
         temperature: float = 0.7,
+        llm_params: dict | None = None,
     ) -> types.GenerateContentConfig:
         """准备查询配置"""
         if not modalities:
@@ -222,6 +223,7 @@ class ProviderGoogleGenAI(Provider):
             )
 
         # oper thinking config
+        effort = (llm_params or {}).get("thinking_effort")
         thinking_config = None
         if model_name in [
             "gemini-2.5-pro",
@@ -237,6 +239,14 @@ class ProviderGoogleGenAI(Provider):
             thinking_budget = self.provider_config.get("gm_thinking_config", {}).get(
                 "budget", 0
             )
+            # Per-request thinking_effort maps to a reasoning token budget for
+            # the 2.5 family: low / medium / high scale the budget, "off"
+            # disables thinking via a zero budget.
+            effort_budgets = {"low": 2048, "medium": 8192, "high": 16384}
+            if effort in effort_budgets:
+                thinking_budget = effort_budgets[effort]
+            elif effort == "off":
+                thinking_budget = 0
             if thinking_budget is not None:
                 thinking_config = types.ThinkingConfig(
                     thinking_budget=thinking_budget,
@@ -249,6 +259,11 @@ class ProviderGoogleGenAI(Provider):
             thinking_level = self.provider_config.get("gm_thinking_config", {}).get(
                 "level", "HIGH"
             )
+            # Per-request thinking_effort overrides the static provider config.
+            if effort in ("low", "medium", "high"):
+                thinking_level = effort.upper()
+            elif effort == "off":
+                thinking_level = "MINIMAL"
             if thinking_level and isinstance(thinking_level, str):
                 thinking_level = thinking_level.upper()
                 if thinking_level not in ["MINIMAL", "LOW", "MEDIUM", "HIGH"]:
@@ -258,10 +273,10 @@ class ProviderGoogleGenAI(Provider):
                     thinking_level = "HIGH"
                 level = types.ThinkingLevel(thinking_level)
                 thinking_config = types.ThinkingConfig()
-                if not hasattr(types.ThinkingConfig, "thinking_level"):
-                    setattr(types.ThinkingConfig, "thinking_level", level)
-                else:
-                    thinking_config.thinking_level = level
+                # Assign on the instance: pydantic model fields are not class
+                # attributes, so `setattr(types.ThinkingConfig, ...)` would
+                # silently no-op and the level would never reach the API.
+                thinking_config.thinking_level = level
 
         return types.GenerateContentConfig(
             system_instruction=system_instruction,
@@ -584,6 +599,7 @@ class ProviderGoogleGenAI(Provider):
         tools: ToolSet | None,
         *,
         request_max_retries: int | None = None,
+        llm_params: dict | None = None,
     ) -> LLMResponse:
         """非流式请求 Gemini API"""
         system_instruction = next(
@@ -610,6 +626,7 @@ class ProviderGoogleGenAI(Provider):
                     system_instruction,
                     modalities,
                     temperature,
+                    llm_params=llm_params,
                 )
                 result = await retry_provider_request(
                     "Gemini",
@@ -685,6 +702,7 @@ class ProviderGoogleGenAI(Provider):
         tools: ToolSet | None,
         *,
         request_max_retries: int | None = None,
+        llm_params: dict | None = None,
     ) -> AsyncGenerator[LLMResponse, None]:
         """流式请求 Gemini API"""
         system_instruction = next(
@@ -702,6 +720,7 @@ class ProviderGoogleGenAI(Provider):
                     tools,
                     payloads.get("tool_choice", "auto"),
                     system_instruction,
+                    llm_params=llm_params,
                 )
                 result = await retry_provider_request(
                     "Gemini",
@@ -865,6 +884,7 @@ class ProviderGoogleGenAI(Provider):
 
         retry = 10
         keys = self.api_keys.copy()
+        llm_params = kwargs.pop("llm_params", None)
 
         for _ in range(retry):
             try:
@@ -872,6 +892,7 @@ class ProviderGoogleGenAI(Provider):
                     payloads,
                     func_tool,
                     request_max_retries=request_max_retries,
+                    llm_params=llm_params,
                 )
             except APIError as e:
                 if await self._handle_api_error(e, keys):
@@ -932,6 +953,7 @@ class ProviderGoogleGenAI(Provider):
 
         retry = 10
         keys = self.api_keys.copy()
+        llm_params = kwargs.pop("llm_params", None)
 
         for _ in range(retry):
             try:
@@ -939,6 +961,7 @@ class ProviderGoogleGenAI(Provider):
                     payloads,
                     func_tool,
                     request_max_retries=request_max_retries,
+                    llm_params=llm_params,
                 ):
                     yield response
                 break

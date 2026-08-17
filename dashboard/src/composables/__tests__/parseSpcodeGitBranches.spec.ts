@@ -55,6 +55,24 @@ describe("parseSpcodeGitBranches", () => {
     expect(snap.detached).toBe(false);
   });
 
+  it("passes through configured remotes", () => {
+    const raw: SpcodeGitBranchesRawResponse = {
+      loaded: true,
+      directory: "D:/repo",
+      umo: "umo-1",
+      branches: [],
+      remotes: ["origin", "upstream"],
+      total: 0,
+      current: null,
+      detached: false,
+      reason: null,
+      stderr: "",
+      elapsed_ms: 0,
+    };
+    const snap = parseSpcodeGitBranches(raw);
+    expect(snap.remotes).toEqual(["origin", "upstream"]);
+  });
+
   it("handles empty branches array", () => {
     const raw: SpcodeGitBranchesRawResponse = {
       loaded: true,

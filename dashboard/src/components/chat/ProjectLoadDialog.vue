@@ -25,6 +25,7 @@ import { computed, ref, watch } from "vue";
 import { useModuleI18n } from "@/i18n/composables";
 import { useSpcodeProjectStatus } from "@/composables/useSpcodeProjectStatus";
 import { useConfirmDialog } from "@/utils/confirmDialog";
+import ProjectDirectoryBrowser from "./ProjectDirectoryBrowser.vue";
 
 // ── Inline helpers (private, no exports) ────────────────────────────────
 const HISTORY_KEY = "chatui.spcode.projectPathHistory";
@@ -166,6 +167,8 @@ const dialogTitle = computed(() =>
 // ── Reactive state ──────────────────────────────────────────────────────
 const dialogOpen = ref(false);
 const path = ref("");
+// 应用内目录选择器开关(2026-08-15):"浏览…"按钮打开它,选中绝对路径回填 path。
+const browserOpen = ref(false);
 // Top-level choice: load an existing project vs. create a new one.
 const loadMode = ref<"existing" | "create">("existing");
 // Only meaningful when loadMode === "existing": code project (loads
@@ -194,11 +197,12 @@ watch(projectKind, (kind) => {
   loadCodegraph.value = isCode;
 });
 
-// Reset transient input when the dialog opens (clear last path and
-// restore every option to its default; preserve the history dropdown).
+// Reset transient input when the dialog opens (restore every option to its
+// default; preserve the history dropdown). The path is cleared explicitly in
+// `openLoadDialog()` so the "浏览…" picker can pre-fill it when opened from
+// within the dialog (2026-08-15).
 watch(dialogOpen, (open) => {
   if (open) {
-    path.value = "";
     loadMode.value = "existing";
     projectKind.value = "code";
     loadAgentsMd.value = true;
@@ -215,6 +219,7 @@ watch(dialogOpen, (open) => {
  * the app.
  */
 function openLoadDialog(): void {
+  path.value = "";
   dialogOpen.value = true;
 }
 
@@ -225,6 +230,17 @@ function closeLoadDialog(): void {
 defineExpose({ openLoadDialog, closeLoadDialog });
 
 // ── Handlers ────────────────────────────────────────────────────────────
+/**
+ * Handle a directory chosen in the in-app file browser: fill the path
+ * field. The selected absolute path comes straight from the backend
+ * (ProjectDirectoryBrowser only ever emits backend-returned paths), so it
+ * flows into the exact same submit chain as a manually typed path — text
+ * input remains fully available (2026-08-15).
+ */
+function onBrowserSelect(selectedPath: string): void {
+  path.value = selectedPath;
+}
+
 /**
  * Confirm the dialog: build the command for the current mode and emit
  * it through ChatInput.
@@ -356,6 +372,23 @@ function onUnload(): void {
             autofocus
             clearable
             @keydown.esc="dialogOpen = false"
+          >
+            <template #append-inner>
+              <v-btn
+                icon="mdi-folder-search-outline"
+                variant="text"
+                size="small"
+                data-testid="browse-directory"
+                :title="tm('spcodeProjectLoad.dialog.browse')"
+                :aria-label="tm('spcodeProjectLoad.dialog.browse')"
+                @click="browserOpen = true"
+              />
+            </template>
+          </v-text-field>
+
+          <ProjectDirectoryBrowser
+            v-model="browserOpen"
+            @select="onBrowserSelect"
           />
 
           <!--

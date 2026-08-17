@@ -78,6 +78,7 @@ import {
   classifyPullReason,
   classifyPushReason,
   classifyRemoteReason,
+  type SpcodeRemote,
 } from "@/composables/parseSpcodeGitRemoteSync";
 import GitPullDialog from "@/components/chat/GitPullDialog.vue";
 import GitPushDialog from "@/components/chat/GitPushDialog.vue";
@@ -524,6 +525,13 @@ const remoteNames = computed<string[]>(() => {
   if (up) {
     const i = up.indexOf("/");
     if (i > 0) names.add(up.slice(0, i));
+  }
+  // 2026-08-16: 并入 git-branches 返回的已配置远端 (git remote)。
+  // 新 `remote add` 的远端在 fetch 前没有 refs/remotes/* ref,
+  // 仅靠远端分支推导会漏掉它 → 推送对话框远端列表不更新。
+  const s = branchesComposable.state.value;
+  if (s.kind === "ok") {
+    for (const r of s.snapshot.remotes) names.add(r);
   }
   return [...names].sort();
 });
@@ -1584,7 +1592,10 @@ function onLogAmendRequest(commit: {
   amendDialogOpen.value = true;
 }
 
-async function onAmendSubmit(p: { sha: string; message: string }): Promise<void> {
+async function onAmendSubmit(p: {
+  sha: string;
+  message: string;
+}): Promise<void> {
   const target = pendingAmend.value;
   if (!target) return;
   const result = await gitCommitAmend.amend({
@@ -2582,6 +2593,16 @@ async function onCherryPickSubmit(params: {
 const pullDialogOpen = ref(false);
 const pushDialogOpen = ref(false);
 const remoteUrlDialogOpen = ref(false);
+// 2026-08-16: 已配置远端 (name + url) 列表, 供 GitRemoteUrlDialog
+// 展示与删除。打开对话框时加载; 设置/删除成功后重载。
+const remoteList = ref<SpcodeRemote[]>([]);
+const remoteRemoving = ref<string | null>(null);
+
+// Load the remote list every time the remote-URL dialog opens so the
+// shown remotes never go stale (git remote changes are not polled).
+watch(remoteUrlDialogOpen, (open) => {
+  if (open) void loadRemotes();
+});
 
 // ahead/behind lives in branchesComposable, so a remote sync must
 // refresh it on top of the standard post-branch-change fan-out.
@@ -2692,7 +2713,12 @@ async function onRemoteUrlSubmit(params: {
     worktree: selectedWorktree.value,
   });
   if (result.ok) {
-    remoteUrlDialogOpen.value = false;
+    // 2026-08-16: 设置成功后保持对话框打开, 刷新列表后用户可继续
+    // 新增/编辑/删除其他 remote (不再像旧版那样整窗关闭)。
+    // 同时回刷分支/远端数据 (与 pull/push 对齐) —— 否则 git-branches
+    // 的 ETag 不感知 remote 配置变化, 推送对话框的远端列表不更新。
+    await refreshAfterRemoteSync();
+    await loadRemotes();
     showSnackbar(
       tm(
         result.action === "added"
@@ -2712,6 +2738,51 @@ async function onRemoteUrlSubmit(params: {
     meta.color,
     meta.withStderr ? result.stderr : undefined,
   );
+}
+
+// 2026-08-16: load the configured-remotes list (name + url) shown by
+// the remote-URL dialog. Failures surface as a snackbar and keep the
+// previous list (dialog stays usable for upsert).
+async function loadRemotes(): Promise<void> {
+  const result = await gitRemoteSync.listRemotes();
+  if (result.ok) {
+    remoteList.value = result.remotes;
+    return;
+  }
+  const meta = classifyRemoteReason(result.reason);
+  showSnackbar(
+    tm(meta.i18nKey, { reason: result.reason, stderr: result.stderr ?? "" }),
+    meta.color,
+    meta.withStderr ? result.stderr : undefined,
+  );
+}
+
+// 2026-08-16: remove a configured remote. On success the remote-URL
+// dialog list and the push dialog's remote dropdown must both refresh.
+async function onRemoteRemove(name: string): Promise<void> {
+  remoteRemoving.value = name;
+  try {
+    const result = await gitRemoteSync.removeRemote(name);
+    if (result.ok) {
+      remoteList.value = remoteList.value.filter((r) => r.name !== name);
+      await refreshAfterRemoteSync();
+      showSnackbar(
+        tm("spcodeProjectLoad.diffSidebar.remote.successRemoved", {
+          remote: name,
+        }),
+        "success",
+      );
+      return;
+    }
+    const meta = classifyRemoteReason(result.reason);
+    showSnackbar(
+      tm(meta.i18nKey, { reason: result.reason, stderr: result.stderr ?? "" }),
+      meta.color,
+      meta.withStderr ? result.stderr : undefined,
+    );
+  } finally {
+    remoteRemoving.value = null;
+  }
 }
 
 // 2026-08-01 git-conflict: panel event fan-out (spec §4.5 refresh matrix).
@@ -2736,6 +2807,25 @@ async function onConflictResolved(): Promise<void> {
   // A file was rewritten + staged on disk → refresh the diff/status views.
   await Promise.allSettled([composable.refresh(), gitStatus.refresh()]);
 }
+
+// 2026-08-16: the conflict panel can take over the whole sidebar when
+// expanded — track that here so the sidebar's own body hides while
+// the panel is open and releases when it collapses.
+const conflictBodyHidden = ref(false);
+function onConflictExpandChange(open: boolean): void {
+  conflictBodyHidden.value = open;
+}
+// Safety net: if the conflict operation ends (continue/abort) while
+// the panel is expanded, force the sidebar body back into view even
+// though the panel unmounts without emitting expand-change(false).
+watch(
+  () => gitConflict.state.value,
+  (s) => {
+    if (s.kind === "ok" && !s.snapshot.inConflict) {
+      conflictBodyHidden.value = false;
+    }
+  },
+);
 
 async function onConflictCompleted(): Promise<void> {
   // continue/abort moved or restored HEAD → full cascade.
@@ -3950,7 +4040,7 @@ onBeforeUnmount(() => {
   gitStage.dispose();
   gitUnstage.dispose();
   gitCommit.dispose();
-    gitCommitAmend.dispose();
+  gitCommitAmend.dispose();
   gitRevert.dispose();
   gitSquash.dispose();
   gitIgnoreFileWrite.dispose();
@@ -4934,6 +5024,7 @@ watch(
           @resolved="onConflictResolved"
           @completed="onConflictCompleted"
           @failed="onConflictFailed"
+          @expand-change="onConflictExpandChange"
         />
 
         <!-- Diff-only sub-UI: scope bar + truncation warning -->
@@ -5023,7 +5114,11 @@ watch(
         </div>
 
         <!-- Body: Files / Diff / History -->
-        <div ref="sidebarBodyRef" class="git-diff-sidebar-body">
+        <div
+          ref="sidebarBodyRef"
+          class="git-diff-sidebar-body"
+          v-show="!conflictBodyHidden"
+        >
           <!-- 2026-07-18 workspace-search-parity: the files-view search
              toolbar moved INTO FileBrowserView (mirroring
              DocumentManager) so it travels with the file-area
@@ -5101,8 +5196,8 @@ watch(
             @refresh="onLogRefresh"
             @revert="onLogRevertRequest"
             @cherry-pick="onLogCherryPickRequest"
-                        @amend="onLogAmendRequest"
-                        @cherry-pick-blank="onToolbarCherryPickRequest"
+            @amend="onLogAmendRequest"
+            @cherry-pick-blank="onToolbarCherryPickRequest"
             @squash="onLogSquashRequest"
             @changelog="onChangelogRequest"
           />
@@ -5279,7 +5374,11 @@ watch(
         <GitRemoteUrlDialog
           v-model="remoteUrlDialogOpen"
           :loading="gitRemoteSync.isSettingRemote.value"
+          :remotes="remoteList"
+          :listing="gitRemoteSync.isListingRemotes.value"
+          :removing="remoteRemoving"
           @submit="onRemoteUrlSubmit"
+          @remove="onRemoteRemove"
         />
 
         <!-- 2026-08-01 git-cherry-pick: dialog for log-row + toolbar
@@ -5291,16 +5390,16 @@ watch(
           @submit="onCherryPickSubmit"
         />
 
-                <!-- 2026-08-13 git-commit-amend: dialog for editing the HEAD
+        <!-- 2026-08-13 git-commit-amend: dialog for editing the HEAD
                      commit message. -->
-                <GitCommitAmendDialog
-                  v-model="amendDialogOpen"
-                  :commit="pendingAmend"
-                  :loading="gitCommitAmend.isAmending.value"
-                  @submit="onAmendSubmit"
-                />
+        <GitCommitAmendDialog
+          v-model="amendDialogOpen"
+          :commit="pendingAmend"
+          :loading="gitCommitAmend.isAmending.value"
+          @submit="onAmendSubmit"
+        />
 
-                <!-- 2026-08-03 git-squash: dialog for the history-view
+        <!-- 2026-08-03 git-squash: dialog for the history-view
              multi-commit squash (commits listed oldest → newest). -->
         <GitSquashDialog
           v-model="squashDialogOpen"

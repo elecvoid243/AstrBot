@@ -5,8 +5,8 @@
  * from the backend's GET /spcode/codegraph-status endpoint.
  *
  * Mirrors the pattern used by useSpcodeProjectStatus.ts — a module-level
- * ref shared across consumers (the SpcodeCodegraphChip, refresh watcher,
- * etc.) so they all read the same value.
+ * ref shared across consumers (the project indicator's services popover,
+ * refresh watcher, etc.) so they all read the same value.
  *
  * Author: elecvoid243
  * Last-Modified: 2026-06-28
