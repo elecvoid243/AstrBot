@@ -408,6 +408,39 @@
             />
           </div>
         </section>
+
+        <!-- Agent collab groups: manage bindings / dissolve a group. -->
+        <section v-if="collabGroups.length" class="sidebar-section collab-group-list">
+          <div class="sidebar-section-header">
+            <Link2 :size="13" />
+            <span>协作分组</span>
+          </div>
+          <div
+            v-for="g in collabGroups"
+            :key="g.id"
+            class="collab-group-item"
+            :class="{ active: activeCollabGroupId === g.id }"
+            role="button"
+            tabindex="0"
+            :title="`点击查看 ${g.name} 的协作面板`"
+            @click="toggleActiveCollabGroup(g.id)"
+            @keydown.enter="toggleActiveCollabGroup(g.id)"
+          >
+            <span
+              class="collab-group-dot"
+              :style="{ backgroundColor: collabChainColor(g.id) }"
+            />
+            <span class="collab-group-name">{{ g.name }}</span>
+            <span class="collab-group-members">{{ g.members.length }} 会话</span>
+            <v-btn
+              icon="mdi-delete-outline"
+              size="x-small"
+              variant="text"
+              :title="`解散分组「${g.name}」（取消绑定）`"
+              @click.stop="dissolveCollabGroup(g)"
+            />
+          </div>
+        </section>
       </div>
 
       <div class="sidebar-footer">
@@ -1045,7 +1078,7 @@ import {
   Sun,
   Trash2,
 } from "@lucide/vue";
-import { chatApi, providerApi } from "@/api/v1";
+import { agentCollabApi, chatApi, providerApi } from "@/api/v1";
 import { useSpcodeProjectStatus } from "@/composables/useSpcodeProjectStatus";
 import {
   useSpcodeProjectAutoLoad,
@@ -1075,7 +1108,7 @@ import ChatMessageSearchDialog from "@/components/chat/ChatMessageSearchDialog.v
 import CollabBindDialog from "@/components/chat/CollabBindDialog.vue";
 import CollabPanel from "@/components/chat/CollabPanel.vue";
 import ArchivedSessionsDialog from "@/components/chat/ArchivedSessionsDialog.vue";
-import { useAgentCollab } from "@/composables/useAgentCollab";
+import { useAgentCollab, type CollabGroup } from "@/composables/useAgentCollab";
 import {
   useSessions,
   type ArchivedSession,
@@ -1246,6 +1279,29 @@ function collabBadges(sessionId: string) {
 function toggleActiveCollabGroup(groupId: string) {
   activeCollabGroupId.value =
     activeCollabGroupId.value === groupId ? null : groupId;
+}
+
+async function dissolveCollabGroup(group: CollabGroup) {
+  const ok = await askForConfirmation(
+    `解散协作分组「${group.name}」？所有会话将解除绑定。`,
+    confirmDialog,
+  );
+  if (!ok) return;
+  try {
+    const res = await agentCollabApi.deleteGroup(group.id);
+    if (res.data.status === 'error') {
+      // e.g. a discussion is still running on this group
+      toast.error(res.data.message || '解散失败');
+      return;
+    }
+    await loadCollabGroups();
+    if (activeCollabGroupId.value === group.id) {
+      activeCollabGroupId.value = null;
+    }
+    toast.success(`协作分组「${group.name}」已解散`);
+  } catch {
+    toast.error('解散失败，请检查网络或后台日志');
+  }
 }
 const {
   projects,
@@ -4937,6 +4993,52 @@ function toggleTheme() {
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
+}
+
+.collab-group-list {
+  border-top: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+  padding-top: 4px;
+}
+
+.collab-group-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  margin: 2px 0;
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--chat-muted);
+}
+
+.collab-group-item:hover {
+  background: var(--chat-session-active-bg);
+}
+
+.collab-group-item.active {
+  background: var(--chat-session-active-bg);
+  color: var(--chat-text);
+}
+
+.collab-group-dot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.collab-group-name {
+  flex-grow: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.collab-group-members {
+  flex: none;
+  font-size: 11px;
+  color: var(--chat-muted);
 }
 
 .collab-chain-badge {
