@@ -1,11 +1,13 @@
 from astrbot.dashboard.services.agent_collab_directive import (
     EndDirective,
     RouteDirective,
-    build_member_injection,
-    build_moderator_injection,
-    build_moderator_pair_injection,
+    build_member_body,
+    build_member_context,
+    build_moderator_context,
+    build_moderator_pair_context,
     extract_directive,
     resolve_target,
+    strip_directive_blocks,
 )
 
 MEMBERS = [
@@ -96,9 +98,51 @@ def test_resolve_target_miss():
 
 
 def test_injection_builders():
-    m = build_moderator_injection(["编程agent", "文档agent"], "用户alice", "讨论主题")
-    assert "编程agent" in m and "collab-route" in m and "讨论主题" in m
-    p = build_moderator_pair_injection("对方", "你好")
+    m = build_moderator_context(MEMBERS, "webchat!alice!aaaaaaaa1111")
+    assert "编程agent" in m and "collab-route" in m and "主持人" in m
+    p = build_moderator_pair_context("编程agent")
     # pair groups only teach the end action; the route action must not appear
     assert '"action": "end"' in p and '"action": "route"' not in p
-    assert build_member_injection("编程agent", "内容") == "[来自 编程agent]: 内容"
+    assert "编程agent" in p  # counterpart is named, not anonymous "对方"
+    assert build_member_body("编程agent", "内容") == "[来自 编程agent]: 内容"
+
+
+def test_member_context_contains_roster_topic_and_roles():
+    ctx = build_member_context(
+        recipient_alias="文档agent",
+        topic="讨论主题",
+        members=MEMBERS,
+        moderator_session_id="webchat!alice!aaaaaaaa1111",
+    )
+    assert "讨论主题" in ctx
+    assert "编程agent（主持人）" in ctx
+    assert "文档agent（你）" in ctx
+    assert "转达给其他参与者" in ctx
+
+
+def test_moderator_context_marks_moderator_in_roster():
+    m = build_moderator_context(MEMBERS, "webchat!alice!aaaaaaaa1111")
+    assert "编程agent（主持人）" in m
+    assert "文档agent" in m
+
+
+def test_strip_directive_blocks():
+    assert strip_directive_blocks("普通文本") == "普通文本"
+    s = strip_directive_blocks(
+        'x\n```collab-route\n{"action": "end", "summary": "s"}\n```\ny'
+    )
+    assert "collab-route" not in s and "x" in s and "y" in s
+    # multiple fences all removed
+    s2 = strip_directive_blocks(
+        'a\n```collab-route\n{"a":1}\n```\n```collab-route\n{"b":2}\n```'
+    )
+    assert "collab-route" not in s2
+
+
+def test_member_body_strips_fences():
+    body = build_member_body(
+        "主持人", '答复\n```collab-route\n{"action": "end", "summary": "s"}\n```'
+    )
+    assert body.startswith("[来自 主持人]:")
+    assert "collab-route" not in body
+    assert "答复" in body

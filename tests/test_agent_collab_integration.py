@@ -81,6 +81,10 @@ async def test_end_to_end_with_real_queue_mgr():
         inbox[2][1] == "conv-mod-0001"
         and "成员的见解" in inbox[2][2]["message"][0]["text"]
     )
+    # moderator deliveries carry the routing instructions; member deliveries
+    # carry the participant roster (temp extra consumed by build_main_agent)
+    assert "collab-route" in inbox[0][2]["collab_context"]
+    assert "参与者" in inbox[1][2]["collab_context"]
     await mgr.clear_listener()
 
 

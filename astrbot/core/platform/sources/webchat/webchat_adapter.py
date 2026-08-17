@@ -278,6 +278,9 @@ class WebChatAdapter(Platform):
                         "_api_key_allow_admin_role",
                         api_key_allow_admin_role,
                     )
+                collab_context = payload.get("collab_context")
+                if isinstance(collab_context, str) and collab_context.strip():
+                    message_event.set_extra("collab_context", collab_context)
 
         return message_event
 

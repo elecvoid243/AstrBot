@@ -18,11 +18,13 @@ from astrbot.core.umo_alias import parse_umo
 from astrbot.dashboard.services.agent_collab_directive import (
     EndDirective,
     RouteDirective,
-    build_member_injection,
-    build_moderator_injection,
-    build_moderator_pair_injection,
+    build_member_body,
+    build_member_context,
+    build_moderator_context,
+    build_moderator_pair_context,
     extract_directive,
     resolve_target,
+    strip_directive_blocks,
 )
 
 _GROUPS_KEY = "agent_collab_groups"
@@ -232,7 +234,9 @@ class AgentCollabService:
         # race the adapter listener and drop the first reply chunks.
         subscriptions: dict[str, asyncio.Queue] = {}
 
-        async def deliver(session_id: str, text: str) -> str:
+        async def deliver(
+            session_id: str, text: str, context: str | None = None
+        ) -> str:
             cid = _conversation_id(session_id)
             message_id = uuid.uuid4().hex
             queue = mgr.get_or_create_queue(cid)
@@ -250,6 +254,9 @@ class AgentCollabService:
                         "llm_checkpoint_id": uuid.uuid4().hex,
                         "thread_selected_text": None,
                         "_api_key_allow_admin_role": None,
+                        # Per-turn collab framing, injected by build_main_agent
+                        # as a temp extra (provider-facing, not persisted).
+                        "collab_context": context,
                     },
                 )
             )
@@ -326,7 +333,9 @@ class AgentCollabService:
 class RunnerPorts:
     """I/O ports for a DiscussionRunner; injected for testability."""
 
-    deliver: Callable[[str, str], Awaitable[str]]  # (session_id, text) -> message_id
+    deliver: Callable[
+        [str, str, str | None], Awaitable[str]
+    ]  # (session_id, text, context) -> message_id
     collect: Callable[
         [str, str], Awaitable[str]
     ]  # (session_id, message_id) -> reply text
@@ -394,13 +403,19 @@ class DiscussionRunner:
             session_id[-8:],
         )
 
-    def _moderator_text(self, sender_label: str, text: str) -> str:
+    def _moderator_context(self) -> str:
+        """Per-turn context header for the moderator session."""
         if self._pair:
-            return build_moderator_pair_injection(sender_label, text)
-        return build_moderator_injection(
-            [m["alias"] for m in self._members if m["session_id"] != self._moderator],
-            sender_label,
-            text,
+            return build_moderator_pair_context(self._alias(self._sole_member))
+        return build_moderator_context(self._members, self._moderator)
+
+    def _member_context(self, session_id: str) -> str:
+        """Per-turn context header for a member session."""
+        return build_member_context(
+            recipient_alias=self._alias(session_id),
+            topic=self.state["topic"],
+            members=self._members,
+            moderator_session_id=self._moderator,
         )
 
     async def _wait_if_busy(self, session_id: str) -> None:
@@ -414,8 +429,13 @@ class DiscussionRunner:
         self._wake.clear()
         await self._wake.wait()
 
-    async def _turn(self, session_id: str, text: str) -> str | None:
-        """Deliver text and collect the reply. Returns None when stopped mid-way."""
+    async def _turn(
+        self, session_id: str, text: str, context: str | None
+    ) -> str | None:
+        """Deliver text (plus per-turn context) and collect the reply.
+
+        Returns None when stopped mid-way.
+        """
         await self._wait_if_busy(session_id)
         if self.state["status"] != "running":
             return None
@@ -427,7 +447,7 @@ class DiscussionRunner:
                 "limit": self.state["hop_limit"],
             }
         )
-        message_id = await self.ports.deliver(session_id, text)
+        message_id = await self.ports.deliver(session_id, text, context)
         self.state["current_turn"] = {
             "session_id": session_id,
             "message_id": message_id,
@@ -448,7 +468,8 @@ class DiscussionRunner:
 
     async def run(self) -> None:
         next_target = self._moderator
-        next_text = self._moderator_text(self._username, self.state["topic"])
+        next_body = build_member_body(self._username, self.state["topic"])
+        next_context = self._moderator_context()
         while self.state["status"] in ("running", "stopping"):
             # a manual route set while paused takes priority over stale loop state
             if self._user_route:
@@ -456,7 +477,8 @@ class DiscussionRunner:
                 self._user_route = None
                 self.ports.emit({"type": "route", "from": "user", "to": target})
                 next_target = target
-                next_text = build_member_injection(self._username, message)
+                next_body = build_member_body(self._username, message)
+                next_context = self._member_context(target)
             if self.state["hop_count"] >= self.state["hop_limit"]:
                 await self._pause_until_resumed(
                     {
@@ -467,7 +489,7 @@ class DiscussionRunner:
                 )
                 if self.state["status"] != "running":
                     break
-            reply = await self._turn(next_target, next_text)
+            reply = await self._turn(next_target, next_body, next_context)
             if reply is None or self.state["status"] == "stopping":
                 break
             if next_target != self._moderator:
@@ -476,7 +498,8 @@ class DiscussionRunner:
                 self.ports.emit(
                     {"type": "route", "from": next_target, "to": self._moderator}
                 )
-                next_text = self._moderator_text(self._alias(next_target), reply)
+                next_body = build_member_body(self._alias(next_target), reply)
+                next_context = self._moderator_context()
                 next_target = self._moderator
                 continue
             outcome = await self._handle_moderator_reply(reply)
@@ -484,13 +507,16 @@ class DiscussionRunner:
                 break
             if outcome == "paused":
                 continue
-            next_target, next_text = outcome
+            next_target, next_body, next_context = outcome
         self.state["status"] = "stopped"
         self.ports.emit({"type": "stopped", "reason": "done"})
 
     async def _handle_moderator_reply(self, reply: str):
-        """Route based on the moderator's reply. Returns (target, text),
-        'paused', or None (discussion over)."""
+        """Route based on the moderator's reply.
+
+        Returns:
+            A (target, body, context) tuple, 'paused', or None (discussion over).
+        """
         result = extract_directive(reply)
         if self._pair:
             if isinstance(result.directive, EndDirective):
@@ -498,7 +524,8 @@ class DiscussionRunner:
                 return None
             return (
                 self._sole_member,
-                build_member_injection(self._alias(self._moderator), reply),
+                build_member_body(self._alias(self._moderator), reply),
+                self._member_context(self._sole_member),
             )
         if result.error or result.directive is None:
             await self._pause_until_resumed(
@@ -526,10 +553,10 @@ class DiscussionRunner:
         if d.mode == "forward":
             origin = self.state.get("_last_member_sid")
             label = self._alias(origin) if origin else self._username
-            text = build_member_injection(label, self.state["last_member_reply"])
+            body = build_member_body(label, self.state["last_member_reply"])
             if d.content:
-                text += f"\n\n[主持人补充]: {d.content}"
+                body += f"\n\n[主持人补充]: {strip_directive_blocks(d.content)}"
         else:
-            text = build_member_injection(self._alias(self._moderator), d.content or "")
+            body = build_member_body(self._alias(self._moderator), d.content or "")
         self.ports.emit({"type": "route", "from": self._moderator, "to": target})
-        return (target, text)
+        return (target, body, self._member_context(target))

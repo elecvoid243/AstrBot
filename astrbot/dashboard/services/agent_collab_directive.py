@@ -108,33 +108,95 @@ def resolve_target(target: str, members: list[dict]) -> str | None:
     return None
 
 
-def build_moderator_injection(aliases: list[str], sender_label: str, text: str) -> str:
-    """Build the injected message for the moderator session (>2 members)."""
-    roster = ", ".join(aliases)
+def strip_directive_blocks(text: str) -> str:
+    """Remove every collab-route fenced block from text (protocol hygiene).
+
+    Members must never see the routing directive protocol; their replies are
+    routed by the moderator instead of by themselves.
+
+    Args:
+        text: Raw text that may contain directive fences.
+
+    Returns:
+        Text with all collab-route fences removed and blank lines collapsed.
+    """
+    text = DIRECTIVE_BLOCK_RE.sub("", text)
+    return re.sub(r"\n{3,}", "\n\n", text).strip()
+
+
+def build_member_body(sender_label: str, text: str) -> str:
+    """Build the persisted body line for a member or moderator turn.
+
+    Only the sender label and the (directive-stripped) content go into the
+    session history; collaborative framing lives in the per-turn context
+    header (build_*_context) instead.
+    """
+    return f"[来自 {sender_label}]: {strip_directive_blocks(text)}"
+
+
+def _roster_line(
+    members: list[dict], moderator_session_id: str, recipient_alias: str | None = None
+) -> str:
+    """Render the participant roster, marking the moderator and (optionally)
+    the recipient of the current turn."""
+    parts = []
+    for m in members:
+        label = m["alias"]
+        if m["session_id"] == moderator_session_id:
+            label += "（主持人）"
+        if recipient_alias is not None and m["alias"] == recipient_alias:
+            label += "（你）"
+        parts.append(label)
+    return "、".join(parts)
+
+
+def build_member_context(
+    *,
+    recipient_alias: str,
+    topic: str,
+    members: list[dict],
+    moderator_session_id: str,
+) -> str:
+    """Build the per-turn context header for a member session.
+
+    Injected as a temp extra (provider-facing only, not persisted) on every
+    delivery to a member so the session always knows it is part of a group
+    discussion, who else participates, and what its role is.
+
+    Args:
+        recipient_alias: Alias of the session receiving this header.
+        topic: The discussion topic.
+        members: Group members, each {"session_id": str, "alias": str}.
+        moderator_session_id: The moderator's session id.
+    """
+    roster = _roster_line(members, moderator_session_id, recipient_alias)
     return (
-        f"[协作讨论] 成员名册: {roster}\n"
-        "[协作讨论] 你是本场讨论的主持人。收到成员回复后，你必须在回复末尾输出一个路由指令块（且只能有一个）：\n"
+        f"[协作讨论] 你正在参与一场多会话协作讨论，主题：{topic}\n"
+        f"[协作讨论] 参与者：{roster}\n"
+        "[协作讨论] 你的回复将由主持人转达给其他参与者，请直接针对当前内容作答。"
+    )
+
+
+def build_moderator_context(members: list[dict], moderator_session_id: str) -> str:
+    """Build the per-turn context header for the moderator (>2 members)."""
+    roster = _roster_line(members, moderator_session_id)
+    return (
+        f"[协作讨论] 你是本场讨论的主持人，成员名册：{roster}\n"
+        "[协作讨论] 收到成员回复后，你必须在回复末尾输出一个路由指令块（且只能有一个）：\n"
         "```collab-route\n"
         '{"action": "route", "target": "<成员别名>", "mode": "forward"}\n'
         "```\n"
         "  mode=forward: 把该成员回复的原文直接转给 target（content 字段可填你的补充说明）\n"
         "  mode=literal: 把 content 字段中你加工后的内容转给 target\n"
-        '  结束讨论则输出: {"action": "end", "summary": "<总结>"}\n'
-        f"[来自 {sender_label}]: {text}"
+        '  结束讨论则输出: {"action": "end", "summary": "<总结>"}'
     )
 
 
-def build_moderator_pair_injection(sender_label: str, text: str) -> str:
-    """Build the injected message for the moderator in a 2-member group."""
+def build_moderator_pair_context(other_alias: str) -> str:
+    """Build the per-turn context header for the moderator in a 2-member group."""
     return (
-        "[协作讨论] 你在与对方进行连续讨论，需要结束时在回复末尾输出一个指令块：\n"
+        f"[协作讨论] 你在与 {other_alias} 进行连续讨论，需要结束时在回复末尾输出一个指令块：\n"
         "```collab-route\n"
         '{"action": "end", "summary": "<总结>"}\n'
-        "```\n"
-        f"[来自 {sender_label}]: {text}"
+        "```"
     )
-
-
-def build_member_injection(sender_label: str, text: str) -> str:
-    """Build the injected message for a member session."""
-    return f"[来自 {sender_label}]: {text}"

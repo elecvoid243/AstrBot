@@ -27,12 +27,16 @@ class FakeWorld:
     def __init__(self, replies: dict[str, list[str]]):
         self.replies = {k: list(v) for k, v in replies.items()}
         self.delivered: list[tuple[str, str]] = []
+        self.contexts: list[tuple[str, str | None]] = []
         self.events: list[dict] = []
         self.busy: set[str] = set()
 
     def ports(self) -> RunnerPorts:
-        async def deliver(session_id: str, text: str) -> str:
+        async def deliver(
+            session_id: str, text: str, context: str | None = None
+        ) -> str:
             self.delivered.append((session_id, text))
+            self.contexts.append((session_id, context))
             return f"mid{len(self.delivered)}"
 
         async def collect(session_id: str, message_id: str) -> str:
@@ -86,6 +90,11 @@ async def test_forward_chain_and_end():
     )
     assert world.delivered[3][0] == "s00000001x" and "A 的方案" in world.delivered[3][1]
     assert r.state["hop_count"] == 5
+    # moderator turns carry the routing instructions; member turns carry the
+    # participant roster so every discussant is aware of the others
+    assert "collab-route" in world.contexts[0][1]
+    assert "参与者" in world.contexts[1][1]
+    assert "agent1（你）" in world.contexts[1][1]
 
 
 @pytest.mark.asyncio
@@ -121,6 +130,29 @@ async def test_pair_group_plain_forward_and_end():
     await r.run()
     # moderator plain reply forwarded verbatim to the sole member
     assert "主持人的回答" in world.delivered[1][1]
+    assert r.state["status"] == "stopped"
+
+
+@pytest.mark.asyncio
+async def test_pair_forward_strips_directive_block():
+    g = _group(2)
+    world = FakeWorld(
+        {
+            g["members"][0]["session_id"]: [
+                _route("whatever"),
+                '```collab-route\n{"action": "end", "summary": "bye"}\n```',
+            ],
+            g["members"][1]["session_id"]: ["回应"],
+        }
+    )
+    r = DiscussionRunner(g, "topic", "alice", world.ports())
+    await r.run()
+    # the moderator's route directive must never reach the member
+    body = world.delivered[1][1]
+    assert "collab-route" not in body
+    assert '"action": "route"' not in body
+    # member still receives the conversational part of the reply
+    assert "安排如下" in body
     assert r.state["status"] == "stopped"
 
 

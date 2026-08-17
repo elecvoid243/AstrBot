@@ -1721,6 +1721,14 @@ async def build_main_agent(
             req.contexts = json.loads(conversation.history)
             event.set_extra("provider_request", req)
 
+    # Agent collab: per-turn collaborative framing (roster/topic/roles) is
+    # injected as a temp extra — visible to the provider this turn only,
+    # never persisted into the session history.
+    if collab_context := event.get_extra("collab_context"):
+        req.extra_user_content_parts.append(
+            TextPart(text=collab_context).mark_as_temp()
+        )
+
     if isinstance(req.contexts, str):
         req.contexts = json.loads(req.contexts)
     thread_selected_text = event.get_extra("thread_selected_text")
