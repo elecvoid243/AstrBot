@@ -54,14 +54,24 @@ import { computed, ref, watch } from 'vue';
 import { agentCollabApi } from '@/api/v1';
 import { useToast } from '@/utils/toast';
 
+// NOTE: do not use `defineModel` here — the project's Vue 3.3 SFC compiler
+// does not transform that macro, leaving a runtime `undefined` that breaks
+// mounting. Classic modelValue/update:modelValue keeps v-model working.
 const props = defineProps<{
+  modelValue?: boolean;
   sessions: Array<{ session_id: string; display_name: string | null }>;
   initialMembers?: string[];
 }>();
-const emit = defineEmits<{ saved: [] }>();
+const emit = defineEmits<{
+  (e: 'update:modelValue', v: boolean): void;
+  (e: 'saved'): void;
+}>();
 
 const toast = useToast();
-const dialog = defineModel<boolean>({ default: false });
+const dialog = computed({
+  get: () => props.modelValue ?? false,
+  set: (v: boolean) => emit('update:modelValue', v),
+});
 const name = ref('');
 const members = ref<Array<{ session_id: string; alias: string }>>([]);
 const moderator = ref<string | null>(null);
@@ -128,16 +138,20 @@ async function save() {
   }
 }
 
-watch(dialog, (open) => {
-  if (open) {
-    name.value = '';
-    picked.value = null;
-    // Prefill from the sidebar selection when provided.
-    members.value = (props.initialMembers ?? []).map((sid) => ({
-      session_id: sid,
-      alias: sid.slice(-8),
-    }));
-    moderator.value = members.value[0]?.session_id ?? null;
-  }
-});
+watch(
+  dialog,
+  (open) => {
+    if (open) {
+      name.value = '';
+      picked.value = null;
+      // Prefill from the sidebar selection when provided.
+      members.value = (props.initialMembers ?? []).map((sid) => ({
+        session_id: sid,
+        alias: sid.slice(-8),
+      }));
+      moderator.value = members.value[0]?.session_id ?? null;
+    }
+  },
+  { immediate: true },
+);
 </script>
