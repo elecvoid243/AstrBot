@@ -1890,3 +1890,53 @@ export const changelogApi = {
     );
   },
 };
+
+export const agentCollabApi = {
+  listGroups() {
+    return httpClient.get<ApiEnvelope<any>>('/api/agent_collab/groups');
+  },
+  createGroup(payload: {
+    name: string;
+    members: Array<{ session_id: string; alias?: string }>;
+    moderator_session_id: string;
+  }) {
+    return httpClient.post<ApiEnvelope<any>>('/api/agent_collab/groups', payload);
+  },
+  updateGroup(groupId: string, payload: any) {
+    return httpClient.put<ApiEnvelope<any>>(
+      `/api/agent_collab/groups/${encodeURIComponent(groupId)}`,
+      payload,
+    );
+  },
+  deleteGroup(groupId: string) {
+    return httpClient.delete<ApiEnvelope<any>>(
+      `/api/agent_collab/groups/${encodeURIComponent(groupId)}`,
+    );
+  },
+  startDiscussion(groupId: string, topic: string) {
+    return httpClient.post<ApiEnvelope<any>>(
+      `/api/agent_collab/groups/${encodeURIComponent(groupId)}/discussions`,
+      { topic },
+    );
+  },
+  stopDiscussion(id: string) {
+    return httpClient.post<ApiEnvelope<any>>(
+      `/api/agent_collab/discussions/${encodeURIComponent(id)}/stop`,
+    );
+  },
+  resumeDiscussion(id: string, resetHops = false) {
+    return httpClient.post<ApiEnvelope<any>>(
+      `/api/agent_collab/discussions/${encodeURIComponent(id)}/resume`,
+      { reset_hops: resetHops },
+    );
+  },
+  routeDiscussion(id: string, targetSessionId: string, message: string) {
+    return httpClient.post<ApiEnvelope<any>>(
+      `/api/agent_collab/discussions/${encodeURIComponent(id)}/route`,
+      { target_session_id: targetSessionId, message },
+    );
+  },
+  streamUrl(id: string) {
+    return `/api/agent_collab/discussions/${encodeURIComponent(id)}/stream`;
+  },
+};
