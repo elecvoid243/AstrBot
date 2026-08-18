@@ -3,8 +3,11 @@
   <WaitingForRestart ref="globalWaitingRef" />
   <UpgradeRecoveryDialog />
 
-  <!-- 全局唯一 snackbar -->
-  <v-snackbar v-if="toastStore.current" v-model="snackbarShow" :color="toastStore.current.color"
+  <!-- 全局唯一 snackbar。:key 按 toast id 强制重建：否则队列切换时
+       modelValue 恒为 true，VSnackbar 的 timeout 不会为下一个 toast 重启，
+       导致 toast 常驻不消失。 -->
+  <v-snackbar v-if="toastStore.current" :key="toastStore.current.id" v-model="snackbarShow"
+    :color="toastStore.current.color"
     :timeout="toastStore.current.timeout" :multi-line="toastStore.current.multiLine"
     :location="toastStore.current.location" close-on-back>
     <div class="app-snackbar-message">
