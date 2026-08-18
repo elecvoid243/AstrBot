@@ -1919,6 +1919,9 @@ export const agentCollabApi = {
       { topic },
     );
   },
+  activeDiscussion() {
+    return httpClient.get<ApiEnvelope<any>>('/api/agent_collab/discussions/active');
+  },
   stopDiscussion(id: string) {
     return httpClient.post<ApiEnvelope<any>>(
       `/api/agent_collab/discussions/${encodeURIComponent(id)}/stop`,

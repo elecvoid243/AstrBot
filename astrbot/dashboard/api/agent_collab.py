@@ -127,6 +127,20 @@ async def start_discussion(
     return ok({"discussion_id": state["id"]})
 
 
+@legacy_router.get("/discussions/active")
+async def active_discussion(
+    username: str = Depends(require_dashboard_user),
+    service: AgentCollabService = Depends(get_service),
+):
+    """Return the caller's still-running discussion, if any.
+
+    Lets the frontend re-attach (controls + SSE replay) after a page reload
+    even though the runner kept going server-side.
+    """
+    active = service.list_active_discussions(username)
+    return ok({"discussion": active[0] if active else None})
+
+
 @legacy_router.post("/discussions/{discussion_id}/stop")
 async def stop_discussion(
     discussion_id: str,

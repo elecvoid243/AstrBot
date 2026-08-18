@@ -223,6 +223,19 @@ async function loadTranscriptHistory(groupId: string) {
   );
 }
 
+// Re-attach to a discussion that kept running server-side after a page
+// reload: restores the discussion id/status and reconnects the SSE stream
+// (full event replay rebuilds timeline + transcript).
+async function recoverActiveDiscussion() {
+  const res = await agentCollabApi.activeDiscussion();
+  const d = res.data.data?.discussion;
+  if (!d?.id) return null;
+  activeDiscussion.value = d.id;
+  status.value = d.status === 'paused' ? 'paused' : 'running';
+  void connectStream(d.id);
+  return String(d.group_id || '');
+}
+
 async function stop() {
   if (activeDiscussion.value) await agentCollabApi.stopDiscussion(activeDiscussion.value);
 }
@@ -252,6 +265,7 @@ export function useAgentCollab() {
     busySessions,
     loadGroups,
     loadTranscriptHistory,
+    recoverActiveDiscussion,
     startDiscussion,
     stop,
     resume,

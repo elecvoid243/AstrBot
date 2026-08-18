@@ -137,3 +137,73 @@ async def test_other_user_isolated(service):
     assert (await service.list_groups("bob"))["groups"] == []
     with pytest.raises(AgentCollabServiceError):
         await service.delete_group("bob", "whatever")
+
+
+class _FakeRunner:
+    def __init__(self, state: dict, group: dict):
+        self.state = state
+        self.group = group
+
+
+def test_list_active_discussions_filters_by_status_and_owner():
+    service = AgentCollabService()
+    group = {
+        "id": "g1",
+        "owner_username": "alice",
+        "members": [{"session_id": "s1", "alias": "a"}],
+    }
+    running = _FakeRunner(
+        {
+            "id": "d1",
+            "group_id": "g1",
+            "topic": "t",
+            "status": "running",
+            "hop_count": 3,
+            "hop_limit": 50,
+        },
+        group,
+    )
+    paused = _FakeRunner(
+        {
+            "id": "d2",
+            "group_id": "g1",
+            "topic": "t2",
+            "status": "paused",
+            "hop_count": 1,
+            "hop_limit": 50,
+        },
+        group,
+    )
+    stopped = _FakeRunner(
+        {
+            "id": "d3",
+            "group_id": "g1",
+            "topic": "t3",
+            "status": "stopped",
+            "hop_count": 9,
+            "hop_limit": 50,
+        },
+        group,
+    )
+    other_owner = _FakeRunner(
+        {
+            "id": "d4",
+            "group_id": "g1",
+            "topic": "t4",
+            "status": "running",
+            "hop_count": 0,
+            "hop_limit": 50,
+        },
+        {"id": "g1", "owner_username": "bob", "members": []},
+    )
+    service.discussions = {
+        "d1": {"runner": running},
+        "d2": {"runner": paused},
+        "d3": {"runner": stopped},
+        "d4": {"runner": other_owner},
+    }
+    active = service.list_active_discussions("alice")
+    ids = {d["id"] for d in active}
+    assert ids == {"d1", "d2"}
+    d1 = next(d for d in active if d["id"] == "d1")
+    assert d1["status"] == "running" and d1["hop_count"] == 3

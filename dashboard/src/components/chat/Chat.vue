@@ -1221,6 +1221,7 @@ const {
 const {
   groups: collabGroups,
   loadGroups: loadCollabGroups,
+  recoverActiveDiscussion,
 } = useAgentCollab();
 const collabDialogOpen = ref(false);
 const showCollabTranscript = ref(false);
@@ -2010,6 +2011,13 @@ onMounted(async () => {
       loadTokenProviders(),
       loadCollabGroups(),
     ]);
+    // Re-attach to a discussion that kept running across the page reload:
+    // restores the panel controls (stop/resume) and rebuilds the timeline
+    // and transcript from the server-side event replay.
+    const recoveredGroupId = await recoverActiveDiscussion();
+    if (recoveredGroupId && !activeCollabGroupId.value) {
+      activeCollabGroupId.value = recoveredGroupId;
+    }
     const routeSessionId = getRouteSessionId();
     if (routeSessionId === "models") {
       activeWorkspace.value = "providers";

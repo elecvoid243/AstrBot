@@ -221,6 +221,29 @@ class AgentCollabService:
         runner.resume()
         return {"message": "已指定下一站"}
 
+    def list_active_discussions(self, username: str) -> list[dict]:
+        """Return the user's discussions still running (for page-reload
+        recovery: the runner keeps going while the SSE client is gone)."""
+        active: list[dict] = []
+        for d in self.discussions.values():
+            runner = d["runner"]
+            state = runner.state
+            if state.get("status") not in ("running", "paused", "stopping"):
+                continue
+            if runner.group.get("owner_username") != username:
+                continue
+            active.append(
+                {
+                    "id": state["id"],
+                    "group_id": state["group_id"],
+                    "topic": state.get("topic", ""),
+                    "status": state["status"],
+                    "hop_count": state.get("hop_count", 0),
+                    "hop_limit": state.get("hop_limit", 50),
+                }
+            )
+        return active
+
     # ---------- webchat wiring ----------
 
     def build_ports_for_test(

@@ -323,3 +323,24 @@ def test_group_transcript_skips_stats_records():
     # must not consume the turn pairing
     assert [m["direction"] for m in msgs] == ["sent", "reply"]
     assert msgs[1]["text"] == "真实回复"
+
+
+def test_active_discussion_endpoint():
+    stub = _StubService()
+    stub.active = {"id": "d1", "group_id": "g1", "topic": "t", "status": "running"}
+
+    def fake_list_active(username):
+        return [stub.active] if username == "astrbot" else []
+
+    stub.list_active_discussions = fake_list_active
+    client = TestClient(_build_isolated_app(stub))
+    r = client.get("/api/agent_collab/discussions/active")
+    assert r.json()["status"] == "ok"
+    assert r.json()["data"]["discussion"]["id"] == "d1"
+
+    def fake_none(username):
+        return []
+
+    stub.list_active_discussions = fake_none
+    r = client.get("/api/agent_collab/discussions/active")
+    assert r.json()["data"]["discussion"] is None
