@@ -17,7 +17,7 @@ export interface TimelineItem {
 
 export interface CollabMessage {
   type: 'message';
-  direction: 'sent' | 'reply';
+  direction: 'sent' | 'reply' | 'stream';
   session_id: string;
   text: string;
   [key: string]: unknown;
@@ -59,7 +59,10 @@ export function collabWithAlpha(hex: string, alpha: number) {
 // chat page) share one collab session and one SSE connection.
 const groups = ref<CollabGroup[]>([]);
 const activeDiscussion = ref<string | null>(null);
+// Routing events only (route/busy/hop/stopped/...) — drives CollabPanel.
 const timeline = ref<TimelineItem[]>([]);
+// Per-turn messages (sent/reply/stream) — drives the group transcript.
+const transcript = ref<CollabMessage[]>([]);
 const status = ref<'idle' | 'running' | 'paused' | 'stopped'>('idle');
 const hopInfo = reactive({ count: 0, limit: 50 });
 const busySessions = ref<Set<string>>(new Set());
@@ -95,6 +98,25 @@ async function readCollabStream(
 }
 
 function handleStreamEvent(event: TimelineItem) {
+  // Message events feed the group transcript; consecutive stream deltas from
+  // the same session are appended to the currently-streaming entry.
+  if (event.type === 'message') {
+    const msg = event as unknown as CollabMessage;
+    if (msg.direction === 'stream') {
+      const last = transcript.value[transcript.value.length - 1];
+      if (last && last.direction === 'stream' && last.session_id === msg.session_id) {
+        transcript.value[transcript.value.length - 1] = {
+          ...last,
+          text: last.text + msg.text,
+        };
+      } else {
+        transcript.value.push({ ...msg });
+      }
+    } else {
+      transcript.value.push({ ...msg });
+    }
+    return;
+  }
   timeline.value.push(event);
   if (event.type === 'hop') {
     hopInfo.count = Number(event.count ?? 0);
@@ -157,20 +179,20 @@ function disconnectStream() {
   streamAbort = null;
 }
 
-// Reconnect and rebuild the timeline from the server-side event replay, so
-// panels opened mid-discussion still see every past turn.
+// Reconnect and rebuild state from the server-side event replay, so panels
+// opened mid-discussion still see every past turn.
 async function restartStream() {
   timeline.value = [];
+  transcript.value = [];
   busySessions.value = new Set();
   if (activeDiscussion.value) {
     await connectStream(activeDiscussion.value);
   }
 }
 
-// Group-transcript view: only the per-turn message events, in order.
-const messages = computed<CollabMessage[]>(() =>
-  timeline.value.filter((e): e is CollabMessage => e.type === 'message'),
-);
+// Group-transcript view: the ordered per-turn messages incl. live stream
+// deltas (see handleStreamEvent for the merge logic).
+const messages = computed<CollabMessage[]>(() => transcript.value);
 
 async function stop() {
   if (activeDiscussion.value) await agentCollabApi.stopDiscussion(activeDiscussion.value);

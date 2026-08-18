@@ -860,6 +860,7 @@
         <CollabTranscriptPanel
           v-if="showCollabTranscript && activeCollabGroup"
           :group="activeCollabGroup"
+          :is-dark="isDark"
           @close="showCollabTranscript = false"
         />
 

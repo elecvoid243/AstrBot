@@ -30,6 +30,7 @@
         v-for="(msg, i) in messages"
         :key="i"
         class="collab-transcript-item"
+        :class="[`collab-transcript-item--${msg.direction}`, { streaming: msg.direction === 'stream' }]"
         :style="{ '--member-color': memberColor(msg.session_id) }"
       >
         <div class="collab-transcript-meta">
@@ -39,28 +40,46 @@
             <span class="collab-transcript-sid">{{ shortId(msg.session_id) }}</span>
           </span>
           <v-chip size="x-small" variant="tonal" class="ml-1">
-            {{ msg.direction === 'sent' ? '收到输入' : '回复' }}
+            {{ directionLabel(msg.direction) }}
           </v-chip>
         </div>
-        <div class="collab-transcript-text">{{ msg.text }}</div>
+        <div v-if="msg.direction === 'sent'" class="collab-transcript-sent">
+          {{ msg.text }}
+        </div>
+        <div v-else class="collab-transcript-reply">
+          <MarkdownRender
+            custom-id="chat-message"
+            :content="msg.text"
+            :custom-html-tags="CHAT_MARKDOWN_CUSTOM_TAGS"
+            :is-dark="isDark"
+            :final="msg.direction !== 'stream'"
+            :smooth-streaming="msg.direction === 'stream' ? 'auto' : false"
+            :fade="false"
+            :typewriter="false"
+          />
+        </div>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { nextTick, onMounted, ref, watch } from 'vue';
+import { nextTick, onMounted, provide, ref, watch } from 'vue';
+import { MarkdownRender } from 'markstream-vue';
+import { CHAT_MARKDOWN_CUSTOM_TAGS } from '@/components/chat/chatMarkdownComponents';
 import {
   useAgentCollab,
   collabMemberColor,
   type CollabGroup,
 } from '@/composables/useAgentCollab';
 
-const props = defineProps<{ group: CollabGroup }>();
+const props = defineProps<{ group: CollabGroup; isDark: boolean }>();
 const emit = defineEmits<{ close: [] }>();
 
 const { messages, restartStream } = useAgentCollab();
 const listEl = ref<HTMLElement | null>(null);
+
+provide('isDark', props.isDark);
 
 function memberColor(sessionId: string) {
   return collabMemberColor(sessionId);
@@ -72,6 +91,12 @@ function aliasOf(sessionId: string) {
 
 function shortId(sessionId: string) {
   return sessionId.slice(-8);
+}
+
+function directionLabel(direction: string) {
+  if (direction === 'sent') return '收到输入';
+  if (direction === 'stream') return '回复中…';
+  return '回复';
 }
 
 function scrollToBottom() {
@@ -117,10 +142,7 @@ watch(() => messages.value.length, scrollToBottom);
 
 .collab-transcript-item {
   margin-bottom: 12px;
-  border-left: 3px solid var(--member-color);
-  border-radius: 4px;
-  padding: 6px 10px;
-  background: rgba(var(--v-theme-surface-variant), 0.35);
+  max-width: 85%;
 }
 
 .collab-transcript-meta {
@@ -149,10 +171,54 @@ watch(() => messages.value.length, scrollToBottom);
   margin-left: 4px;
 }
 
-.collab-transcript-text {
+/* 注入到会话的输入（sent）— 与聊天页用户消息风格一致（右侧气泡） */
+.collab-transcript-item--sent {
+  align-self: flex-end;
+  margin-left: auto;
+  text-align: right;
+}
+
+.collab-transcript-item--sent .collab-transcript-meta {
+  justify-content: flex-end;
+}
+
+.collab-transcript-sent {
+  display: inline-block;
+  text-align: left;
+  background: rgb(var(--v-theme-surface-variant));
+  border-radius: 12px 12px 2px 12px;
+  padding: 8px 12px;
   font-size: 0.875rem;
   white-space: pre-wrap;
   word-break: break-word;
   line-height: 1.5;
+  color: var(--chat-text, rgb(var(--v-theme-on-surface)));
+}
+
+/* Agent 回复（reply / stream）— 与聊天页机器人消息一致（左侧，markdown） */
+.collab-transcript-item--reply,
+.collab-transcript-item--stream {
+  border-left: 3px solid var(--member-color);
+  border-radius: 4px;
+  padding: 8px 12px;
+  background: var(--chat-session-active-bg, rgba(var(--v-theme-surface-variant), 0.4));
+}
+
+.collab-transcript-reply :deep(.markdown-content) {
+  font-size: 0.875rem;
+}
+
+/* 流式光标 */
+.collab-transcript-item.streaming .collab-transcript-reply :deep(.markdown-content)::after {
+  content: '▍';
+  margin-left: 2px;
+  color: var(--member-color);
+  animation: collab-caret-blink 0.8s steps(1) infinite;
+}
+
+@keyframes collab-caret-blink {
+  50% {
+    opacity: 0;
+  }
 }
 </style>

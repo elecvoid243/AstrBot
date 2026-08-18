@@ -272,6 +272,7 @@ class AgentCollabService:
                     f"no subscription for {cid}; deliver() must run first"
                 )
             acc = BotMessageAccumulator()
+            prev_text = ""
             while True:
                 payload = await queue.get()
                 if (
@@ -286,6 +287,22 @@ class AgentCollabService:
                         chain_type=payload.get("chain_type"),
                         streaming=bool(payload.get("streaming")),
                     )
+                    # Stream the reply incrementally so the transcript panel
+                    # renders it live instead of after the whole turn ends.
+                    full = acc.plain_text()
+                    delta = (
+                        full[len(prev_text) :] if full.startswith(prev_text) else full
+                    )
+                    prev_text = full
+                    if delta:
+                        emit(
+                            {
+                                "type": "message",
+                                "direction": "stream",
+                                "session_id": session_id,
+                                "text": delta,
+                            }
+                        )
                 elif msg_type in ("complete", "end"):
                     if (
                         msg_type == "complete"

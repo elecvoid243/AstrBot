@@ -54,11 +54,12 @@ async def test_end_to_end_with_real_queue_mgr():
 
     mgr.set_listener(fake_listener)
 
+    events: list[dict] = []
     service = AgentCollabService()
     ports = service.build_ports_for_test(
         mgr,
         username="alice",
-        emit=lambda e: None,
+        emit=events.append,
         reply_timeout=2.0,
         busy_poll_interval=0.01,
     )
@@ -85,6 +86,16 @@ async def test_end_to_end_with_real_queue_mgr():
     # carry the participant roster (temp extra consumed by build_main_agent)
     assert "collab-route" in inbox[0][2]["collab_context"]
     assert "参与者" in inbox[1][2]["collab_context"]
+    # transcript events: per-turn sent/reply plus live stream deltas
+    stream_deltas = [
+        e
+        for e in events
+        if e.get("type") == "message" and e.get("direction") == "stream"
+    ]
+    assert len(stream_deltas) >= 3  # one delta per plain chunk per turn
+    assert any(
+        e.get("type") == "message" and e.get("direction") == "reply" for e in events
+    )
     await mgr.clear_listener()
 
 
