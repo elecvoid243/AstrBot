@@ -13,6 +13,22 @@
         {{ m.alias }}{{ m.session_id === group.moderator_session_id ? ' · 主持' : '' }}
       </v-chip>
       <span class="text-caption ml-2">{{ hopInfo.count }}/{{ hopInfo.limit }}</span>
+      <v-chip
+        v-if="status !== 'idle'"
+        size="x-small"
+        class="ml-2"
+        variant="tonal"
+        :color="statusColor"
+      >
+        <v-progress-circular
+          v-if="status === 'stopping'"
+          indeterminate
+          size="12"
+          width="2"
+          class="mr-1"
+        />
+        {{ statusLabel }}
+      </v-chip>
       <v-spacer />
       <v-btn
         icon="mdi-forum-outline"
@@ -39,12 +55,18 @@
           class="mr-2"
         />
         <v-btn variant="tonal" :disabled="!topic.trim()" @click="start">
-          发起讨论
+          {{ status === 'stopped' ? '再次发起讨论' : '发起讨论' }}
         </v-btn>
       </template>
       <template v-else>
-        <v-btn v-if="status === 'running'" variant="tonal" color="error" @click="stop">
-          停止
+        <v-btn
+          v-if="status === 'running' || status === 'stopping'"
+          variant="tonal"
+          color="error"
+          :loading="status === 'stopping'"
+          @click="stop"
+        >
+          {{ status === 'stopping' ? '停止中…' : '停止' }}
         </v-btn>
         <v-btn v-if="status === 'paused'" variant="tonal" @click="resume()">
           继续
@@ -111,6 +133,36 @@ const manualMessage = ref('');
 const memberItems = computed(() =>
   props.group.members.map((m) => ({ title: m.alias, value: m.session_id })),
 );
+
+const statusLabel = computed(() => {
+  switch (status.value) {
+    case 'running':
+      return '进行中';
+    case 'paused':
+      return '已暂停';
+    case 'stopping':
+      return '停止中…';
+    case 'stopped':
+      return '已停止';
+    default:
+      return '';
+  }
+});
+
+const statusColor = computed(() => {
+  switch (status.value) {
+    case 'running':
+      return 'success';
+    case 'paused':
+      return 'warning';
+    case 'stopping':
+      return 'warning';
+    case 'stopped':
+      return 'default';
+    default:
+      return undefined;
+  }
+});
 
 // Show "alias · short-id" everywhere: members with default aliases may be
 // indistinguishable by alias alone, and a raw full id is unreadable.
