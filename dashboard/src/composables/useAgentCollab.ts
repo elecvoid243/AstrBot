@@ -20,6 +20,8 @@ export interface CollabMessage {
   direction: 'sent' | 'reply' | 'stream';
   session_id: string;
   text: string;
+  parts?: Array<Record<string, any>>;
+  ts?: string | number;
   [key: string]: unknown;
 }
 
@@ -103,7 +105,8 @@ async function readCollabStream(
 
 function handleStreamEvent(event: TimelineItem) {
   // Message events feed the group transcript; consecutive stream deltas from
-  // the same session are appended to the currently-streaming entry.
+  // the same session are appended to the currently-streaming entry, and the
+  // final reply replaces that entry (full parts: thinking / tools / output).
   if (event.type === 'message') {
     const msg = event as unknown as CollabMessage;
     if (msg.direction === 'stream') {
@@ -113,6 +116,13 @@ function handleStreamEvent(event: TimelineItem) {
           ...last,
           text: last.text + msg.text,
         };
+      } else {
+        transcript.value.push({ ...msg });
+      }
+    } else if (msg.direction === 'reply') {
+      const last = transcript.value[transcript.value.length - 1];
+      if (last && last.direction === 'stream' && last.session_id === msg.session_id) {
+        transcript.value[transcript.value.length - 1] = { ...msg };
       } else {
         transcript.value.push({ ...msg });
       }

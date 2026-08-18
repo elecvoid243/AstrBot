@@ -495,7 +495,23 @@ export function useMessages(options: UseMessagesOptions) {
       const records = history.map(normalizeHistoryRecord);
       attachThreads(records, payload.threads || []);
       await resolveRecordMedia(records);
+      // Live records (system stream / run resume) may have arrived while the
+      // history snapshot was in flight; the snapshot then overwrote them.
+      // Re-append anything not present in the snapshot so no message is lost.
+      const existing = messagesBySession[sessionId] || [];
       messagesBySession[sessionId] = records;
+      if (existing.length) {
+        const historyIds = new Set(records.map((r: ChatRecord) => String(r.id)));
+        const live = existing.filter(
+          (r: ChatRecord) => !historyIds.has(String(r.id)),
+        );
+        if (live.length) {
+          messagesBySession[sessionId] = [...records, ...live].sort(
+            (a: ChatRecord, b: ChatRecord) =>
+              String(a.created_at || "").localeCompare(String(b.created_at || "")),
+          );
+        }
+      }
       sessionProjects[sessionId] = normalizeSessionProject(payload.project);
       sessionArchivedFlags[sessionId] = Boolean(payload.archived);
       loadedSessions[sessionId] = true;

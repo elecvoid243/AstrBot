@@ -324,7 +324,9 @@ class AgentCollabService:
                             chain_type=payload.get("chain_type"),
                             streaming=False,
                         )
-                    return acc.plain_text()
+                    # Full message parts (think / tool_call / plain) let the
+                    # transcript panel render the agent's complete activity.
+                    return acc.plain_text(), acc.build_message_parts()
 
         return RunnerPorts(
             deliver=deliver,
@@ -364,8 +366,8 @@ class RunnerPorts:
         [str, str, str | None], Awaitable[str]
     ]  # (session_id, text, context) -> message_id
     collect: Callable[
-        [str, str], Awaitable[str]
-    ]  # (session_id, message_id) -> reply text
+        [str, str], Awaitable[tuple[str, list]]
+    ]  # (session_id, message_id) -> (reply text, full message parts)
     is_busy: Callable[[str], bool]
     emit: Callable[[dict], None]
     reply_timeout: float = 180.0
@@ -490,7 +492,7 @@ class DiscussionRunner:
             "message_id": message_id,
         }
         try:
-            reply = await asyncio.wait_for(
+            reply, reply_parts = await asyncio.wait_for(
                 self.ports.collect(session_id, message_id),
                 timeout=self.ports.reply_timeout,
             )
@@ -499,14 +501,16 @@ class DiscussionRunner:
             await self._pause_until_resumed({"type": "error", "reason": str(e)})
             return "" if self.state["status"] == "running" else None
         self.state["current_turn"] = None
-        # Transcript event: the agent's reply (directive fences stripped —
-        # routing protocol internals do not belong in the group transcript).
+        # Transcript event: the agent's full turn activity — thinking, tool
+        # calls and output. The moderator's routing directive block is kept
+        # verbatim so the panel shows the scheduling decision.
         self.ports.emit(
             {
                 "type": "message",
                 "direction": "reply",
                 "session_id": session_id,
-                "text": strip_directive_blocks(reply),
+                "text": reply,
+                "parts": reply_parts,
                 "ts": time.time(),
             }
         )

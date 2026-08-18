@@ -264,9 +264,12 @@ def test_group_transcript_aggregates_pairs_and_strips():
     assert [m["direction"] for m in msgs] == ["sent", "sent", "reply", "reply"]
     assert msgs[0]["session_id"] == "s2"
     assert msgs[1]["session_id"] == "s1"
-    # directive fence stripped from the moderator reply; ordinary chat skipped
-    assert "collab-route" not in msgs[2]["text"]
+    # moderator's routing directive is kept (scheduling content); ordinary
+    # chat is skipped; replies carry the full message parts
+    assert "collab-route" in msgs[2]["text"]
     assert msgs[2]["text"].startswith("我的看法")
+    assert msgs[2]["parts"] == histories["s1"][1].content["message"]
+    assert msgs[3]["parts"] == histories["s2"][1].content["message"]
     assert all(m["session_id"] in ("s1", "s2") for m in msgs)
     # per-session history requests
     assert fake_mgr.get.call_count == 2

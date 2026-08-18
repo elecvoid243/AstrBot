@@ -8,7 +8,6 @@ from fastapi.responses import StreamingResponse
 
 from astrbot import logger
 from astrbot.dashboard.responses import error, ok
-from astrbot.dashboard.services.agent_collab_directive import strip_directive_blocks
 from astrbot.dashboard.services.agent_collab_service import (
     AgentCollabService,
     AgentCollabServiceError,
@@ -277,10 +276,14 @@ def _extract_session_transcript(history) -> list[dict]:
             )
             in_turn = True
         elif in_turn and ctype == "bot" and text:
+            # Keep the full parts (thinking / tool calls / output, incl. the
+            # moderator's routing directive) so the panel renders the agent's
+            # complete activity, not just the plain text.
             messages.append(
                 {
                     "direction": "reply",
-                    "text": strip_directive_blocks(text),
+                    "text": text,
+                    "parts": content.get("message") or [],
                     "ts": _record_ts(record),
                 }
             )

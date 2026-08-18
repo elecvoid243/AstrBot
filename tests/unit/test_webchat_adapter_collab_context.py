@@ -95,3 +95,61 @@ def test_regular_messages_do_not_write_history(monkeypatch):
         )
     )
     assert not called
+
+
+def test_orphan_bot_reply_is_persisted(monkeypatch):
+    import asyncio
+
+    from astrbot.core.platform.sources.webchat import webchat_event as we
+
+    inserted = []
+
+    async def fake_insert(**kwargs):
+        inserted.append(kwargs)
+        return None
+
+    monkeypatch.setattr(we.db_helper, "insert_platform_message_history", fake_insert)
+    # request id not registered on the conversation back queue -> no dashboard
+    # consumer -> the reply must be persisted here
+    asyncio.run(
+        we._persist_bot_reply_if_orphan(
+            session_id="webchat!alice!conv123",
+            request_id="mid-orphan",
+            plain_text="输出内容",
+            reasoning_text="思考内容",
+        )
+    )
+    assert len(inserted) == 1
+    record = inserted[0]
+    assert record["user_id"] == "conv123"
+    assert record["content"]["type"] == "bot"
+    assert record["content"]["message"] == [
+        {"type": "think", "think": "思考内容"},
+        {"type": "plain", "text": "输出内容"},
+    ]
+
+
+def test_consumed_reply_is_not_persisted(monkeypatch):
+    import asyncio
+
+    from astrbot.core.platform.sources.webchat import webchat_event as we
+
+    inserted = []
+
+    async def fake_insert(**kwargs):
+        inserted.append(kwargs)
+        return None
+
+    monkeypatch.setattr(we.db_helper, "insert_platform_message_history", fake_insert)
+    # registered request id -> ChatService._consume_chat_run owns persistence
+    monkeypatch.setattr(
+        we.webchat_queue_mgr, "list_back_request_ids", lambda cid: ["mid-owned"]
+    )
+    asyncio.run(
+        we._persist_bot_reply_if_orphan(
+            session_id="webchat!alice!conv123",
+            request_id="mid-owned",
+            plain_text="x",
+        )
+    )
+    assert not inserted

@@ -8,6 +8,7 @@ from pathlib import Path, PurePosixPath
 from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, MessageChain
 from astrbot.api.message_components import File, Image, Json, Plain, Record
+from astrbot.core import db_helper
 from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 from astrbot.core.utils.datetime_utils import generate_timestamp_id
 from astrbot.core.utils.media_utils import (
@@ -15,9 +16,58 @@ from astrbot.core.utils.media_utils import (
     detect_image_mime_type_async,
 )
 
+from .message_parts_helper import message_chain_to_storage_message_parts
 from .webchat_queue_mgr import _extract_conversation_id, webchat_queue_mgr
 
 attachments_dir = os.path.join(get_astrbot_data_path(), "attachments")
+
+
+async def _persist_bot_reply_if_orphan(
+    *,
+    session_id: str,
+    request_id: str,
+    message_chain: MessageChain | None = None,
+    plain_text: str = "",
+    reasoning_text: str = "",
+) -> None:
+    """Persist a bot reply whose back queue has no dashboard consumer.
+
+    Dashboard-sent turns register their request id on the conversation's back
+    queue and ChatService._consume_chat_run persists the bot record. Turns
+    injected through the core input queue (e.g. agent collab) have no such
+    consumer — without this fallback the reply would only exist in the live
+    system stream and disappear from the session history after a reload.
+    """
+    cid = _extract_conversation_id(session_id)
+    if request_id in webchat_queue_mgr.list_back_request_ids(cid):
+        return  # consumed by the dashboard stream path; it persists the record
+    if message_chain is not None:
+        parts = await message_chain_to_storage_message_parts(
+            message_chain,
+            insert_attachment=db_helper.insert_attachment,
+            attachments_dir=attachments_dir,
+        )
+    else:
+        parts = []
+        if reasoning_text:
+            parts.append({"type": "think", "think": reasoning_text})
+        if plain_text:
+            parts.append({"type": "plain", "text": plain_text})
+    if not parts:
+        return
+    try:
+        await db_helper.insert_platform_message_history(
+            platform_id="webchat",
+            user_id=cid,
+            content={"type": "bot", "message": parts},
+            sender_id="bot",
+            sender_name="bot",
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.error(
+            f"[WebChatMessageEvent] Failed to persist orphan bot reply: {exc}",
+            exc_info=True,
+        )
 
 
 class WebChatMessageEvent(AstrMessageEvent):
@@ -199,6 +249,12 @@ class WebChatMessageEvent(AstrMessageEvent):
                 _extract_conversation_id(self.session_id), payload
             )
         await WebChatMessageEvent._send(message_id, message, session_id=self.session_id)
+        if message is not None:
+            await _persist_bot_reply_if_orphan(
+                session_id=self.session_id,
+                request_id=str(message_id),
+                message_chain=message,
+            )
         await super().send(MessageChain([]))
 
     async def send_typing(self) -> None:
@@ -286,5 +342,11 @@ class WebChatMessageEvent(AstrMessageEvent):
         await webchat_queue_mgr.put_back_queue(request_id, payload)
         await WebChatMessageEvent._mirror_system(
             _extract_conversation_id(self.session_id), payload
+        )
+        await _persist_bot_reply_if_orphan(
+            session_id=self.session_id,
+            request_id=request_id,
+            plain_text=final_data,
+            reasoning_text=reasoning_content,
         )
         await super().send_streaming(generator, use_fallback)
