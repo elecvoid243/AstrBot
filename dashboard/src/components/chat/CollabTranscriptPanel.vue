@@ -76,7 +76,7 @@ import {
 const props = defineProps<{ group: CollabGroup; isDark: boolean }>();
 const emit = defineEmits<{ close: [] }>();
 
-const { messages, restartStream } = useAgentCollab();
+const { messages, activeDiscussion, loadTranscriptHistory, restartStream } = useAgentCollab();
 const listEl = ref<HTMLElement | null>(null);
 
 provide('isDark', props.isDark);
@@ -105,10 +105,14 @@ function scrollToBottom() {
   });
 }
 
-// Reconnect to pick up the server-side replay so a panel opened mid-discussion
-// still shows every past turn, then keep following live messages.
+// Persistent history first (survives page reloads), then the live stream
+// replay for an active discussion; duplicates between the two are dropped
+// by the composable merge.
 onMounted(async () => {
-  await restartStream();
+  await loadTranscriptHistory(props.group.id);
+  if (activeDiscussion.value) {
+    await restartStream();
+  }
   scrollToBottom();
 });
 

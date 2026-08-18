@@ -1939,4 +1939,9 @@ export const agentCollabApi = {
   streamUrl(id: string) {
     return `/api/agent_collab/discussions/${encodeURIComponent(id)}/stream`;
   },
+  groupTranscript(groupId: string) {
+    return httpClient.get<ApiEnvelope<any>>(
+      `/api/agent_collab/groups/${encodeURIComponent(groupId)}/transcript`,
+    );
+  },
 };

@@ -63,6 +63,10 @@ const activeDiscussion = ref<string | null>(null);
 const timeline = ref<TimelineItem[]>([]);
 // Per-turn messages (sent/reply/stream) — drives the group transcript.
 const transcript = ref<CollabMessage[]>([]);
+// Persistent-history base loaded from the per-session records; live events
+// that duplicate a history entry (same session + direction + text) are
+// dropped, so the panel survives page reloads without extra storage.
+const historyBase = ref<CollabMessage[]>([]);
 const status = ref<'idle' | 'running' | 'paused' | 'stopped'>('idle');
 const hopInfo = reactive({ count: 0, limit: 50 });
 const busySessions = ref<Set<string>>(new Set());
@@ -190,9 +194,24 @@ async function restartStream() {
   }
 }
 
-// Group-transcript view: the ordered per-turn messages incl. live stream
-// deltas (see handleStreamEvent for the merge logic).
-const messages = computed<CollabMessage[]>(() => transcript.value);
+// Group-transcript view: persistent history first, then live events that do
+// not duplicate an already-persisted entry (keyed by session/direction/text).
+const messages = computed<CollabMessage[]>(() => {
+  const seen = new Set(
+    historyBase.value.map((m) => `${m.session_id}|${m.direction}|${m.text}`),
+  );
+  const live = transcript.value.filter(
+    (m) => !seen.has(`${m.session_id}|${m.direction}|${m.text}`),
+  );
+  return [...historyBase.value, ...live];
+});
+
+async function loadTranscriptHistory(groupId: string) {
+  const res = await agentCollabApi.groupTranscript(groupId);
+  historyBase.value = ((res.data.data?.messages ?? []) as CollabMessage[]).map(
+    (m) => ({ ...m, type: 'message' as const }),
+  );
+}
 
 async function stop() {
   if (activeDiscussion.value) await agentCollabApi.stopDiscussion(activeDiscussion.value);
@@ -222,6 +241,7 @@ export function useAgentCollab() {
     hopInfo,
     busySessions,
     loadGroups,
+    loadTranscriptHistory,
     startDiscussion,
     stop,
     resume,

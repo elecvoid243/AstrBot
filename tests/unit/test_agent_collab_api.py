@@ -1,6 +1,8 @@
 """Route-level tests: exercise the collab endpoints with a stubbed service."""
 
+import datetime
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -84,6 +86,12 @@ class _StubService(AgentCollabService):
     async def delete_group(self, username, group_id):
         self.calls.append(("delete_group", username, group_id))
         return {"message": "分组已解散"}
+
+    async def load_group(self, username, group_id):
+        group = self._groups.get(group_id)
+        if not group or group["owner_username"] != username:
+            raise AgentCollabServiceError(f"分组 '{group_id}' 不存在")
+        return group
 
     async def start_discussion(self, username, group_id, topic, ports):
         if not topic.strip():
@@ -178,4 +186,94 @@ def test_stream_requires_existing_discussion():
     stub = _StubService()
     client = TestClient(_build_isolated_app(stub))
     r = client.get("/api/agent_collab/discussions/missing/stream")
+    assert r.json()["status"] == "error"
+
+
+class _FakeRecord:
+    """Minimal platform-history record double."""
+
+    def __init__(self, content: dict, ts: float):
+        self.content = content
+        self.created_at = datetime.datetime.fromtimestamp(ts, tz=datetime.timezone.utc)
+
+
+def _build_transcript_app(stub, fake_mgr) -> FastAPI:
+    """App with a stubbed chat service exposing a scripted history manager."""
+    app = _build_isolated_app(stub)
+    app.state.services.chat = SimpleNamespace(platform_history_mgr=fake_mgr)
+    return app
+
+
+def test_group_transcript_aggregates_pairs_and_strips():
+    stub = _StubService()
+    fake_mgr = MagicMock()
+    # s1 (moderator): injected topic + reply-with-directive; ordinary user
+    # message in between must be skipped; s2: injected input + plain reply.
+    histories = {
+        "s1": [
+            _FakeRecord(
+                {
+                    "type": "user",
+                    "message": [
+                        {"type": "plain", "text": "[来自 用户alice]: 讨论主题"}
+                    ],
+                },
+                100.0,
+            ),
+            _FakeRecord(
+                {
+                    "type": "bot",
+                    "message": [
+                        {
+                            "type": "plain",
+                            "text": '我的看法\n```collab-route\n{"action": "route", "target": "x", "mode": "forward"}\n```',
+                        }
+                    ],
+                },
+                101.0,
+            ),
+            _FakeRecord(
+                {"type": "user", "message": [{"type": "plain", "text": "普通闲聊"}]},
+                102.0,
+            ),
+        ],
+        "s2": [
+            _FakeRecord(
+                {
+                    "type": "user",
+                    "message": [{"type": "plain", "text": "[来自 主持人]: 我的看法"}],
+                },
+                99.0,
+            ),
+            _FakeRecord(
+                {"type": "bot", "message": [{"type": "plain", "text": "成员回应"}]},
+                103.0,
+            ),
+        ],
+    }
+
+    async def fake_get(**kwargs):
+        return histories[kwargs["user_id"]]
+
+    fake_mgr.get.side_effect = fake_get
+    client = TestClient(_build_transcript_app(stub, fake_mgr))
+    r = client.get("/api/agent_collab/groups/g1/transcript")
+    assert r.json()["status"] == "ok"
+    msgs = r.json()["data"]["messages"]
+    # global chronological order: s2's sent (99) < s1's sent (100) < s1 reply (101) < s2 reply (103)
+    assert [m["direction"] for m in msgs] == ["sent", "sent", "reply", "reply"]
+    assert msgs[0]["session_id"] == "s2"
+    assert msgs[1]["session_id"] == "s1"
+    # directive fence stripped from the moderator reply; ordinary chat skipped
+    assert "collab-route" not in msgs[2]["text"]
+    assert msgs[2]["text"].startswith("我的看法")
+    assert all(m["session_id"] in ("s1", "s2") for m in msgs)
+    # per-session history requests
+    assert fake_mgr.get.call_count == 2
+
+
+def test_group_transcript_unknown_group_returns_error():
+    stub = _StubService()
+    client = TestClient(_build_isolated_app(stub))
+    r = client.get("/api/agent_collab/groups/nope/transcript")
     assert r.json()["status"] == "error"

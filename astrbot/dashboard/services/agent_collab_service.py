@@ -1,6 +1,7 @@
 """Agent collab service: session binding groups and moderated discussions."""
 
 import asyncio
+import time
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -135,6 +136,10 @@ class AgentCollabService:
                 if g["owner_username"] == username
             ]
         }
+
+    async def load_group(self, username: str, group_id: str) -> dict:
+        """Load one owned group (public wrapper around the ownership check)."""
+        return await self._get_owned(username, group_id, await self._load())
 
     async def _get_owned(self, username: str, group_id: str, groups: dict) -> dict:
         group = groups.get(group_id)
@@ -301,6 +306,7 @@ class AgentCollabService:
                                 "direction": "stream",
                                 "session_id": session_id,
                                 "text": delta,
+                                "ts": time.time(),
                             }
                         )
                 elif msg_type in ("complete", "end"):
@@ -472,6 +478,7 @@ class DiscussionRunner:
                 "direction": "sent",
                 "session_id": session_id,
                 "text": text,
+                "ts": time.time(),
             }
         )
         self.state["current_turn"] = {
@@ -496,6 +503,7 @@ class DiscussionRunner:
                 "direction": "reply",
                 "session_id": session_id,
                 "text": strip_directive_blocks(reply),
+                "ts": time.time(),
             }
         )
         return reply

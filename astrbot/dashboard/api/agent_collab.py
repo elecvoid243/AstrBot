@@ -8,6 +8,7 @@ from fastapi.responses import StreamingResponse
 
 from astrbot import logger
 from astrbot.dashboard.responses import error, ok
+from astrbot.dashboard.services.agent_collab_directive import strip_directive_blocks
 from astrbot.dashboard.services.agent_collab_service import (
     AgentCollabService,
     AgentCollabServiceError,
@@ -212,3 +213,119 @@ async def stream_discussion(
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
     )
+
+
+def _history_text(content: dict) -> str:
+    """Collect the plain prose of a history content dict (mirrors the
+    conversation-service search extractor: plain/markdown part text)."""
+    parts = content.get("message")
+    if isinstance(parts, str):
+        return parts
+    if not isinstance(parts, list):
+        return ""
+    chunks: list[str] = []
+    for part in parts:
+        if isinstance(part, str):
+            chunks.append(part)
+            continue
+        if not isinstance(part, dict):
+            continue
+        text = part.get("text")
+        if isinstance(text, str):
+            chunks.append(text)
+    return "".join(chunks)
+
+
+def _record_ts(record) -> str:
+    """Serialize a history record's created_at to an ISO string."""
+    created = getattr(record, "created_at", None)
+    if created is None:
+        return ""
+    if hasattr(created, "isoformat"):
+        return created.isoformat()
+    return str(created)
+
+
+def _extract_session_transcript(history) -> list[dict]:
+    """Reduce one session's history to its collab turns.
+
+    Injected inputs are user messages starting with the ``[来自 `` marker;
+    each is paired with the next bot reply in the same session. Everything
+    else (ordinary conversation) is skipped, and directive fences are
+    stripped from replies.
+    """
+    messages: list[dict] = []
+    in_turn = False
+    for record in history:
+        content = getattr(record, "content", None)
+        if isinstance(content, str):
+            try:
+                content = json.loads(content)
+            except Exception:
+                continue
+        if not isinstance(content, dict):
+            continue
+        text = _history_text(content)
+        ctype = content.get("type")
+        if ctype == "user" and text.startswith("[来自 "):
+            messages.append(
+                {
+                    "direction": "sent",
+                    "text": text,
+                    "ts": _record_ts(record),
+                }
+            )
+            in_turn = True
+        elif in_turn and ctype == "bot" and text:
+            messages.append(
+                {
+                    "direction": "reply",
+                    "text": strip_directive_blocks(text),
+                    "ts": _record_ts(record),
+                }
+            )
+            in_turn = False
+    return messages
+
+
+@legacy_router.get("/groups/{group_id}/transcript")
+async def group_transcript(
+    group_id: str,
+    request: Request,
+    username: str = Depends(require_dashboard_user),
+    service: AgentCollabService = Depends(get_service),
+):
+    """Aggregate the persistent per-session history into the group transcript.
+
+    Each member session already persists its own collab turns; this endpoint
+    reads those records, keeps only collab turns and merges them in global
+    chronological order — no extra storage is involved.
+    """
+    try:
+        group = await service.load_group(username, group_id)
+    except AgentCollabServiceError as e:
+        return _err(e)
+    chat = request.app.state.services.chat
+    history_mgr = chat.platform_history_mgr
+    messages: list[dict] = []
+    for member in group["members"]:
+        session_id = member["session_id"]
+        try:
+            history = await history_mgr.get(
+                platform_id="webchat",
+                user_id=session_id,
+                page=1,
+                page_size=100000,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "collab transcript: history read failed for %s: %s",
+                session_id,
+                exc,
+            )
+            continue
+        for msg in _extract_session_transcript(history):
+            msg["session_id"] = session_id
+            messages.append(msg)
+    messages.sort(key=lambda m: m["ts"])
+    return ok({"messages": messages})
