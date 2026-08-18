@@ -476,6 +476,12 @@ class DiscussionRunner:
             await asyncio.sleep(self.ports.busy_poll_interval)
 
     async def _pause_until_resumed(self, event: dict) -> None:
+        # If stop() was requested while a pause was about to begin, do not
+        # wait: _wake.clear() would swallow stop()'s wake-up and the runner
+        # would hang forever. The check runs in the synchronous section
+        # before the first await, so stop() cannot interleave here.
+        if self.state["status"] == "stopping":
+            return
         self.state["status"] = "paused"
         self.ports.emit(event)
         self._wake.clear()

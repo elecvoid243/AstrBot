@@ -260,7 +260,21 @@ async function stop() {
   } catch (error) {
     status.value = 'running';
     console.error('Failed to stop collab discussion:', error);
+    return;
   }
+  // Fallback: if the SSE stopped event never arrives (dropped connection),
+  // confirm the backend state after a grace period.
+  window.setTimeout(async () => {
+    if (status.value !== 'stopping') return;
+    try {
+      const res = await agentCollabApi.activeDiscussion();
+      if (!res.data.data?.discussion) {
+        status.value = 'stopped';
+      }
+    } catch {
+      // keep 'stopping'; the user can retry or reload
+    }
+  }, 5000);
 }
 
 async function resume(resetHops = false) {

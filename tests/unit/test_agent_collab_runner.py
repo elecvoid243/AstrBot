@@ -242,10 +242,45 @@ async def test_collect_timeout_pauses():
     world = FakeWorld(
         {g["members"][0]["session_id"]: [], g["members"][1]["session_id"]: []}
     )
-    r = DiscussionRunner(g, "topic", "alice", world.ports())
+    # collect hangs longer than reply_timeout so the timeout fires while stop()
+    # has already been requested
+    ports = world.ports()
+
+    async def slow_collect(session_id: str, message_id: str) -> tuple[str, list]:
+        await asyncio.sleep(0.3)
+        raise asyncio.TimeoutError
+
+    ports.collect = slow_collect
+    r = DiscussionRunner(g, "topic", "alice", ports)
     task = asyncio.create_task(r.run())
     await asyncio.sleep(0.4)
     assert r.state["status"] == "paused"
     assert any(e.get("type") == "error" for e in world.events)
     r.stop()
     await task
+
+
+@pytest.mark.asyncio
+async def test_stop_during_collect_timeout_does_not_hang():
+    """Regression: stop() while the runner is collecting must not deadlock
+    inside _pause_until_resumed (its _wake.clear() used to swallow the stop
+    wake-up and wait forever)."""
+    g = _group(2)
+    world = FakeWorld(
+        {g["members"][0]["session_id"]: [], g["members"][1]["session_id"]: []}
+    )
+    # collect hangs longer than reply_timeout so the timeout fires while
+    # stop() has already been requested
+    ports = world.ports()
+
+    async def slow_collect(session_id: str, message_id: str) -> tuple[str, list]:
+        await asyncio.sleep(0.3)
+        raise asyncio.TimeoutError
+
+    ports.collect = slow_collect
+    r = DiscussionRunner(g, "topic", "alice", ports)
+    task = asyncio.create_task(r.run())
+    await asyncio.sleep(0.05)
+    r.stop()  # collect will time out afterwards (reply_timeout=0.2)
+    await asyncio.wait_for(task, timeout=2)
+    assert r.state["status"] == "stopped"
