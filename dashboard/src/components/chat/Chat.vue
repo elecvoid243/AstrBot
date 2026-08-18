@@ -305,6 +305,7 @@
               :class="{
                 moderator: badge.isModerator,
                 active: activeCollabGroupId === badge.groupId,
+                running: badge.running,
               }"
               :style="{ color: badge.color, backgroundColor: badge.bgColor }"
               :title="badge.title"
@@ -1222,6 +1223,8 @@ const {
   groups: collabGroups,
   loadGroups: loadCollabGroups,
   recoverActiveDiscussion,
+  status: collabStatus,
+  activeDiscussionSessionIds,
 } = useAgentCollab();
 const collabDialogOpen = ref(false);
 const showCollabTranscript = ref(false);
@@ -1254,6 +1257,8 @@ async function onCollabSaved() {
 // Chain badge colors now live in useAgentCollab (collabGroupColor /
 // collabWithAlpha) so the transcript panel can reuse the same palette.
 function collabBadges(sessionId: string) {
+  const discussionActive =
+    collabStatus.value !== "idle" && collabStatus.value !== "stopped";
   return collabGroups.value
     .filter((g) => g.members.some((m) => m.session_id === sessionId))
     .map((g) => {
@@ -1263,6 +1268,8 @@ function collabBadges(sessionId: string) {
         groupId: g.id,
         color,
         isModerator,
+        // Member of the group hosting the running discussion → animated border.
+        running: discussionActive && activeDiscussionSessionIds.value.has(sessionId),
         // Moderator sessions get a visibly deeper badge background.
         bgColor: collabWithAlpha(color, isModerator ? 0.45 : 0.14),
         title: `${g.name}${isModerator ? " · 主持人" : ""}（点击切换协作面板）`,
@@ -5062,6 +5069,21 @@ function toggleTheme() {
 .collab-chain-badge.active {
   outline: 1.5px solid currentColor;
   outline-offset: 1px;
+}
+
+/* Running discussion: animated breathing border on member sessions. */
+.collab-chain-badge.running {
+  animation: collab-badge-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes collab-badge-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 currentColor;
+  }
+  50% {
+    box-shadow: 0 0 4px 1.5px currentColor;
+  }
 }
 
 .composer-shell {

@@ -61,6 +61,9 @@ export function collabWithAlpha(hex: string, alpha: number) {
 // chat page) share one collab session and one SSE connection.
 const groups = ref<CollabGroup[]>([]);
 const activeDiscussion = ref<string | null>(null);
+// The group a running discussion belongs to — drives the sidebar chain-badge
+// "running" animation on that group's member sessions.
+const activeDiscussionGroupId = ref<string | null>(null);
 // Routing events only (route/busy/hop/stopped/...) — drives CollabPanel.
 const timeline = ref<TimelineItem[]>([]);
 // Per-turn messages (sent/reply/stream) — drives the group transcript.
@@ -69,7 +72,7 @@ const transcript = ref<CollabMessage[]>([]);
 // that duplicate a history entry (same session + direction + text) are
 // dropped, so the panel survives page reloads without extra storage.
 const historyBase = ref<CollabMessage[]>([]);
-const status = ref<'idle' | 'running' | 'paused' | 'stopped'>('idle');
+const status = ref<'idle' | 'running' | 'paused' | 'stopping' | 'stopped'>('idle');
 const hopInfo = reactive({ count: 0, limit: 50 });
 const busySessions = ref<Set<string>>(new Set());
 let streamAbort: AbortController | null = null;
@@ -161,6 +164,7 @@ async function startDiscussion(groupId: string, topic: string) {
   const res = await agentCollabApi.startDiscussion(groupId, topic);
   activeDiscussion.value = res.data.data?.discussion_id ?? null;
   if (activeDiscussion.value) {
+    activeDiscussionGroupId.value = groupId;
     timeline.value = [];
     status.value = 'running';
     connectStream(activeDiscussion.value);
@@ -223,6 +227,13 @@ async function loadTranscriptHistory(groupId: string) {
   );
 }
 
+// Member sessions of the group currently hosting a discussion.
+const activeDiscussionSessionIds = computed(() => {
+  if (!activeDiscussionGroupId.value) return new Set<string>();
+  const group = groups.value.find((g) => g.id === activeDiscussionGroupId.value);
+  return new Set((group?.members ?? []).map((m) => m.session_id));
+});
+
 // Re-attach to a discussion that kept running server-side after a page
 // reload: restores the discussion id/status and reconnects the SSE stream
 // (full event replay rebuilds timeline + transcript).
@@ -231,13 +242,25 @@ async function recoverActiveDiscussion() {
   const d = res.data.data?.discussion;
   if (!d?.id) return null;
   activeDiscussion.value = d.id;
-  status.value = d.status === 'paused' ? 'paused' : 'running';
+  activeDiscussionGroupId.value = String(d.group_id || '');
+  status.value =
+    d.status === 'paused' ? 'paused' : d.status === 'stopping' ? 'stopping' : 'running';
   void connectStream(d.id);
   return String(d.group_id || '');
 }
 
 async function stop() {
-  if (activeDiscussion.value) await agentCollabApi.stopDiscussion(activeDiscussion.value);
+  if (!activeDiscussion.value || status.value === 'stopping') return;
+  // Immediate feedback: the backend runner may take a while to wind down
+  // (it finishes the in-flight reply collection), and the final "stopped"
+  // event arrives over SSE afterwards.
+  status.value = 'stopping';
+  try {
+    await agentCollabApi.stopDiscussion(activeDiscussion.value);
+  } catch (error) {
+    status.value = 'running';
+    console.error('Failed to stop collab discussion:', error);
+  }
 }
 
 async function resume(resetHops = false) {
@@ -258,6 +281,7 @@ export function useAgentCollab() {
   return {
     groups,
     activeDiscussion,
+    activeDiscussionSessionIds,
     timeline,
     messages,
     status,
