@@ -128,9 +128,15 @@ const listEl = ref<HTMLElement | null>(null);
 provide('isDark', props.isDark);
 
 // The panel shows each agent's turn activity only — injected inputs ("收到
-// 输入") are deliberately omitted.
+// 输入") are omitted, and telemetry blobs (agent_stats JSON persisted into
+// older history records) are filtered defensively.
+function isStatsBlob(m: CollabMessage) {
+  const t = String(m.text || '').trim();
+  return t.startsWith('{"') && t.includes('token_usage');
+}
+
 const displayMessages = computed(() =>
-  messages.value.filter((m) => m.direction !== 'sent'),
+  messages.value.filter((m) => m.direction !== 'sent' && !isStatsBlob(m)),
 );
 
 function memberColor(sessionId: string) {

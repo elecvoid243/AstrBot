@@ -245,6 +245,21 @@ def _record_ts(record) -> str:
     return str(created)
 
 
+def _is_stats_record(content: dict, text: str) -> bool:
+    """True for telemetry-only bot records (agent_stats blobs).
+
+    An agent_stats chain is persisted as a single plain JSON part whose text
+    carries ``token_usage``; it must not be treated as a collab reply.
+    """
+    parts = content.get("message")
+    if not isinstance(parts, list) or len(parts) != 1:
+        return False
+    part = parts[0]
+    if not isinstance(part, dict) or part.get("type") != "plain":
+        return False
+    return '"token_usage"' in str(part.get("text", ""))
+
+
 def _extract_session_transcript(history) -> list[dict]:
     """Reduce one session's history to its collab turns.
 
@@ -276,6 +291,8 @@ def _extract_session_transcript(history) -> list[dict]:
             )
             in_turn = True
         elif in_turn and ctype == "bot" and text:
+            if _is_stats_record(content, text):
+                continue  # telemetry blob; keep waiting for the real reply
             # Keep the full parts (thinking / tool calls / output, incl. the
             # moderator's routing directive) so the panel renders the agent's
             # complete activity, not just the plain text.

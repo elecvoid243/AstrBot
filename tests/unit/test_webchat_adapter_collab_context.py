@@ -153,3 +153,31 @@ def test_consumed_reply_is_not_persisted(monkeypatch):
         )
     )
     assert not inserted
+
+
+def test_agent_stats_chain_is_not_persisted(monkeypatch):
+    import asyncio
+
+    from astrbot.api.event import MessageChain
+    from astrbot.api.message_components import Json
+    from astrbot.core.platform.sources.webchat import webchat_event as we
+
+    inserted = []
+
+    async def fake_insert(**kwargs):
+        inserted.append(kwargs)
+        return None
+
+    monkeypatch.setattr(we.db_helper, "insert_platform_message_history", fake_insert)
+    stats_chain = MessageChain(
+        type="agent_stats",
+        chain=[Json(data={"token_usage": {"output": 1}})],
+    )
+    asyncio.run(
+        we._persist_bot_reply_if_orphan(
+            session_id="webchat!alice!conv123",
+            request_id="mid-stats",
+            message_chain=stats_chain,
+        )
+    )
+    assert not inserted

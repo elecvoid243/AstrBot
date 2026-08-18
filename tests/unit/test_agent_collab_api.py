@@ -280,3 +280,46 @@ def test_group_transcript_unknown_group_returns_error():
     client = TestClient(_build_isolated_app(stub))
     r = client.get("/api/agent_collab/groups/nope/transcript")
     assert r.json()["status"] == "error"
+
+
+def test_group_transcript_skips_stats_records():
+    stub = _StubService()
+    fake_mgr = MagicMock()
+    histories = {
+        "s1": [
+            _FakeRecord(
+                {
+                    "type": "user",
+                    "message": [{"type": "plain", "text": "[来自 用户alice]: 主题"}],
+                },
+                100.0,
+            ),
+            _FakeRecord(
+                {
+                    "type": "bot",
+                    "message": [
+                        {"type": "plain", "text": '{"token_usage": {"output": 1}}'}
+                    ],
+                },
+                101.0,
+            ),
+            _FakeRecord(
+                {"type": "bot", "message": [{"type": "plain", "text": "真实回复"}]},
+                102.0,
+            ),
+        ],
+        "s2": [],
+    }
+
+    async def fake_get(**kwargs):
+        return histories[kwargs["user_id"]]
+
+    fake_mgr.get.side_effect = fake_get
+    client = TestClient(_build_transcript_app(stub, fake_mgr))
+    msgs = client.get("/api/agent_collab/groups/g1/transcript").json()["data"][
+        "messages"
+    ]
+    # stats blob between the injection and the real reply must be skipped and
+    # must not consume the turn pairing
+    assert [m["direction"] for m in msgs] == ["sent", "reply"]
+    assert msgs[1]["text"] == "真实回复"
