@@ -189,7 +189,9 @@ watch(() => messages.value.length, scrollToBottom);
 .collab-transcript-sent {
   display: inline-block;
   text-align: left;
-  background: rgb(var(--v-theme-surface-variant));
+  /* 与页面背景同系：浅色模式浅灰 (#efefef)、深色模式深灰 (白 8%)，
+     仅保留一点点区分度，避免 surface-variant 的明暗反差。 */
+  background: var(--chat-session-active-bg, rgba(var(--v-theme-surface-variant), 0.4));
   border-radius: 12px 12px 2px 12px;
   padding: 8px 12px;
   font-size: 0.875rem;

@@ -262,6 +262,10 @@ class AgentCollabService:
                         # Per-turn collab framing, injected by build_main_agent
                         # as a temp extra (provider-facing, not persisted).
                         "collab_context": context,
+                        # Persist the injected turn into the session's platform
+                        # history (core-path messages are not persisted by the
+                        # webchat adapter otherwise).
+                        "persist_user_history": True,
                     },
                 )
             )

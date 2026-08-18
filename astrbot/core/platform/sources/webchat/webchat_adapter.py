@@ -23,6 +23,7 @@ from ...register import register_platform_adapter
 from .message_parts_helper import (
     message_chain_to_storage_message_parts,
     parse_webchat_message_parts,
+    strip_message_parts_path_fields,
 )
 from .request_flags import resolve_webchat_request_flags
 from .webchat_event import WebChatMessageEvent
@@ -221,6 +222,29 @@ class WebChatAdapter(Platform):
         abm.timestamp = int(time.time())
         abm.message_str = "".join(message_str_parts)
         abm.raw_message = data
+
+        # Collab-injected turns persist their user input into platform history
+        # (regular dashboard sends already persist upstream in ChatService);
+        # without this record the injected message would never appear in the
+        # session history nor in the group transcript aggregation.
+        if payload.get("persist_user_history"):
+            try:
+                await db_helper.insert_platform_message_history(
+                    platform_id="webchat",
+                    user_id=cid,
+                    content={
+                        "type": "user",
+                        "message": strip_message_parts_path_fields(message_parts),
+                    },
+                    sender_id=username,
+                    sender_name=username,
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.error(
+                    f"[WebChatAdapter] Failed to persist injected user message: {exc}",
+                    exc_info=True,
+                )
+
         return abm
 
     def run(self) -> Coroutine[Any, Any, None]:

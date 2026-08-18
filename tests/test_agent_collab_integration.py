@@ -86,6 +86,8 @@ async def test_end_to_end_with_real_queue_mgr():
     # carry the participant roster (temp extra consumed by build_main_agent)
     assert "collab-route" in inbox[0][2]["collab_context"]
     assert "参与者" in inbox[1][2]["collab_context"]
+    # injected turns must be persisted into the session history
+    assert all(p.get("persist_user_history") for _, _, p in inbox)
     # transcript events: per-turn sent/reply plus live stream deltas
     stream_deltas = [
         e

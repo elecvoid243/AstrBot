@@ -48,3 +48,50 @@ def test_missing_collab_context_is_noop():
 def test_blank_collab_context_is_noop():
     event = _adapter().create_event(_message({"collab_context": "   "}))
     assert event.get_extra("collab_context") is None
+
+
+def test_persist_user_history_writes_record(monkeypatch):
+    import asyncio
+
+    from astrbot.core.platform.sources.webchat import webchat_adapter as wa
+
+    inserted = []
+
+    async def fake_insert(**kwargs):
+        inserted.append(kwargs)
+        return None
+
+    monkeypatch.setattr(wa.db_helper, "insert_platform_message_history", fake_insert)
+    payload = {
+        "message": [{"type": "plain", "text": "[来自 主持人]: 内容"}],
+        "persist_user_history": True,
+    }
+    asyncio.run(_adapter().convert_message(("alice", "conv123", payload)))
+    assert len(inserted) == 1
+    record = inserted[0]
+    assert record["platform_id"] == "webchat"
+    assert record["user_id"] == "conv123"
+    assert record["content"]["type"] == "user"
+    assert record["content"]["message"] == payload["message"]
+    assert record["sender_id"] == "alice"
+
+
+def test_regular_messages_do_not_write_history(monkeypatch):
+    import asyncio
+
+    from astrbot.core.platform.sources.webchat import webchat_adapter as wa
+
+    called = False
+
+    async def fake_insert(**kwargs):
+        nonlocal called
+        called = True
+        return None
+
+    monkeypatch.setattr(wa.db_helper, "insert_platform_message_history", fake_insert)
+    asyncio.run(
+        _adapter().convert_message(
+            ("alice", "conv123", {"message": [{"type": "plain", "text": "普通消息"}]})
+        )
+    )
+    assert not called
