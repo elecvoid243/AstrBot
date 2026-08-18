@@ -15,6 +15,13 @@
       <span class="text-caption ml-2">{{ hopInfo.count }}/{{ hopInfo.limit }}</span>
       <v-spacer />
       <v-btn
+        icon="mdi-forum-outline"
+        size="x-small"
+        variant="text"
+        title="查看完整对话记录"
+        @click="emit('open-transcript')"
+      />
+      <v-btn
         icon="mdi-close"
         size="x-small"
         variant="text"
@@ -68,10 +75,10 @@
     <div class="collab-timeline px-3 pb-3">
       <div v-for="(item, i) in timeline" :key="i" class="text-body-2">
         <template v-if="item.type === 'route'">
-          → {{ aliasOf(item.from as string) }} 转给 {{ aliasOf(item.to as string) }}
+          → {{ labelOf(item.from as string) }} 转给 {{ labelOf(item.to as string) }}
         </template>
         <template v-else-if="item.type === 'busy'">
-          ⏳ {{ aliasOf(item.session_id as string) }} 忙碌中，消息已挂起
+          ⏳ {{ labelOf(item.session_id as string) }} 忙碌中，消息已挂起
         </template>
         <template v-else-if="item.type === 'stopped'">
           ■ 讨论结束：{{ item.reason }}
@@ -93,7 +100,7 @@ import { computed, ref } from 'vue';
 import { useAgentCollab, type CollabGroup } from '@/composables/useAgentCollab';
 
 const props = defineProps<{ group: CollabGroup }>();
-const emit = defineEmits<{ close: [] }>();
+const emit = defineEmits<{ close: []; 'open-transcript': [] }>();
 const { timeline, status, hopInfo, busySessions, startDiscussion, stop, resume, manualRoute } =
   useAgentCollab();
 
@@ -105,8 +112,14 @@ const memberItems = computed(() =>
   props.group.members.map((m) => ({ title: m.alias, value: m.session_id })),
 );
 
-function aliasOf(sid?: string) {
-  return props.group.members.find((m) => m.session_id === sid)?.alias || sid || '';
+// Show "alias · short-id" everywhere: members with default aliases may be
+// indistinguishable by alias alone, and a raw full id is unreadable.
+function labelOf(sid?: string) {
+  if (!sid) return '';
+  if (sid === 'user') return '用户';
+  const member = props.group.members.find((m) => m.session_id === sid);
+  if (member) return `${member.alias} · ${sid.slice(-8)}`;
+  return sid;
 }
 
 async function start() {

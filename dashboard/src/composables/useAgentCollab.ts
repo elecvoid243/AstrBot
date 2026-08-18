@@ -1,4 +1,4 @@
-import { reactive, ref } from 'vue';
+import { computed, reactive, ref } from 'vue';
 import { fetchWithAuth } from '@/api/http';
 import { agentCollabApi } from '@/api/v1';
 
@@ -13,6 +13,46 @@ export interface CollabGroup {
 export interface TimelineItem {
   type: string;
   [key: string]: unknown;
+}
+
+export interface CollabMessage {
+  type: 'message';
+  direction: 'sent' | 'reply';
+  session_id: string;
+  text: string;
+  [key: string]: unknown;
+}
+
+// Stable per-id colors for group badges and per-member transcript rows.
+const COLLAB_COLORS = [
+  '#e53935',
+  '#8e24aa',
+  '#3949ab',
+  '#00897b',
+  '#f4511e',
+  '#d81b60',
+  '#6d4c41',
+  '#43a047',
+];
+
+function colorOf(key: string) {
+  const hash = [...key].reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
+  return COLLAB_COLORS[hash % COLLAB_COLORS.length];
+}
+
+export function collabGroupColor(groupId: string) {
+  return colorOf(groupId);
+}
+
+export function collabMemberColor(sessionId: string) {
+  return colorOf(sessionId);
+}
+
+export function collabWithAlpha(hex: string, alpha: number) {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
 // Module-level singleton state: multiple components (panel, bind dialog,
@@ -117,6 +157,21 @@ function disconnectStream() {
   streamAbort = null;
 }
 
+// Reconnect and rebuild the timeline from the server-side event replay, so
+// panels opened mid-discussion still see every past turn.
+async function restartStream() {
+  timeline.value = [];
+  busySessions.value = new Set();
+  if (activeDiscussion.value) {
+    await connectStream(activeDiscussion.value);
+  }
+}
+
+// Group-transcript view: only the per-turn message events, in order.
+const messages = computed<CollabMessage[]>(() =>
+  timeline.value.filter((e): e is CollabMessage => e.type === 'message'),
+);
+
 async function stop() {
   if (activeDiscussion.value) await agentCollabApi.stopDiscussion(activeDiscussion.value);
 }
@@ -140,6 +195,7 @@ export function useAgentCollab() {
     groups,
     activeDiscussion,
     timeline,
+    messages,
     status,
     hopInfo,
     busySessions,
@@ -150,5 +206,6 @@ export function useAgentCollab() {
     manualRoute,
     connectStream,
     disconnectStream,
+    restartStream,
   };
 }

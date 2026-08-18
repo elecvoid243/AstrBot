@@ -95,6 +95,15 @@ async def test_forward_chain_and_end():
     assert "collab-route" in world.contexts[0][1]
     assert "参与者" in world.contexts[1][1]
     assert "agent1（你）" in world.contexts[1][1]
+    # transcript events: one sent + one reply per turn, replies carry no
+    # directive fences (protocol stays out of the group transcript)
+    msgs = [e for e in world.events if e.get("type") == "message"]
+    assert len([m for m in msgs if m["direction"] == "sent"]) == 5
+    assert len([m for m in msgs if m["direction"] == "reply"]) == 5
+    assert msgs[0]["session_id"] == "s00000000x" and "设计一个功能" in msgs[0]["text"]
+    assert all(
+        "collab-route" not in m["text"] for m in msgs if m["direction"] == "reply"
+    )
 
 
 @pytest.mark.asyncio

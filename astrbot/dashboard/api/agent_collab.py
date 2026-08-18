@@ -95,13 +95,19 @@ async def start_discussion(
 ):
     payload = await _json_body(request)
     topic = str(payload.get("topic") or "")
-    queue: asyncio.Queue = asyncio.Queue(maxsize=512)
+
+    # Fan-out event bus: every emitted event is retained in entry["events"]
+    # (replayed to each new SSE subscriber) and pushed to live subscribers.
+    subscribers: list[asyncio.Queue] = []
+    events: list[dict] = []
 
     def emit(event: dict) -> None:
-        try:
-            queue.put_nowait(event)
-        except asyncio.QueueFull:
-            logger.debug("collab event queue full, dropping event")
+        events.append(event)
+        for sub in subscribers:
+            try:
+                sub.put_nowait(event)
+            except asyncio.QueueFull:
+                logger.debug("collab event subscriber queue full, dropping event")
 
     try:
         state = await service.start_discussion(
@@ -113,7 +119,8 @@ async def start_discussion(
     except AgentCollabServiceError as e:
         return _err(e)
     entry = service.discussions[state["id"]]
-    entry["event_queue"] = queue
+    entry["events"] = events
+    entry["subscribers"] = subscribers
     state["task"] = asyncio.create_task(
         entry["runner"].run(), name=f"collab_{state['id']}"
     )
@@ -176,19 +183,29 @@ async def stream_discussion(
     entry = service.discussions.get(discussion_id)
     if not entry:
         return error(f"讨论 '{discussion_id}' 不存在")
-    queue = entry.get("event_queue")
-    if queue is None:
+    subscribers = entry.get("subscribers")
+    if subscribers is None:
         return error("该讨论无事件流")
 
+    queue: asyncio.Queue = asyncio.Queue(maxsize=512)
+    # Replay the full history first so late subscribers (e.g. the group
+    # transcript panel opened mid-discussion) still see every turn.
+    for event in entry.get("events", []):
+        queue.put_nowait(event)
+    subscribers.append(queue)
+
     async def gen():
-        while True:
-            if await request.is_disconnected():
-                break
-            try:
-                event = await asyncio.wait_for(queue.get(), timeout=15)
-                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
-            except asyncio.TimeoutError:
-                yield ": heartbeat\n\n"
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=15)
+                    yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                except asyncio.TimeoutError:
+                    yield ": heartbeat\n\n"
+        finally:
+            subscribers.remove(queue)
 
     return StreamingResponse(
         gen(),

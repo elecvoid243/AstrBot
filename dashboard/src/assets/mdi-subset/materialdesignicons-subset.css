@@ -1,4 +1,4 @@
-/* Auto-generated MDI subset – 368 icons */
+/* Auto-generated MDI subset – 369 icons */
 /* Do not edit manually. Run: pnpm run subset-icons */
 
 @font-face {
@@ -730,6 +730,10 @@
 
 .mdi-format-paint::before {
   content: "\F027C";
+}
+
+.mdi-forum-outline::before {
+  content: "\F0822";
 }
 
 .mdi-frequently-asked-questions::before {

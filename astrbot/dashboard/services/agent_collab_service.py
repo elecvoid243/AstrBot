@@ -448,6 +448,15 @@ class DiscussionRunner:
             }
         )
         message_id = await self.ports.deliver(session_id, text, context)
+        # Transcript event: what was injected into the target session.
+        self.ports.emit(
+            {
+                "type": "message",
+                "direction": "sent",
+                "session_id": session_id,
+                "text": text,
+            }
+        )
         self.state["current_turn"] = {
             "session_id": session_id,
             "message_id": message_id,
@@ -462,6 +471,16 @@ class DiscussionRunner:
             await self._pause_until_resumed({"type": "error", "reason": str(e)})
             return "" if self.state["status"] == "running" else None
         self.state["current_turn"] = None
+        # Transcript event: the agent's reply (directive fences stripped —
+        # routing protocol internals do not belong in the group transcript).
+        self.ports.emit(
+            {
+                "type": "message",
+                "direction": "reply",
+                "session_id": session_id,
+                "text": strip_directive_blocks(reply),
+            }
+        )
         return reply
 
     # ---------- main loop ----------

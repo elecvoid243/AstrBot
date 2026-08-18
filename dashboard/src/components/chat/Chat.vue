@@ -428,7 +428,7 @@
           >
             <span
               class="collab-group-dot"
-              :style="{ backgroundColor: collabChainColor(g.id) }"
+              :style="{ backgroundColor: collabGroupColor(g.id) }"
             />
             <span class="collab-group-name">{{ g.name }}</span>
             <span class="collab-group-members">{{ g.members.length }} 会话</span>
@@ -854,6 +854,13 @@
           v-if="activeCollabGroup"
           :group="activeCollabGroup"
           @close="activeCollabGroupId = null"
+          @open-transcript="showCollabTranscript = true"
+        />
+
+        <CollabTranscriptPanel
+          v-if="showCollabTranscript && activeCollabGroup"
+          :group="activeCollabGroup"
+          @close="showCollabTranscript = false"
         />
 
         <section ref="composerShell" class="composer-shell">
@@ -1107,8 +1114,14 @@ import GitDiffSidebar from "@/components/chat/GitDiffSidebar.vue";
 import ChatMessageSearchDialog from "@/components/chat/ChatMessageSearchDialog.vue";
 import CollabBindDialog from "@/components/chat/CollabBindDialog.vue";
 import CollabPanel from "@/components/chat/CollabPanel.vue";
+import CollabTranscriptPanel from "@/components/chat/CollabTranscriptPanel.vue";
 import ArchivedSessionsDialog from "@/components/chat/ArchivedSessionsDialog.vue";
-import { useAgentCollab, type CollabGroup } from "@/composables/useAgentCollab";
+import {
+  useAgentCollab,
+  collabGroupColor,
+  collabWithAlpha,
+  type CollabGroup,
+} from "@/composables/useAgentCollab";
 import {
   useSessions,
   type ArchivedSession,
@@ -1209,6 +1222,7 @@ const {
   loadGroups: loadCollabGroups,
 } = useAgentCollab();
 const collabDialogOpen = ref(false);
+const showCollabTranscript = ref(false);
 const activeCollabGroupId = ref<string | null>(null);
 const activeCollabGroup = computed(
   () => collabGroups.value.find((g) => g.id === activeCollabGroupId.value) ?? null,
@@ -1235,42 +1249,20 @@ async function onCollabSaved() {
   if (selectionMode.value) toggleSelectionMode();
 }
 
-// Per-group chain badge colors: stable across reloads (hash of group id).
-const COLLAB_CHAIN_COLORS = [
-  "#e53935",
-  "#8e24aa",
-  "#3949ab",
-  "#00897b",
-  "#f4511e",
-  "#d81b60",
-  "#6d4c41",
-  "#43a047",
-];
-
-function collabChainColor(groupId: string) {
-  const hash = [...groupId].reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
-  return COLLAB_CHAIN_COLORS[hash % COLLAB_CHAIN_COLORS.length];
-}
-
-function withAlpha(hex: string, alpha: number) {
-  const r = parseInt(hex.slice(1, 3), 16);
-  const g = parseInt(hex.slice(3, 5), 16);
-  const b = parseInt(hex.slice(5, 7), 16);
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-}
-
+// Chain badge colors now live in useAgentCollab (collabGroupColor /
+// collabWithAlpha) so the transcript panel can reuse the same palette.
 function collabBadges(sessionId: string) {
   return collabGroups.value
     .filter((g) => g.members.some((m) => m.session_id === sessionId))
     .map((g) => {
-      const color = collabChainColor(g.id);
+      const color = collabGroupColor(g.id);
       const isModerator = g.moderator_session_id === sessionId;
       return {
         groupId: g.id,
         color,
         isModerator,
         // Moderator sessions get a visibly deeper badge background.
-        bgColor: withAlpha(color, isModerator ? 0.45 : 0.14),
+        bgColor: collabWithAlpha(color, isModerator ? 0.45 : 0.14),
         title: `${g.name}${isModerator ? " · 主持人" : ""}（点击切换协作面板）`,
       };
     });
