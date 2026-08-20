@@ -512,7 +512,20 @@
       "codegraphRestarting": "Restarting codegraph",
       "codegraphConnected": "Codegraph connected",
       "codegraphDisconnected": "Codegraph disconnected",
-      "dismissBubble": "Dismiss"
+      "dismissBubble": "Dismiss",
+      "worktreeBtnTooltip": "Choose the LLM worktree",
+      "worktreeBtnTooltipActive": "LLM worktree: {branch}",
+      "worktreeMenuTitle": "LLM worktree",
+      "worktreeMenuHint": "Once set, this worktree's path is injected into every LLM request so the agent works on it",
+      "worktreeNone": "Not specified (follow project path)",
+      "worktreeMainBadge": "main",
+      "worktreeDetachedBadge": "detached",
+      "worktreeLoading": "Loading worktrees…",
+      "worktreeLoadFailed": "Failed to load worktrees",
+      "worktreeEmpty": "No git worktrees in this project",
+      "worktreeActivated": "The LLM will work on {branch}",
+      "worktreeDeactivated": "LLM worktree cleared",
+      "worktreeActivateFailed": "Failed to set worktree: {reason}"
     },
     "diffPreview": {
       "summary": {

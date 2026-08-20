@@ -10,6 +10,7 @@ import {
   parseSpcodeWorktreeRemove,
   parseSpcodeWorktreeLock,
   parseSpcodeWorktreeUnlock,
+  parseSpcodeWorktreeActivate,
   classifyWorktreeReason,
   WORKTREE_MGMT_REASON_CODES,
   ALLOWED_WORKTREE_REASONS,
@@ -80,6 +81,50 @@ test("parseSpcodeWorktreeUnlock: success returns snapshot with locked=false", ()
   assert.equal(r.snapshot.lockReason, null);
 });
 
+// ── 2026-08-20 worktree-activate ─────────────────────────────────────
+
+test("parseSpcodeWorktreeActivate: success returns snapshot with activeWorktree", () => {
+  const r = parseSpcodeWorktreeActivate({
+    status: "ok",
+    data: { ...baseData, active_worktree: "C:/repo/.worktrees/feat" },
+  });
+  assert.equal(r.kind, "ok");
+  assert.equal(r.snapshot.activeWorktree, "C:/repo/.worktrees/feat");
+  assert.equal(r.snapshot.worktrees.length, 1);
+});
+
+test("parseSpcodeWorktreeActivate: deactivate yields activeWorktree=null", () => {
+  const r = parseSpcodeWorktreeActivate({
+    status: "ok",
+    data: { ...baseData, worktree: "", active_worktree: null },
+  });
+  assert.equal(r.kind, "ok");
+  assert.equal(r.snapshot.activeWorktree, null);
+});
+
+test("parseSpcodeWorktreeActivate: worktree_not_found surfaces as error", () => {
+  const r = parseSpcodeWorktreeActivate({
+    status: "ok",
+    data: { ...baseData, reason: "worktree_not_found", stderr: "path not in list" },
+  });
+  assert.equal(r.kind, "error");
+  assert.equal(r.reason, "worktree_not_found");
+  assert.equal(r.stderr, "path not in list");
+});
+
+test("classifyWorktreeReason: activate endpoint accepts path_unsafe", () => {
+  const meta = classifyWorktreeReason("path_unsafe", "activate");
+  assert.equal(meta.i18nKey, "error.reason.path_unsafe");
+});
+
+test("classifyWorktreeReason: activate endpoint rejects not_locked", () => {
+  // not_locked is unlock-only; on activate it must fall back to unknown
+  assert.equal(
+    classifyWorktreeReason("not_locked", "activate").i18nKey,
+    "error.reason.unknown",
+  );
+});
+
 test("failure envelope (cannot_remove_main) surfaces as error", () => {
   const r = parseSpcodeWorktreeRemove({
     status: "ok",
@@ -122,8 +167,8 @@ test("classifyWorktreeReason: network always returns network", () => {
   assert.equal(meta.i18nKey, "error.reason.network");
 });
 
-test("ALLOWED_WORKTREE_REASONS covers all 4 endpoints", () => {
-  for (const ep of ["add", "remove", "lock", "unlock"]) {
+test("ALLOWED_WORKTREE_REASONS covers all 5 endpoints", () => {
+  for (const ep of ["add", "remove", "lock", "unlock", "activate"]) {
     assert.ok(Array.isArray(ALLOWED_WORKTREE_REASONS[ep]), `${ep} should be array`);
     assert.ok(ALLOWED_WORKTREE_REASONS[ep].length > 0, `${ep} should have reasons`);
   }

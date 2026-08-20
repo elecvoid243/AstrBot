@@ -511,7 +511,20 @@
       "codegraphRestarting": "Перезапуск codegraph",
       "codegraphConnected": "Codegraph подключен",
       "codegraphDisconnected": "Codegraph отключен",
-      "dismissBubble": "Закрыть"
+      "dismissBubble": "Закрыть",
+      "worktreeBtnTooltip": "Выбрать рабочий каталог LLM",
+      "worktreeBtnTooltipActive": "Рабочий каталог LLM: {branch}",
+      "worktreeMenuTitle": "Рабочий каталог LLM",
+      "worktreeMenuHint": "После выбора путь этого рабочего дерева добавляется в каждый запрос к LLM — агент будет работать в нём",
+      "worktreeNone": "Не указан (по пути проекта)",
+      "worktreeMainBadge": "главный",
+      "worktreeDetachedBadge": "отсоединён",
+      "worktreeLoading": "Загрузка рабочих деревьев…",
+      "worktreeLoadFailed": "Не удалось загрузить список рабочих деревьев",
+      "worktreeEmpty": "В проекте нет рабочих деревьев git",
+      "worktreeActivated": "LLM будет работать в {branch}",
+      "worktreeDeactivated": "Рабочий каталог LLM сброшен",
+      "worktreeActivateFailed": "Не удалось установить рабочий каталог: {reason}"
     },
     "diffPreview": {
       "summary": {

@@ -13,11 +13,16 @@
  *       "directory": str | null,
  *       "umo": str | null,
  *       "worktrees": [ { path, head_sha, branch, is_main, prunable, locked }, ... ],
+ *       "active_worktree": str | null,
  *       "reason": str | null,
  *       "stderr": str,
  *       "elapsed_ms": int
  *     }
  *   }
+ *
+ * `active_worktree` (2026-08-20 worktree-activate): the worktree whose info is
+ * injected into LLM requests via extra_user_content_parts; null when no
+ * worktree is activated (or the activated one went stale — the backend prunes).
  */
 
 export interface SpcodeGitWorktreeRaw {
@@ -34,6 +39,7 @@ export interface SpcodeGitWorktreesRawResponse {
   directory: string | null
   umo: string | null
   worktrees: SpcodeGitWorktreeRaw[]
+  active_worktree?: string | null
   reason: string | null
   stderr: string
   elapsed_ms: number
@@ -59,6 +65,7 @@ export interface SpcodeGitWorktreesSnapshot {
     directory: string | null
     umo: string | null
     loaded: boolean
+    activeWorktree: string | null
     reason: string | null
     stderr: string
     elapsedMs: number
@@ -80,6 +87,7 @@ export function parseSpcodeGitWorktrees(
       directory: data.directory ?? null,
       umo: data.umo ?? null,
       loaded: Boolean(data.loaded),
+      activeWorktree: data.active_worktree ?? null,
       reason: data.reason ?? null,
       stderr: data.stderr ?? '',
       elapsedMs:

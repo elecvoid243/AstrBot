@@ -16,6 +16,7 @@ import {
   parseSpcodeWorktreeRemove,
   parseSpcodeWorktreeLock,
   parseSpcodeWorktreeUnlock,
+  parseSpcodeWorktreeActivate,
 } from '@/composables/parseSpcodeWorktreeManagement'
 
 // ── Worktree management (spec 2026-06-27 §1.1) ──────────────
@@ -52,6 +53,14 @@ export interface WorktreeRemoveParams extends WorktreeMgmtParams {
 /** LOCK-specific params (extends with reason). */
 export interface WorktreeLockParams extends WorktreeMgmtParams {
   reason?: string;
+}
+
+/** ACTIVATE-specific params (2026-08-20 worktree-activate): `path: null`
+ *  deactivates (clears the activation); a non-null absolute path activates
+ *  that worktree (must be in the backend's worktree list). */
+export interface WorktreeActivateParams {
+  path: string | null;
+  umo?: string | null;
 }
 
 /** Discriminated union return type for all 4 mutations. Mirrors the
@@ -104,6 +113,13 @@ export interface UseSpcodeWorktrees {
   /** Unlock a worktree. Non-idempotent: second unlock returns
    *  `not_locked`. UI should disable when `locked=false`. */
   unlock: (params: WorktreeMgmtParams) => Promise<WorktreeMgmtResult>
+  /**
+   * Activate a worktree (2026-08-20): while activated, the backend injects
+   * the worktree's info into every LLM request for this session via
+   * extra_user_content_parts (TextPart.mark_as_temp). `path: null`
+   * deactivates. Main worktrees are activatable too.
+   */
+  activate: (params: WorktreeActivateParams) => Promise<WorktreeMgmtResult>
   dispose: () => void
 }
 
@@ -299,6 +315,10 @@ export function useSpcodeWorktrees(): UseSpcodeWorktrees {
         directory: parsed.snapshot.meta.directory,
         umo: parsed.snapshot.meta.umo,
         worktrees: parsed.snapshot.worktrees as unknown as SpcodeGitWorktreeRaw[],
+        // These endpoints' responses don't echo the activation; carry the
+        // current value over so the tab indicator survives the refresh.
+        active_worktree:
+          state.value.kind === "ok" ? state.value.snapshot.meta.activeWorktree : null,
         reason: parsed.snapshot.meta.reason,
         stderr: parsed.snapshot.meta.stderr,
         elapsed_ms: parsed.snapshot.meta.elapsedMs,
@@ -335,11 +355,17 @@ export function useSpcodeWorktrees(): UseSpcodeWorktrees {
       if (parsed.kind !== "ok") {
         return { ok: false, reason: parsed.reason, stderr: parsed.stderr };
       }
+      // Carry the activation over — unless the removed worktree was the
+      // activated one (drop it now; the backend-side prune only runs on
+      // the next GET /spcode/git-worktrees).
+      const prevActive =
+        state.value.kind === "ok" ? state.value.snapshot.meta.activeWorktree : null;
       const refreshed = parseSpcodeGitWorktrees({
         loaded: parsed.snapshot.meta.loaded,
         directory: parsed.snapshot.meta.directory,
         umo: parsed.snapshot.meta.umo,
         worktrees: parsed.snapshot.worktrees as unknown as SpcodeGitWorktreeRaw[],
+        active_worktree: prevActive === params.path ? null : prevActive,
         reason: parsed.snapshot.meta.reason,
         stderr: parsed.snapshot.meta.stderr,
         elapsed_ms: parsed.snapshot.meta.elapsedMs,
@@ -381,6 +407,10 @@ export function useSpcodeWorktrees(): UseSpcodeWorktrees {
         directory: parsed.snapshot.meta.directory,
         umo: parsed.snapshot.meta.umo,
         worktrees: parsed.snapshot.worktrees as unknown as SpcodeGitWorktreeRaw[],
+        // These endpoints' responses don't echo the activation; carry the
+        // current value over so the tab indicator survives the refresh.
+        active_worktree:
+          state.value.kind === "ok" ? state.value.snapshot.meta.activeWorktree : null,
         reason: parsed.snapshot.meta.reason,
         stderr: parsed.snapshot.meta.stderr,
         elapsed_ms: parsed.snapshot.meta.elapsedMs,
@@ -422,6 +452,58 @@ export function useSpcodeWorktrees(): UseSpcodeWorktrees {
         directory: parsed.snapshot.meta.directory,
         umo: parsed.snapshot.meta.umo,
         worktrees: parsed.snapshot.worktrees as unknown as SpcodeGitWorktreeRaw[],
+        // These endpoints' responses don't echo the activation; carry the
+        // current value over so the tab indicator survives the refresh.
+        active_worktree:
+          state.value.kind === "ok" ? state.value.snapshot.meta.activeWorktree : null,
+        reason: parsed.snapshot.meta.reason,
+        stderr: parsed.snapshot.meta.stderr,
+        elapsed_ms: parsed.snapshot.meta.elapsedMs,
+      });
+      state.value = { kind: "ok", snapshot: refreshed };
+      return { ok: true, snapshot: refreshed };
+    } catch (err) {
+      if (!isMounted) return { ok: false, reason: "aborted" };
+      if ((err as { name?: string })?.name === "CanceledError") {
+        return { ok: false, reason: "aborted" };
+      }
+      return { ok: false, reason: classifyMutationError(err) };
+    }
+  }
+
+  async function activate(
+    params: WorktreeActivateParams,
+  ): Promise<WorktreeMgmtResult> {
+    if (!isMounted) return { ok: false, reason: "aborted" };
+    const umo = params.umo ?? spcodeStatus.status.value.umo;
+    if (!umo) return { ok: false, reason: "no_project_loaded" };
+    const ctrl = new AbortController();
+    mutationAbort?.abort();
+    mutationAbort = ctrl;
+    try {
+      const resp = await pluginExtensionApi.post<unknown>(
+        "spcode/worktree-activate",
+        // umo goes in the body (not just the query string): the backend
+        // _wrap adapter reads POST umo from the JSON body, and activation
+        // is per-session state — the "most recently loaded project"
+        // fallback would target the wrong session in multi-session setups.
+        { path: params.path, umo },
+        {
+          signal: ctrl.signal,
+          params: { umo },
+        },
+      );
+      if (!isMounted || ctrl.signal.aborted) return { ok: false, reason: "aborted" };
+      const parsed = parseSpcodeWorktreeActivate(resp.data);
+      if (parsed.kind !== "ok") {
+        return { ok: false, reason: parsed.reason, stderr: parsed.stderr };
+      }
+      const refreshed = parseSpcodeGitWorktrees({
+        loaded: parsed.snapshot.meta.loaded,
+        directory: parsed.snapshot.meta.directory,
+        umo: parsed.snapshot.meta.umo,
+        worktrees: parsed.snapshot.worktrees as unknown as SpcodeGitWorktreeRaw[],
+        active_worktree: parsed.snapshot.activeWorktree,
         reason: parsed.snapshot.meta.reason,
         stderr: parsed.snapshot.meta.stderr,
         elapsed_ms: parsed.snapshot.meta.elapsedMs,
@@ -446,7 +528,7 @@ export function useSpcodeWorktrees(): UseSpcodeWorktrees {
     mutationAbort = null
   }
 
-  return { state, refresh, startPolling, stopPolling, add, remove, lock, unlock, dispose }
+  return { state, refresh, startPolling, stopPolling, add, remove, lock, unlock, activate, dispose }
 }
 
 function classifyError(err: unknown): string {

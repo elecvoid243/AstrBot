@@ -24,6 +24,8 @@ import { useSpcodeProjectStatus } from "@/composables/useSpcodeProjectStatus";
 import { useSpcodeOperationProgress } from "@/composables/useSpcodeOperationProgress";
 import { useSpcodeCodegraphStatus } from "@/composables/useSpcodeCodegraphStatus";
 import { useSpcodeVivadoStatus } from "@/composables/useSpcodeVivadoStatus";
+import { useSpcodeWorktrees } from "@/composables/useSpcodeWorktrees";
+import type { SpcodeGitWorktree } from "@/composables/parseSpcodeWorktrees";
 
 const { status } = useSpcodeProjectStatus();
 const { tm } = useModuleI18n("features/chat");
@@ -219,6 +221,86 @@ function openCodegraphManager(): void {
   emit("open-codegraph-dialog");
 }
 
+// ── Worktree 激活 (2026-08-20) ────────────────────────────────────────
+// GitDiffSidebar 回归纯项目操作;worktree 激活(指定 LLM 工作在哪个
+// worktree,后端以 extra_user_content_parts 注入每次 LLM 请求)的入口
+// 放在 project chip 旁的小按钮(与"查看服务状态"按钮同款几何,不叠加
+// ——chip 宽度随项目名变化,叠加定位会在长名截断时脱离 chip)。
+// 数据与操作复用 useSpcodeWorktrees(GET /spcode/git-worktrees +
+// POST /spcode/worktree-activate)。
+const worktrees = useSpcodeWorktrees();
+const worktreeMenuOpen = ref(false);
+const isSelectingWorktree = ref(false);
+
+const worktreeList = computed(() => {
+  const s = worktrees.state.value;
+  return s.kind === "ok" ? s.snapshot.worktrees : [];
+});
+const activeWorktree = computed(() => {
+  const s = worktrees.state.value;
+  return s.kind === "ok" ? s.snapshot.meta.activeWorktree : null;
+});
+// idle counts as loading so the menu never flashes its empty hint before
+// the first refresh resolves.
+const worktreesLoading = computed(() => {
+  const kind = worktrees.state.value.kind;
+  return kind === "loading" || kind === "idle";
+});
+const worktreesFailed = computed(() => worktrees.state.value.kind === "error");
+
+// 打开菜单时刷新列表(worktree 增删多发生在 GitDiffSidebar/外部,这里不轮询;
+// 项目加载/切换由 useSpcodeWorktrees 内部的 umo/directory watcher 自动刷新)。
+watch(worktreeMenuOpen, (open) => {
+  if (open) void worktrees.refresh();
+});
+
+function worktreeLabel(wt: SpcodeGitWorktree): string {
+  return wt.branch ?? (wt.isMain
+    ? tm("spcodeProjectLoad.indicator.worktreeMainBadge")
+    : wt.headSha.slice(0, 7));
+}
+
+const worktreeBtnTooltip = computed(() =>
+  activeWorktree.value
+    ? tm("spcodeProjectLoad.indicator.worktreeBtnTooltipActive", {
+        branch: worktreeList.value.find((w) => w.path === activeWorktree.value)
+          ? worktreeLabel(
+              worktreeList.value.find((w) => w.path === activeWorktree.value)!,
+            )
+          : (activeWorktree.value ?? ""),
+      })
+    : tm("spcodeProjectLoad.indicator.worktreeBtnTooltip"),
+);
+
+/**
+ * 选中菜单项:null = 未指定(取消激活,LLM 跟随项目路径);
+ * 否则激活对应 worktree。成功后关菜单并弹气泡反馈。
+ */
+async function selectWorktree(path: string | null): Promise<void> {
+  if (isSelectingWorktree.value) return;
+  isSelectingWorktree.value = true;
+  const result = await worktrees.activate({ path });
+  isSelectingWorktree.value = false;
+  if (!result.ok && result.reason === "aborted") return;
+  if (result.ok) {
+    worktreeMenuOpen.value = false;
+    const wt = path ? worktreeList.value.find((w) => w.path === path) : null;
+    showBubble(
+      path === null
+        ? tm("spcodeProjectLoad.indicator.worktreeDeactivated")
+        : tm("spcodeProjectLoad.indicator.worktreeActivated", {
+            branch: wt ? worktreeLabel(wt) : (path ?? ""),
+          }),
+    );
+  } else {
+    showBubble(
+      tm("spcodeProjectLoad.indicator.worktreeActivateFailed", {
+        reason: result.stderr || result.reason,
+      }),
+    );
+  }
+}
+
 // ── 状态气泡 (2026-08-15) ─────────────────────────────────────────────
 // 原 codegraph chip 移除后,初始化/重启等过程状态失去常驻显示。这里在
 // codegraph 状态变更(或 codegraph 相关操作进行中)时,于 services 按钮旁
@@ -317,6 +399,7 @@ onBeforeUnmount(() => {
     window.clearTimeout(bubbleTimer);
     bubbleTimer = undefined;
   }
+  worktrees.dispose();
 });
 
 function openLoadDialog(): void {
@@ -362,6 +445,112 @@ function openLoadDialog(): void {
       </template>
       <span>{{ tooltipText }}</span>
     </v-tooltip>
+
+    <!--
+      Worktree activation side button (2026-08-20): a small button right
+      next to the chip, sharing the services side button's geometry
+      (shown only when a project is loaded). Deliberately NOT overlaid on
+      the chip — the chip's width varies with the project name, which
+      left an absolutely positioned overlay detached from it. The
+      popover lets the user pick which worktree the LLM should work in —
+      the backend injects the activated worktree into every LLM request
+      via extra_user_content_parts. Kept here rather than in
+      GitDiffSidebar because it is prompt-injection guidance, not a
+      direct project operation.
+    -->
+    <v-menu
+      v-if="status.loaded"
+      v-model="worktreeMenuOpen"
+      location="bottom start"
+      transition="none"
+    >
+      <template #activator="{ props: menuProps }">
+        <v-tooltip location="bottom" :open-delay="200">
+          <template #activator="{ props: tipProps }">
+            <button
+              v-bind="{ ...tipProps, ...menuProps }"
+              type="button"
+              class="sp-chip-services-btn sp-chip-wt-btn"
+              :class="{ 'sp-chip-wt-btn--active': !!activeWorktree }"
+              :aria-label="tm('spcodeProjectLoad.indicator.worktreeBtnTooltip')"
+            >
+              <v-icon size="14">{{
+                activeWorktree ? "mdi-check-bold" : "mdi-source-branch"
+              }}</v-icon>
+            </button>
+          </template>
+          <span>{{ worktreeBtnTooltip }}</span>
+        </v-tooltip>
+      </template>
+      <v-card min-width="300" max-width="420">
+        <v-card-text>
+          <div class="sp-chip-popover-title">
+            {{ tm("spcodeProjectLoad.indicator.worktreeMenuTitle") }}
+          </div>
+          <div class="sp-wt-hint">
+            {{ tm("spcodeProjectLoad.indicator.worktreeMenuHint") }}
+          </div>
+          <!-- "Not specified" option: clears the activation so the LLM
+               follows the project path guidance (default behavior). -->
+          <button
+            type="button"
+            class="sp-wt-row"
+            :class="{ 'sp-wt-row--selected': !activeWorktree }"
+            :disabled="isSelectingWorktree"
+            @click="selectWorktree(null)"
+          >
+            <v-icon size="14" class="sp-wt-row__icon">
+              mdi-folder-outline
+            </v-icon>
+            <span class="sp-wt-row__label">{{
+              tm("spcodeProjectLoad.indicator.worktreeNone")
+            }}</span>
+            <v-icon v-if="!activeWorktree" size="14" class="sp-wt-row__check">
+              mdi-check
+            </v-icon>
+          </button>
+          <div v-if="worktreesLoading" class="sp-wt-hint">
+            {{ tm("spcodeProjectLoad.indicator.worktreeLoading") }}
+          </div>
+          <template v-else-if="worktreeList.length">
+            <button
+              v-for="wt in worktreeList"
+              :key="wt.path"
+              type="button"
+              class="sp-wt-row"
+              :class="{ 'sp-wt-row--selected': activeWorktree === wt.path }"
+              :title="wt.path"
+              :disabled="isSelectingWorktree"
+              @click="selectWorktree(wt.path)"
+            >
+              <v-icon size="14" class="sp-wt-row__icon">{{
+                wt.isMain ? "mdi-home" : wt.locked ? "mdi-lock" : "mdi-source-branch"
+              }}</v-icon>
+              <span class="sp-wt-row__label">{{ worktreeLabel(wt) }}</span>
+              <span v-if="wt.isMain" class="sp-wt-row__badge">{{
+                tm("spcodeProjectLoad.indicator.worktreeMainBadge")
+              }}</span>
+              <span v-else-if="!wt.branch" class="sp-wt-row__badge">{{
+                tm("spcodeProjectLoad.indicator.worktreeDetachedBadge")
+              }}</span>
+              <v-icon
+                v-if="activeWorktree === wt.path"
+                size="14"
+                class="sp-wt-row__check"
+              >
+                mdi-check
+              </v-icon>
+            </button>
+          </template>
+          <div v-else-if="worktreesFailed" class="sp-wt-hint sp-wt-hint--error">
+            {{ tm("spcodeProjectLoad.indicator.worktreeLoadFailed") }}
+          </div>
+          <div v-else class="sp-wt-hint">
+            {{ tm("spcodeProjectLoad.indicator.worktreeEmpty") }}
+          </div>
+        </v-card-text>
+      </v-card>
+    </v-menu>
 
     <v-menu
       v-if="isFailed"
@@ -575,6 +764,81 @@ function openLoadDialog(): void {
   align-items: center;
   gap: 2px;
   position: relative; /* anchor for the status bubble */
+}
+
+/* ── Worktree activation side button (2026-08-20) ──
+   Sits right next to the chip, NOT overlaid — the chip's width varies
+   with the project name (long names truncate to "xxx…"), which left an
+   absolutely positioned overlay detached from the chip edge. Geometry
+   comes from the shared .sp-chip-services-btn class; this only adds the
+   activated accent (the LLM is pinned to that worktree). */
+.sp-chip-wt-btn--active {
+  color: rgb(var(--v-theme-success));
+  border-color: rgba(var(--v-theme-success), 0.55);
+}
+
+.sp-wt-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  margin-top: 4px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--sp-text-primary);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sp-wt-row:hover:not(:disabled) {
+  background: var(--sp-chip-hover-bg);
+}
+
+.sp-wt-row:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.sp-wt-row__icon {
+  flex: 0 0 14px;
+  color: rgb(var(--v-theme-primary));
+}
+
+.sp-wt-row__label {
+  min-width: 0;
+  flex-shrink: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.sp-wt-row__badge {
+  flex-shrink: 0;
+  font-size: 10px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: rgba(var(--v-theme-on-surface), 0.08);
+  color: var(--sp-text-path);
+}
+
+.sp-wt-row__check {
+  margin-left: auto;
+  flex-shrink: 0;
+  color: rgb(var(--v-theme-success));
+}
+
+.sp-wt-hint {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--sp-text-path);
+}
+
+.sp-wt-hint--error {
+  color: rgb(var(--v-theme-error));
 }
 
 .sp-status-badge--failed {

@@ -2,7 +2,7 @@
 // Author: elecvoid243 @ 2026-08-06
 // Updated: 2026-08-15 — services popover (codegraph / vivado status
 // integrated from the removed SpcodeCodegraphChip / SpcodeVivadoStatusChip).
-import { mount } from "@vue/test-utils";
+import { flushPromises, mount } from "@vue/test-utils";
 import { defineComponent, nextTick } from "vue";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -15,6 +15,7 @@ import { useSpcodeProjectStatus } from "@/composables/useSpcodeProjectStatus";
 import { useSpcodeCodegraphStatus } from "@/composables/useSpcodeCodegraphStatus";
 import { useSpcodeVivadoStatus } from "@/composables/useSpcodeVivadoStatus";
 import SpcodeProjectIndicator from "./SpcodeProjectIndicator.vue";
+import { pluginExtensionApi } from "@/api/v1";
 
 // Minimal stubs: v-tooltip renders its activator slot directly; v-menu
 // forwards an onClick to its activator so tests can toggle the popover.
@@ -345,5 +346,161 @@ describe("SpcodeProjectIndicator status bubble", () => {
     };
     await nextTick();
     expect(wrapper.find(".sp-bubble").text()).toContain("Codegraph 已断开");
+  });
+});
+
+describe("SpcodeProjectIndicator worktree activation overlay", () => {
+  afterEach(() => {
+    useSpcodeOperationProgress().clear();
+    useSpcodeProjectStatus().reset();
+    useSpcodeCodegraphStatus().reset();
+    useSpcodeVivadoStatus().reset();
+    vi.mocked(pluginExtensionApi.get).mockReset();
+    vi.mocked(pluginExtensionApi.post).mockReset();
+  });
+
+  function setProjectLoaded() {
+    useSpcodeProjectStatus().status.value = {
+      loaded: true,
+      directory: "F:/proj",
+      loadedAt: 1,
+      umo: "webchat-1",
+      allLoadedCount: 1,
+      fetchedAt: 1,
+    };
+  }
+
+  function mockWorktreesFetch(active: string | null = null) {
+    vi.mocked(pluginExtensionApi.get).mockResolvedValue({
+      data: {
+        status: "ok",
+        data: {
+          loaded: true,
+          directory: "F:/proj",
+          umo: "webchat-1",
+          worktrees: [
+            {
+              path: "F:/proj",
+              head_sha: "aaaaaaa",
+              branch: "main",
+              is_main: true,
+              prunable: false,
+              locked: null,
+            },
+            {
+              path: "F:/proj/.worktrees/feat",
+              head_sha: "bbbbbbb",
+              branch: "feat",
+              is_main: false,
+              prunable: false,
+              locked: null,
+            },
+          ],
+          active_worktree: active,
+          reason: null,
+          stderr: "",
+          elapsed_ms: 5,
+        },
+      },
+    } as any);
+  }
+
+  function mockActivatePost(active: string | null) {
+    vi.mocked(pluginExtensionApi.post).mockResolvedValue({
+      data: {
+        status: "ok",
+        data: {
+          success: true,
+          loaded: true,
+          directory: "F:/proj",
+          umo: "webchat-1",
+          worktree: active ?? "",
+          active_worktree: active,
+          worktrees: [],
+          reason: null,
+          stderr: "",
+          elapsed_ms: 3,
+        },
+      },
+    } as any);
+  }
+
+  it("hides the overlay button when no project is loaded", () => {
+    const wrapper = mount(SpcodeProjectIndicator, { global: { stubs } });
+    expect(wrapper.find(".sp-chip-wt-btn").exists()).toBe(false);
+  });
+
+  it("shows the overlay button on the chip and lists worktrees in the menu", async () => {
+    mockWorktreesFetch();
+    setProjectLoaded();
+    const wrapper = mount(SpcodeProjectIndicator, { global: { stubs } });
+    expect(wrapper.find(".sp-chip-wt-btn").exists()).toBe(true);
+    // Menu content only renders once opened (v-menu stub gates on modelValue).
+    expect(wrapper.findAll(".sp-wt-row").length).toBe(0);
+    await wrapper.find(".sp-chip-wt-btn").trigger("click");
+    await flushPromises();
+    // "not specified" option + 2 worktrees
+    expect(wrapper.findAll(".sp-wt-row").length).toBe(3);
+    expect(wrapper.text()).toContain("main");
+    expect(wrapper.text()).toContain("feat");
+  });
+
+  it("marks the active worktree with a check and the active button state", async () => {
+    mockWorktreesFetch("F:/proj/.worktrees/feat");
+    const wrapper = mount(SpcodeProjectIndicator, { global: { stubs } });
+    // Project status arrives AFTER mount (Chat.vue refresh) — that change
+    // is what drives the composable's directory watcher to first fetch.
+    setProjectLoaded();
+    await flushPromises();
+    expect(wrapper.find(".sp-chip-wt-btn--active").exists()).toBe(true);
+    await wrapper.find(".sp-chip-wt-btn").trigger("click");
+    await flushPromises();
+    const selected = wrapper.findAll(".sp-wt-row--selected");
+    expect(selected.length).toBe(1);
+    expect(selected[0].text()).toContain("feat");
+    expect(selected[0].find(".sp-wt-row__check").exists()).toBe(true);
+  });
+
+  it("selecting a worktree POSTs activate (umo in body) and pops a bubble", async () => {
+    mockWorktreesFetch();
+    setProjectLoaded();
+    mockActivatePost("F:/proj/.worktrees/feat");
+    const wrapper = mount(SpcodeProjectIndicator, { global: { stubs } });
+    await wrapper.find(".sp-chip-wt-btn").trigger("click");
+    await flushPromises();
+    const featRow = wrapper
+      .findAll(".sp-wt-row")
+      .find((r) => r.text().includes("feat"))!;
+    await featRow.trigger("click");
+    await flushPromises();
+    expect(pluginExtensionApi.post).toHaveBeenCalledWith(
+      "spcode/worktree-activate",
+      expect.objectContaining({
+        path: "F:/proj/.worktrees/feat",
+        umo: "webchat-1",
+      }),
+      expect.anything(),
+    );
+    expect(wrapper.find(".sp-bubble").exists()).toBe(true);
+    expect(wrapper.find(".sp-bubble").text()).toContain("feat");
+    // Menu closed after a successful selection.
+    expect(wrapper.findAll(".sp-wt-row").length).toBe(0);
+  });
+
+  it("the not-specified option deactivates (path null)", async () => {
+    mockWorktreesFetch("F:/proj/.worktrees/feat");
+    setProjectLoaded();
+    mockActivatePost(null);
+    const wrapper = mount(SpcodeProjectIndicator, { global: { stubs } });
+    await wrapper.find(".sp-chip-wt-btn").trigger("click");
+    await flushPromises();
+    await wrapper.findAll(".sp-wt-row")[0].trigger("click");
+    await flushPromises();
+    expect(pluginExtensionApi.post).toHaveBeenCalledWith(
+      "spcode/worktree-activate",
+      expect.objectContaining({ path: null, umo: "webchat-1" }),
+      expect.anything(),
+    );
+    expect(wrapper.find(".sp-bubble").exists()).toBe(true);
   });
 });

@@ -15,9 +15,9 @@
 import type { SpcodeGitWorktreesSnapshot } from "./parseSpcodeWorktrees";
 
 // ── Endpoint id union ──────────────────────────────────────
-export type WorktreeMgmtEndpoint = "add" | "remove" | "lock" | "unlock";
+export type WorktreeMgmtEndpoint = "add" | "remove" | "lock" | "unlock" | "activate";
 
-// ── Raw envelope shape (shared by all 4 endpoints) ────────
+// ── Raw envelope shape (shared by all endpoints) ──────────
 export interface SpcodeWorktreeMgmtRawData {
   loaded: boolean;
   directory: string | null;
@@ -28,6 +28,8 @@ export interface SpcodeWorktreeMgmtRawData {
   removed_path?: string;
   locked?: boolean;
   lock_reason?: string | null;
+  // activate: resulting activation state (null when deactivated).
+  active_worktree?: string | null;
   // The refreshed worktree list.
   worktrees: unknown[];
   reason: string | null;
@@ -44,6 +46,7 @@ export interface SpcodeWorktreeMgmtRawResponse {
   removed_path?: string;
   locked?: boolean;
   lock_reason?: string | null;
+  active_worktree?: string | null;
   worktrees?: unknown[];
   reason?: string | null;
   stderr?: string;
@@ -80,6 +83,7 @@ export interface SpcodeWorktreeMgmtSnapshot {
   removedPath: string | null;
   locked: boolean;
   lockReason: string | null;
+  activeWorktree: string | null;
   worktrees: SpcodeGitWorktreesSnapshot["worktrees"];
 }
 
@@ -147,6 +151,7 @@ function buildSnapshot(
       overrides.lockReason !== undefined
         ? overrides.lockReason
         : (d.lock_reason ?? null),
+    activeWorktree: d.active_worktree ?? null,
     // We reuse the raw worktrees array as-is; useSpcodeWorktrees will
     // re-parse via parseSpcodeGitWorktrees() before swapping state.
     // The double-parse is intentional: it keeps the parser pure (no
@@ -238,6 +243,24 @@ export function parseSpcodeWorktreeUnlock(
   };
 }
 
+/** Parse the envelope from POST /spcode/worktree-activate (2026-08-20).
+ *
+ * `active_worktree` is the authoritative post-mutation activation state
+ * (the activated path, or null after deactivate); the consumer uses it to
+ * update the snapshot's meta.activeWorktree. */
+export function parseSpcodeWorktreeActivate(
+  raw: unknown,
+): ParseResult<SpcodeWorktreeMgmtSnapshot> {
+  const d = unwrapEnvelope(raw) as SpcodeWorktreeMgmtRawData;
+  if (d.reason) {
+    return { kind: "error", reason: d.reason, stderr: asString(d.stderr) };
+  }
+  return {
+    kind: "ok",
+    snapshot: buildSnapshot(d),
+  };
+}
+
 // ── Reason classification (spec §4) ──────────────────────
 
 export interface ReasonMeta {
@@ -302,6 +325,12 @@ export const ALLOWED_WORKTREE_REASONS: Record<WorktreeMgmtEndpoint, readonly str
     "directory_missing", "not_a_git_repo", "git_unavailable", "git_error",
     "invalid_body", "path_unsafe",
     "worktree_not_found", "not_locked",
+  ],
+  activate: [
+    "feature_disabled", "no_project_loaded", "worktree_invalid",
+    "directory_missing", "not_a_git_repo", "git_unavailable", "git_error",
+    "invalid_body", "path_unsafe",
+    "worktree_not_found",
   ],
 };
 

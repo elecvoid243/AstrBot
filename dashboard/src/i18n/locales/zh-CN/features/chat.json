@@ -512,7 +512,20 @@
       "codegraphRestarting": "正在重启 codegraph",
       "codegraphConnected": "Codegraph 已连接",
       "codegraphDisconnected": "Codegraph 已断开",
-      "dismissBubble": "关闭提示"
+      "dismissBubble": "关闭提示",
+      "worktreeBtnTooltip": "选择 LLM 工作树",
+      "worktreeBtnTooltipActive": "LLM 工作树：{branch}",
+      "worktreeMenuTitle": "LLM 工作树",
+      "worktreeMenuHint": "指定后，该 worktree 路径将注入每次 LLM 请求，LLM 会在该路径上工作",
+      "worktreeNone": "未指定（跟随项目路径）",
+      "worktreeMainBadge": "主",
+      "worktreeDetachedBadge": "游离",
+      "worktreeLoading": "正在加载 worktree…",
+      "worktreeLoadFailed": "worktree 列表加载失败",
+      "worktreeEmpty": "该项目没有 git worktree",
+      "worktreeActivated": "LLM 将工作在 {branch}",
+      "worktreeDeactivated": "已取消指定 LLM 工作树",
+      "worktreeActivateFailed": "设置工作树失败：{reason}"
     },
     "diffPreview": {
       "summary": {
