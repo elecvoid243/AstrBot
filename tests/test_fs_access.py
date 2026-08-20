@@ -152,3 +152,11 @@ async def test_assert_writable_windows_case_insensitive(tmp_path):
         context,
         current_workspace_root=ws,
     )
+
+
+def test_default_config_contains_file_access_keys():
+    from astrbot.core.config.default import DEFAULT_CONFIG
+
+    provider_settings = DEFAULT_CONFIG["provider_settings"]
+    assert provider_settings["file_access_default_mode"] == "full"
+    assert provider_settings["file_access_extra_roots"] == []

@@ -182,6 +182,8 @@ DEFAULT_CONFIG = {
         },
         "computer_use_runtime": "none",
         "computer_use_require_admin": True,
+        "file_access_default_mode": "full",
+        "file_access_extra_roots": [],
         "enable_default_workspace_path": True,
         "sandbox": {
             "booter": "shipyard_neo",
@@ -3567,6 +3569,21 @@ CONFIG_METADATA_3 = {
                         "description": "需要 AstrBot 管理员权限",
                         "type": "bool",
                         "hint": "开启后，需要 AstrBot 管理员权限才能调用使用电脑能力。在平台配置->管理员中可添加管理员。使用 /sid 指令查看管理员 ID。",
+                    },
+                    "provider_settings.file_access_default_mode": {
+                        "description": "默认文件访问模式",
+                        "type": "string",
+                        "options": ["full", "readonly", "workspace"],
+                        "labels": ["完全访问", "只读(Plan)", "工作区白名单"],
+                        "hint": "会话未显式选择模式时的默认值。readonly 即 plan 模式（禁止一切写入）；workspace 仅允许在会话工作区与白名单目录内写入。聊天输入框的模式切换按会话覆盖此默认值。",
+                    },
+                    "provider_settings.file_access_extra_roots": {
+                        "description": "工作区模式额外白名单目录",
+                        "type": "list",
+                        "item": {
+                            "type": "string",
+                        },
+                        "hint": "文件访问模式为 workspace 时，除会话工作区与临时目录外额外允许写入的绝对路径列表。",
                     },
                     "provider_settings.enable_default_workspace_path": {
                         "description": "启用默认工作路径",
