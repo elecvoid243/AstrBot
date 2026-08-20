@@ -270,4 +270,90 @@ class WebChatQueueMgr:
                     close_task.cancel()
 
 
+class OrphanRunState:
+    """Lightweight run state for a reply with no dashboard consumer.
+
+    Goal-loop / collab synthetic turns bypass ChatService._send_chat, so they
+    have no ChatRunState. Registering them here lets the dashboard's
+    active-run recovery (snapshot + resume stream) cover them too.
+    """
+
+    def __init__(self, run_id: str, conversation_id: str) -> None:
+        self.run_id = run_id
+        self.conversation_id = conversation_id
+        self.message_parts: list[dict] = []
+        self.subscribers: set[asyncio.Queue] = set()
+
+
+class OrphanRunRegistry:
+    """Registry of in-flight orphan runs, with per-run event fan-out."""
+
+    def __init__(self) -> None:
+        self._runs: dict[str, OrphanRunState] = {}
+        self._finished: set[str] = set()
+
+    def register(self, run_id: str, conversation_id: str) -> OrphanRunState:
+        run = self._runs.get(run_id)
+        if run is None:
+            run = OrphanRunState(run_id, conversation_id)
+            self._runs[run_id] = run
+        return run
+
+    def get(self, run_id: str) -> OrphanRunState | None:
+        return self._runs.get(run_id)
+
+    def update(self, run_id: str, message_parts: list[dict]) -> None:
+        run = self._runs.get(run_id)
+        if run is not None:
+            run.message_parts = message_parts
+
+    def finish(self, run_id: str) -> None:
+        """Mark finished, notify subscribers with a terminal end event."""
+        run = self._runs.pop(run_id, None)
+        if run is None:
+            return
+        self._finished.add(run_id)
+        for queue in list(run.subscribers):
+            try:
+                queue.put_nowait({"type": "end", "data": "", "message_id": run_id})
+            except asyncio.QueueFull:
+                pass
+        run.subscribers.clear()
+
+    def was_finished_orphan(self, run_id: str) -> bool:
+        return run_id in self._finished
+
+    def subscribe(self, run_id: str) -> asyncio.Queue | None:
+        run = self._runs.get(run_id)
+        if run is None:
+            return None
+        queue: asyncio.Queue = asyncio.Queue(maxsize=256)
+        run.subscribers.add(queue)
+        return queue
+
+    def unsubscribe(self, run_id: str, queue: asyncio.Queue) -> None:
+        run = self._runs.get(run_id)
+        if run is not None:
+            run.subscribers.discard(queue)
+
+    def publish(self, message_id, payload: dict) -> None:
+        """Fan one mirrored payload out to the orphan run's subscribers."""
+        run = self._runs.get(str(message_id)) if message_id is not None else None
+        if run is None:
+            return
+        for queue in list(run.subscribers):
+            try:
+                queue.put_nowait(payload)
+            except asyncio.QueueFull:
+                pass
+
+    def active_for_conversation(self, conversation_id: str) -> list[OrphanRunState]:
+        return [
+            run for run in self._runs.values() if run.conversation_id == conversation_id
+        ]
+
+
+orphan_run_registry = OrphanRunRegistry()
+
+
 webchat_queue_mgr = WebChatQueueMgr()

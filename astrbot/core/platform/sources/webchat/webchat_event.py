@@ -17,7 +17,11 @@ from astrbot.core.utils.media_utils import (
 )
 
 from .message_parts_helper import message_chain_to_storage_message_parts
-from .webchat_queue_mgr import _extract_conversation_id, webchat_queue_mgr
+from .webchat_queue_mgr import (
+    _extract_conversation_id,
+    orphan_run_registry,
+    webchat_queue_mgr,
+)
 
 attachments_dir = os.path.join(get_astrbot_data_path(), "attachments")
 
@@ -87,6 +91,8 @@ class WebChatMessageEvent(AstrMessageEvent):
         """
         if system_cid is not None:
             await webchat_queue_mgr.put_system_event(system_cid, payload)
+        # Orphan-run resume streams follow the same mirrored payloads.
+        orphan_run_registry.publish(payload.get("message_id"), payload)
 
     @staticmethod
     async def _send(
@@ -279,6 +285,13 @@ class WebChatMessageEvent(AstrMessageEvent):
         reasoning_content = ""
         message_id = self.message_obj.message_id
         request_id = str(message_id)
+        cid = _extract_conversation_id(self.session_id)
+        # Turns without a dashboard consumer (goal-loop / collab synthetic
+        # turns) register a lightweight orphan run so the active-run recovery
+        # (snapshot + resume stream) can re-attach mid-flight.
+        is_orphan = request_id not in webchat_queue_mgr.list_back_request_ids(cid)
+        if is_orphan:
+            orphan_run_registry.register(request_id, cid)
         async for chain in generator:
             # 处理音频流（Live Mode）
             if chain.type == "audio_chunk":
@@ -333,6 +346,13 @@ class WebChatMessageEvent(AstrMessageEvent):
                 reasoning_content += chain.get_plain_text()
             else:
                 final_data += r
+            if is_orphan:
+                snapshot: list[dict] = []
+                if reasoning_content:
+                    snapshot.append({"type": "think", "think": reasoning_content})
+                if final_data:
+                    snapshot.append({"type": "plain", "text": final_data})
+                orphan_run_registry.update(request_id, snapshot)
 
         payload = {
             "type": "complete",  # complete means we return the final result
@@ -345,6 +365,11 @@ class WebChatMessageEvent(AstrMessageEvent):
         await WebChatMessageEvent._mirror_system(
             _extract_conversation_id(self.session_id), payload
         )
+        if is_orphan:
+            # Finish BEFORE the persisted await: the system-stream flush can
+            # be scheduled during the DB write and must already see this run
+            # as a finished orphan (it skips persisting those).
+            orphan_run_registry.finish(request_id)
         await _persist_bot_reply_if_orphan(
             session_id=self.session_id,
             request_id=request_id,

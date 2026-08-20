@@ -1279,6 +1279,26 @@ class ChatService:
                     ),
                 }
             )
+        # Orphan runs (goal-loop / collab synthetic turns) register in the
+        # webchat queue manager; expose them so the frontend recovery
+        # snapshot works for them too.
+        from astrbot.core.platform.sources.webchat.webchat_queue_mgr import (
+            orphan_run_registry,
+        )
+
+        for orphan in orphan_run_registry.active_for_conversation(session_id):
+            snapshots.append(
+                {
+                    "run_id": orphan.run_id,
+                    "session_id": session_id,
+                    "llm_checkpoint_id": None,
+                    "status": "running",
+                    "revision": len(orphan.message_parts),
+                    "content": build_bot_history_content(
+                        deepcopy(orphan.message_parts),
+                    ),
+                }
+            )
         return snapshots
 
     @staticmethod
@@ -1399,10 +1419,44 @@ class ChatService:
         """
         run = self.chat_runs.get(run_id)
         if run is None:
-            raise ChatServiceError(f"Chat run {run_id} not found")
+            # Orphan runs (goal-loop / collab synthetic turns) live in the
+            # webchat queue manager's registry; attach to their event fan-out.
+            from astrbot.core.platform.sources.webchat.webchat_queue_mgr import (
+                orphan_run_registry,
+            )
+
+            orphan = orphan_run_registry.get(run_id)
+            if orphan is None:
+                raise ChatServiceError(f"Chat run {run_id} not found")
+            return self._subscribe_orphan_run(orphan_run_registry, orphan)
         if run.username != username:
             raise ChatServiceError("Permission denied")
         return self._subscribe_chat_run(run, include_snapshot=True)
+
+    def _subscribe_orphan_run(self, registry, orphan) -> AsyncIterator[str]:
+        """SSE over an orphan run's mirrored event fan-out.
+
+        The recovery snapshot (accumulated message parts) is delivered by
+        get_active_chat_runs; this stream serves the subsequent chunks and
+        the terminal end event.
+        """
+
+        async def stream():
+            import json as _json
+
+            queue = registry.subscribe(orphan.run_id)
+            if queue is None:
+                return
+            try:
+                while True:
+                    payload = await queue.get()
+                    yield f"data: {_json.dumps(payload, ensure_ascii=False)}\n\n"
+                    if payload.get("type") in ("end", "complete"):
+                        return
+            finally:
+                registry.unsubscribe(orphan.run_id, queue)
+
+        return stream()
 
     async def _consume_chat_run(self, run: ChatRunState) -> None:
         """Drain runner output, persist it, and fan it out to subscribers.
@@ -1640,6 +1694,15 @@ class ChatService:
         async def flush(message_id: str) -> None:
             acc = accumulators.pop(message_id, None)
             if acc is None or not acc.has_content():
+                return
+            # Orphan turns are persisted by the webchat event layer on
+            # stream completion (_persist_bot_reply_if_orphan); persisting
+            # here as well would duplicate the bot record.
+            from astrbot.core.platform.sources.webchat.webchat_queue_mgr import (
+                orphan_run_registry,
+            )
+
+            if orphan_run_registry.was_finished_orphan(str(message_id)):
                 return
             parts = acc.build_message_parts(include_pending_tool_calls=True)
             # Author: elecvoid243
@@ -2001,9 +2064,7 @@ class ChatService:
                 await self.set_session_archived(username, session_id, True)
                 archived_count += 1
             except ChatServiceError as exc:
-                failed_items.append(
-                    {"session_id": session_id, "reason": str(exc)}
-                )
+                failed_items.append({"session_id": session_id, "reason": str(exc)})
 
         return {
             "archived_count": archived_count,
@@ -2041,9 +2102,7 @@ class ChatService:
                 await self.set_session_archived(username, session_id, False)
                 unarchived_count += 1
             except ChatServiceError as exc:
-                failed_items.append(
-                    {"session_id": session_id, "reason": str(exc)}
-                )
+                failed_items.append({"session_id": session_id, "reason": str(exc)})
 
         return {
             "unarchived_count": unarchived_count,
@@ -2264,9 +2323,7 @@ class ChatService:
             raise ChatServiceError(f"Session {session_id} not found")
         if session.creator != username:
             raise ChatServiceError("Permission denied")
-        await self.db.update_platform_session(
-            session_id, archived=1 if archived else 0
-        )
+        await self.db.update_platform_session(session_id, archived=1 if archived else 0)
 
     async def get_sessions_from_dashboard_query(
         self,
@@ -2859,9 +2916,7 @@ class ChatService:
 
         # Keep the lazily-built relations cache in sync so the next session
         # list reflects this branch without a rescan.
-        self.db.update_branch_relation(
-            new_session.session_id, session_id, message_id
-        )
+        self.db.update_branch_relation(new_session.session_id, session_id, message_id)
 
         return {
             "session_id": new_session.session_id,
