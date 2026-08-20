@@ -128,6 +128,9 @@ class SubAgentManager:
     }
     _dag_enabled: bool = False  # 是否启用 DAG 编排
     _default_provider_id: str = ""  # 默认 Chat Provider ID
+    _context_inherit_mode: str = (
+        "normal"  # Subagent context inherit mode: normal / fork / auto
+    )
     _session_timeout_seconds = (
         1800  # 会话存活时间。若有会话的subagent闲置时间超过该值，自动清理
     )
@@ -199,6 +202,7 @@ DAG Orchestration automatically delegate subagents. When you have 2+ independent
         timezone: str | None = None,
         dag_enabled: bool = False,
         default_provider_id: str = "",
+        context_inherit_mode: str = "normal",
         **kwargs,
     ) -> None:
         """Configure SubAgentManager settings"""
@@ -214,6 +218,11 @@ DAG Orchestration automatically delegate subagents. When you have 2+ independent
         cls._timezone = timezone
         cls._dag_enabled = dag_enabled
         cls._default_provider_id = default_provider_id
+        cls._context_inherit_mode = (
+            context_inherit_mode
+            if context_inherit_mode in ("normal", "fork", "auto")
+            else "normal"
+        )
         if tools_inherent is None:
             cls._tools_inherent = {
                 "astrbot_execute_shell",
@@ -250,6 +259,31 @@ DAG Orchestration automatically delegate subagents. When you have 2+ independent
     @classmethod
     def is_history_enabled(cls) -> bool:
         return cls._history_enabled
+
+    @classmethod
+    def get_context_inherit_mode(cls) -> str:
+        """Get the subagent context inherit mode.
+
+        Returns:
+            One of "normal" (own system prompt + own history), "fork"
+            (byte-identical inheritance of the main agent's message prefix
+            and tool schema), or "auto" (decide per delegation based on the
+            estimated context usage vs the compression threshold).
+        """
+        return cls._context_inherit_mode
+
+    @classmethod
+    def get_main_agent_only_tools(cls) -> set[str]:
+        """Get tool names that only the main agent may call.
+
+        In fork mode subagents inherit the main agent's tool schema (so these
+        tools stay visible for prefix-cache consistency), but the tool
+        executor rejects any call from a subagent context.
+
+        Returns:
+            Set of main-agent-only tool names.
+        """
+        return set(cls._tools_blacklist) | {"transfer_to_subagent"}
 
     @classmethod
     def register_blacklisted_tool(cls, tool_name: str) -> None:

@@ -75,6 +75,24 @@
             </div>
           </div>
 
+          <!-- 上下文继承模式 -->
+          <div class="setting-card">
+            <div class="setting-card-head">
+              <div>
+                <div class="setting-title">{{ tm('contextInheritMode.label') }}</div>
+                <div class="setting-subtitle">{{ tm('contextInheritMode.hint') }}</div>
+              </div>
+              <v-select
+                v-model="rootCfg.context_inherit_mode"
+                :items="contextInheritModeOptions"
+                density="compact"
+                variant="outlined"
+                style="width: 160px;"
+                hide-details
+              />
+            </div>
+          </div>
+
           <!-- DAG 编排设置 (条件展开) -->
           <template v-if="dagCfg.dag_enabled">
             <div class="setting-card">
@@ -917,7 +935,8 @@ const rootCfg = ref({
   shared_context_maxlen: 200,
   subagent_history_maxlen: 500,
   execution_timeout: 600,
-  time_prompt_enabled: true
+  time_prompt_enabled: true,
+  context_inherit_mode: 'normal'
 })
 
 const dagCfg = ref<DAGConfig>({
@@ -938,6 +957,14 @@ const orchestrationMode = computed({
     dagCfg.value.dag_enabled = val === 'dag'
   }
 })
+
+const CONTEXT_INHERIT_MODES = ['normal', 'fork', 'auto']
+
+const contextInheritModeOptions = computed(() => [
+  { title: tm('contextInheritMode.normal'), value: 'normal' },
+  { title: tm('contextInheritMode.fork'), value: 'fork' },
+  { title: tm('contextInheritMode.auto'), value: 'auto' }
+])
 
 const mainStateDescription = computed(() =>
   cfg.value.main_enable ? tm('description.enabled') : tm('description.disabled')
@@ -994,7 +1021,10 @@ function normalizeRootConfig(raw: any) {
     shared_context_maxlen: Number(orchData?.shared_context_maxlen) || 200,
     subagent_history_maxlen: Number(orchData?.subagent_history_maxlen) || 500,
     execution_timeout: Number(orchData?.execution_timeout) || 600,
-    time_prompt_enabled: orchData?.time_prompt_enabled !== false
+    time_prompt_enabled: orchData?.time_prompt_enabled !== false,
+    context_inherit_mode: CONTEXT_INHERIT_MODES.includes(orchData?.context_inherit_mode)
+      ? orchData.context_inherit_mode
+      : 'normal'
   }
 }
 
@@ -1035,6 +1065,7 @@ function serializeFullConfig(config: SubAgentConfig, dynamic: DynamicAgentsConfi
     subagent_history_maxlen: root.subagent_history_maxlen,
     execution_timeout: root.execution_timeout,
     time_prompt_enabled: root.time_prompt_enabled,
+    context_inherit_mode: root.context_inherit_mode,
     dag_enabled: dag.dag_enabled,
     dag_max_nodes: dag.dag_max_nodes,
     dag_max_parallel: dag.dag_max_parallel,
@@ -1168,6 +1199,7 @@ async function save() {
       subagent_history_maxlen: rootCfg.value.subagent_history_maxlen,
       execution_timeout: rootCfg.value.execution_timeout,
       time_prompt_enabled: rootCfg.value.time_prompt_enabled,
+      context_inherit_mode: rootCfg.value.context_inherit_mode,
       dag_enabled: dagCfg.value.dag_enabled,
       dag_max_nodes: dagCfg.value.dag_max_nodes,
       dag_max_parallel: dagCfg.value.dag_max_parallel,

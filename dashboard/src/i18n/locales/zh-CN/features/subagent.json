@@ -107,6 +107,13 @@
     "maxInjectLength": "DAG 前置结果注入长度",
     "maxInjectLengthHint": "将前置任务结果注入到后继任务上下文时的最大字符数，超出部分截断"
   },
+  "contextInheritMode": {
+    "label": "上下文继承模式",
+    "hint": "Fork 模式下子代理字节级继承主代理的上下文与工具集以最大化前缀缓存命中，子代理自身指令追加在继承上下文之后；自动模式在上下文用量低于压缩阈值（82%）时使用 Fork，否则使用普通模式。",
+    "normal": "普通",
+    "fork": "Fork",
+    "auto": "自动"
+  },
   "enhancedSwitches": {
     "enable": "启用动态子代理",
     "enableHint": "启用动态子代理创建、管理和回收能力。开启后主Agent可在运行时通过create_subagent等工具动态创建子代理。与静态子代理编排可同时存在",

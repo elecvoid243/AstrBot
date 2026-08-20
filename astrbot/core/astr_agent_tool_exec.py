@@ -11,6 +11,8 @@ from collections.abc import Set as AbstractSet
 import mcp
 
 from astrbot import logger
+from astrbot.core.agent.context.compressor import TruncateByTurnsCompressor
+from astrbot.core.agent.context.token_counter import EstimateTokenCounter
 from astrbot.core.agent.handoff import HandoffTool
 from astrbot.core.agent.mcp_client import MCPTool
 from astrbot.core.agent.message import Message
@@ -186,6 +188,36 @@ class FunctionToolExecutor(BaseFunctionToolExecutor[AstrAgentContext]):
             AsyncGenerator[None | mcp.types.CallToolResult, None]
 
         """
+        # Subagents inherit the main agent's tool schema in fork mode (and as
+        # defense-in-depth in normal mode). Orchestration tools stay visible
+        # for prefix-cache consistency, but any call from a subagent context is
+        # rejected here without executing anything.
+        subagent_context_extra = getattr(run_context.context, "extra", None) or {}
+        if subagent_context_extra.get("is_subagent") and (
+            getattr(tool, "name", "") in SubAgentManager.get_main_agent_only_tools()
+            or isinstance(tool, HandoffTool)
+        ):
+            blocked_tool_name = getattr(tool, "name", "")
+            logger.info(
+                "[SubAgent:Permission] Rejected main-agent-only tool `%s` called from subagent `%s`",
+                blocked_tool_name,
+                subagent_context_extra.get("subagent_name", "unknown"),
+            )
+            yield mcp.types.CallToolResult(
+                content=[
+                    mcp.types.TextContent(
+                        type="text",
+                        text=(
+                            f"error: Permission denied. Tool `{blocked_tool_name}` is a "
+                            "main-agent-only orchestration tool and is not available to "
+                            "subagents. Do not retry; continue your assigned task with "
+                            "other tools."
+                        ),
+                    )
+                ]
+            )
+            return
+
         # 防止subagent的名字叫"subagent"造成工具歧义（在create中已经不会发生，此处用于兜底）
         if (
             isinstance(tool, FunctionTool)
@@ -520,8 +552,6 @@ class FunctionToolExecutor(BaseFunctionToolExecutor[AstrAgentContext]):
             )
         tool_args["image_urls"] = image_urls
 
-        # Build handoff toolset from registered tools plus runtime computer tools.
-        toolset = cls._build_handoff_toolset(run_context, tool.agent.tools)
         ctx = run_context.context.context
         event = run_context.context.event
         umo = event.unified_msg_origin
@@ -533,22 +563,59 @@ class FunctionToolExecutor(BaseFunctionToolExecutor[AstrAgentContext]):
             tool, "provider_id", None
         ) or await ctx.get_current_chat_provider_id(umo)
 
-        # prepare begin dialogs
-        contexts = None
-        dialogs = tool.agent.begin_dialogs
-        if dialogs:
-            contexts = []
-            for dialog in dialogs:
-                try:
-                    contexts.append(
-                        dialog
-                        if isinstance(dialog, Message)
-                        else Message.model_validate(dialog)
-                    )
-                except Exception:
-                    continue
-
         prov_settings: dict = ctx.get_config(umo=umo).get("provider_settings", {})
+
+        # Build the subagent's own instruction block once. Fork mode reuses it
+        # as the appended user message; normal mode uses it as the system prompt.
+        subagent_system_prompt = cls._build_subagent_system_prompt(
+            umo, tool, prov_settings
+        )
+
+        # Resolve the effective context inherit mode ("normal" / "fork").
+        # "auto" decides per delegation based on the estimated context usage
+        # against the subagent provider's compression threshold.
+        inherit_mode = SubAgentManager.get_context_inherit_mode()
+        if inherit_mode == "auto":
+            inherit_mode = await cls._resolve_auto_inherit_mode(
+                run_context, ctx, prov_id, agent_name, subagent_system_prompt, input_
+            )
+        use_fork_context = inherit_mode == "fork"
+
+        if use_fork_context:
+            # Fork mode: byte-identical inheritance of the main agent's message
+            # prefix. The handoff tool call itself is not in
+            # run_context.messages yet (it is appended only after tool
+            # execution), so the snapshot ends at the current user message -
+            # exactly the prefix the provider has already seen for the main
+            # agent.
+            contexts = [msg.model_dump() for msg in run_context.messages]
+            toolset, fork_schema_mode = cls._build_fork_toolset(run_context, tool)
+            prompt_text = cls._build_fork_prompt(
+                agent_name, subagent_system_prompt, input_
+            )
+            system_prompt = ""
+        else:
+            # Build handoff toolset from registered tools plus runtime computer tools.
+            toolset = cls._build_handoff_toolset(run_context, tool.agent.tools)
+            fork_schema_mode = None
+            prompt_text = input_
+            system_prompt = subagent_system_prompt
+
+            # prepare begin dialogs
+            contexts = None
+            dialogs = tool.agent.begin_dialogs
+            if dialogs:
+                contexts = []
+                for dialog in dialogs:
+                    try:
+                        contexts.append(
+                            dialog
+                            if isinstance(dialog, Message)
+                            else Message.model_validate(dialog)
+                        )
+                    except Exception:
+                        continue
+
         agent_max_step = int(prov_settings.get("max_agent_step", 30))
         stream = prov_settings.get("streaming_response", False)
         # Progress sink for webchat ChatUI (None when platform/config opts out).
@@ -576,25 +643,26 @@ class FunctionToolExecutor(BaseFunctionToolExecutor[AstrAgentContext]):
             max_steps=agent_max_step,
             stream=stream,
         )
+        subagent_trace.record("subagent_context_inherit_mode", mode=inherit_mode)
 
-        # 获取子代理的历史上下文
-        subagent_history, agent_name = cls._load_subagent_history(umo, tool)
-        # 如果有历史上下文，合并到 contexts 中
-        if subagent_history:
-            subagent_trace.record(
-                "subagent_history_loaded",
-                agent_name=agent_name,
-                history_messages_count=len(subagent_history),
-            )
-            if contexts is None:
-                contexts = subagent_history
-            else:
-                contexts = subagent_history + contexts
+        if not use_fork_context:
+            # Fork mode skips per-subagent history: prepending it would break
+            # the inherited prefix, and the main context already carries
+            # everything relevant to this turn.
+            # 获取子代理的历史上下文
+            subagent_history, agent_name = cls._load_subagent_history(umo, tool)
+            # 如果有历史上下文，合并到 contexts 中
+            if subagent_history:
+                subagent_trace.record(
+                    "subagent_history_loaded",
+                    agent_name=agent_name,
+                    history_messages_count=len(subagent_history),
+                )
+                if contexts is None:
+                    contexts = subagent_history
+                else:
+                    contexts = subagent_history + contexts
 
-        # 构建子代理的 system_prompt
-        subagent_system_prompt = cls._build_subagent_system_prompt(
-            umo, tool, prov_settings
-        )
         subagent_trace.record(
             "subagent_system_prompt",
             agent_name=agent_name,
@@ -613,14 +681,23 @@ class FunctionToolExecutor(BaseFunctionToolExecutor[AstrAgentContext]):
         # 用于存储本轮的完整历史上下文
         runner_messages = []
 
+        # Mark the subagent's agent context so FunctionToolExecutor can reject
+        # main-agent-only orchestration tools called from within a subagent.
+        subagent_agent_context = AstrAgentContext(
+            context=ctx,
+            event=event,
+            trace_span=subagent_trace,
+            extra={"is_subagent": True, "subagent_name": agent_name},
+        )
+
         # 构建 tool_loop_agent 协程
         async def _run_subagent():
             return await ctx.tool_loop_agent(
                 event=event,
                 chat_provider_id=prov_id,
-                prompt=input_,
+                prompt=prompt_text,
                 image_urls=image_urls,
-                system_prompt=subagent_system_prompt,
+                system_prompt=system_prompt,
                 tools=toolset,
                 contexts=contexts,
                 max_steps=agent_max_step,
@@ -630,6 +707,8 @@ class FunctionToolExecutor(BaseFunctionToolExecutor[AstrAgentContext]):
                 extra_user_content_parts=extra_content_parts,
                 trace_span=subagent_trace,
                 response_sink=sink,
+                agent_context=subagent_agent_context,
+                **({"tool_schema_mode": fork_schema_mode} if fork_schema_mode else {}),
             )
 
         # 添加执行超时控制
@@ -645,7 +724,8 @@ class FunctionToolExecutor(BaseFunctionToolExecutor[AstrAgentContext]):
                 llm_resp = await _run_subagent()
         except asyncio.TimeoutError:
             # 若超时，保存已产生的部分历史
-            cls._save_subagent_history(umo, runner_messages, agent_name)
+            if not use_fork_context:
+                cls._save_subagent_history(umo, runner_messages, agent_name)
             subagent_trace.record(
                 "subagent_execution_timeout",
                 timeout_seconds=execution_timeout,
@@ -680,11 +760,12 @@ class FunctionToolExecutor(BaseFunctionToolExecutor[AstrAgentContext]):
         )
 
         # 保存历史上下文
-        cls._save_subagent_history(umo, runner_messages, agent_name)
-        subagent_trace.record(
-            "subagent_history_saved",
-            messages_count=len(runner_messages),
-        )
+        if not use_fork_context:
+            cls._save_subagent_history(umo, runner_messages, agent_name)
+            subagent_trace.record(
+                "subagent_history_saved",
+                messages_count=len(runner_messages),
+            )
 
         if sink:
             await sink.complete(
@@ -1196,6 +1277,133 @@ class FunctionToolExecutor(BaseFunctionToolExecutor[AstrAgentContext]):
                 umo, agent_name, runtime
             )
         return subagent_system_prompt
+
+    @staticmethod
+    def _build_fork_prompt(
+        agent_name: str, subagent_system_prompt: str, input_: T.Any
+    ) -> str:
+        """Build the fork-mode instruction appended after the inherited prefix.
+
+        Args:
+            agent_name: Name of the forked subagent.
+            subagent_system_prompt: The subagent's own instruction block.
+            input_: The delegated task text from the handoff tool call.
+
+        Returns:
+            The user message text appended after the inherited context.
+        """
+        return (
+            "[SUBAGENT MODE: FORK] You are now acting as the subagent "
+            f'"{agent_name}", forked from the orchestrating agent.\n'
+            "The conversation above is inherited from the orchestrator. "
+            "Do not re-answer it; focus only on the task below.\n"
+            f"{subagent_system_prompt}\n\n"
+            f"## Your Task\n{input_ if input_ is not None else ''}"
+        )
+
+    @classmethod
+    def _build_fork_toolset(
+        cls,
+        run_context: ContextWrapper[AstrAgentContext],
+        tool: HandoffTool,
+    ) -> tuple[ToolSet | None, str | None]:
+        """Inherit the main agent's tool set for a forked subagent.
+
+        The inherited ToolSet object serializes byte-identically to what the
+        main agent already sent, so the provider prefix cache also covers the
+        tools block.
+
+        Args:
+            run_context: The main agent's run context.
+            tool: The handoff tool being executed.
+
+        Returns:
+            A tuple of (toolset, tool_schema_mode). tool_schema_mode is set to
+            "skills_like" when the main agent runs in that mode so the
+            subagent runner applies the same two-stage schema handling. Falls
+            back to the subagent's configured toolset when the main runner is
+            unavailable.
+        """
+        main_runner = (run_context.context.extra or {}).get("main_agent_runner")
+        if main_runner is None:
+            logger.warning(
+                "[SubAgent:Fork] Main agent runner not found in run context; "
+                "falling back to normal-mode toolset construction."
+            )
+            return cls._build_handoff_toolset(run_context, tool.agent.tools), None
+        schema_mode = None
+        if getattr(main_runner, "tool_schema_mode", "full") == "skills_like":
+            schema_mode = "skills_like"
+        return main_runner.effective_raw_tool_set, schema_mode
+
+    @classmethod
+    async def _resolve_auto_inherit_mode(
+        cls,
+        run_context: ContextWrapper[AstrAgentContext],
+        ctx: T.Any,
+        prov_id: str,
+        agent_name: str,
+        subagent_system_prompt: str,
+        input_: T.Any,
+    ) -> str:
+        """Choose between fork and normal mode for one delegation.
+
+        Forking only pays off while the subagent's ContextManager will not
+        immediately compress the inherited prefix, so this uses the same
+        estimator (EstimateTokenCounter) and threshold
+        (TruncateByTurnsCompressor.compression_threshold) that the subagent
+        runner will apply on its first step.
+
+        Args:
+            run_context: The main agent's run context.
+            ctx: The plugin Context (for provider resolution).
+            prov_id: The chat provider id the subagent will use.
+            agent_name: Name of the delegated subagent.
+            subagent_system_prompt: The subagent's instruction block.
+            input_: The delegated task text.
+
+        Returns:
+            "fork" or "normal".
+        """
+        try:
+            provider = await ctx.provider_manager.get_provider_by_id(prov_id)
+        except Exception:
+            provider = None
+
+        max_context_tokens = 0
+        if provider is not None:
+            try:
+                max_context_tokens = int(
+                    provider.provider_config.get("max_context_tokens", 0) or 0
+                )
+            except (TypeError, ValueError):
+                max_context_tokens = 0
+
+        # Token guarding disabled (or provider unknown): compression never
+        # triggers, the inherited prefix stays intact.
+        if max_context_tokens <= 0:
+            logger.debug(
+                "[SubAgent:Fork] auto mode -> fork (no max_context_tokens limit)"
+            )
+            return "fork"
+
+        fork_prompt = cls._build_fork_prompt(agent_name, subagent_system_prompt, input_)
+        estimate_messages = list(run_context.messages) + [
+            Message(role="user", content=fork_prompt)
+        ]
+        estimated_tokens = EstimateTokenCounter().count_tokens(estimate_messages)
+        threshold = TruncateByTurnsCompressor().compression_threshold
+        mode = (
+            "fork" if estimated_tokens <= max_context_tokens * threshold else "normal"
+        )
+        logger.debug(
+            "[SubAgent:Fork] auto mode -> %s (estimated %d tokens, limit %d, threshold %.2f)",
+            mode,
+            estimated_tokens,
+            max_context_tokens,
+            threshold,
+        )
+        return mode
 
     @staticmethod
     def _save_subagent_history(

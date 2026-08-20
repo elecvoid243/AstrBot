@@ -1,0 +1,364 @@
+"""Tests for subagent context inherit modes (normal / fork / auto)."""
+
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+
+from astrbot.core.agent.agent import Agent
+from astrbot.core.agent.handoff import HandoffTool
+from astrbot.core.agent.message import Message
+from astrbot.core.agent.run_context import ContextWrapper
+from astrbot.core.agent.runners.tool_loop_agent_runner import ToolLoopAgentRunner
+from astrbot.core.agent.tool import FunctionTool, ToolSet
+from astrbot.core.astr_agent_context import AstrAgentContext
+from astrbot.core.astr_agent_tool_exec import FunctionToolExecutor
+from astrbot.core.platform.astr_message_event import AstrMessageEvent
+from astrbot.core.provider.entities import LLMResponse
+from astrbot.core.star.context import Context
+from astrbot.core.subagent_manager import SubAgentManager
+
+UMO = "test_platform:private:s1"
+
+
+class _FakeMainRunner:
+    """Minimal stand-in for the main agent runner stored in agent context extra."""
+
+    def __init__(self, toolset, schema_mode="full"):
+        self.req = MagicMock()
+        self.req.func_tool = toolset
+        self.tool_schema_mode = schema_mode
+        self.effective_raw_tool_set = toolset
+
+
+def make_handoff_tool(name="researcher", instructions="You are a researcher."):
+    agent = Agent(name=name, instructions=instructions, tools=[])
+    return HandoffTool(agent=agent, tool_description=f"Delegate to {name}")
+
+
+def make_run_context(mock_ctx, mock_event, messages, extra=None):
+    agent_context = AstrAgentContext(
+        context=mock_ctx, event=mock_event, extra=extra or {}
+    )
+    return ContextWrapper(context=agent_context, messages=messages)
+
+
+def make_main_messages():
+    return [
+        Message(role="system", content="MAIN SYSTEM PROMPT"),
+        Message(role="user", content="hello main"),
+        Message(role="assistant", content="hi"),
+    ]
+
+
+@pytest.fixture(autouse=True)
+def restore_manager_state():
+    """Snapshot and restore SubAgentManager class-level state around each test."""
+    mode = SubAgentManager._context_inherit_mode
+    sessions = dict(SubAgentManager._sessions)
+    SubAgentManager._sessions.clear()
+    SubAgentManager._context_inherit_mode = "normal"
+    # Avoid creating workspace directories from prompts built during tests.
+    prev = SubAgentManager._build_workdir_prompt
+    SubAgentManager._build_workdir_prompt = classmethod(
+        lambda cls, session_id, agent_name=None: ""
+    )
+    yield
+    SubAgentManager._context_inherit_mode = mode
+    SubAgentManager._sessions.clear()
+    SubAgentManager._sessions.update(sessions)
+    SubAgentManager._build_workdir_prompt = prev
+
+
+@pytest.fixture
+def mock_event():
+    event = MagicMock(spec=AstrMessageEvent)
+    event.unified_msg_origin = UMO
+    event.get_platform_name.return_value = "test_platform"
+    event.get_sender_name.return_value = "tester"
+    event.trace = None
+    message_obj = MagicMock()
+    message_obj.message = []
+    event.message_obj = message_obj
+    return event
+
+
+@pytest.fixture
+def mock_provider():
+    provider = MagicMock()
+    provider.provider_config = {"id": "provider-1", "max_context_tokens": 0}
+    return provider
+
+
+@pytest.fixture
+def mock_ctx(mock_event, mock_provider):
+    ctx = MagicMock(spec=Context)
+    ctx.get_config.return_value = {"provider_settings": {}}
+    ctx.get_current_chat_provider_id = AsyncMock(return_value="provider-1")
+    provider_manager = MagicMock()
+    provider_manager.get_provider_by_id = AsyncMock(return_value=mock_provider)
+    ctx.provider_manager = provider_manager
+    ctx.tool_loop_agent = AsyncMock(
+        return_value=LLMResponse(role="assistant", completion_text="ok")
+    )
+    return ctx
+
+
+async def run_handoff(handoff_tool, run_context, task_input="do research"):
+    return [
+        result
+        async for result in FunctionToolExecutor._execute_handoff(
+            handoff_tool, run_context, input=task_input
+        )
+    ]
+
+
+def get_tool_loop_agent_kwargs(mock_ctx):
+    mock_ctx.tool_loop_agent.assert_awaited_once()
+    return mock_ctx.tool_loop_agent.call_args.kwargs
+
+
+@pytest.mark.asyncio
+async def test_fork_mode_inherits_main_context(mock_ctx, mock_event):
+    SubAgentManager._context_inherit_mode = "fork"
+
+    main_messages = make_main_messages()
+    toolset = ToolSet()
+    toolset.add_tool(
+        FunctionTool(
+            name="main_tool",
+            description="d",
+            parameters={"type": "object", "properties": {}},
+        )
+    )
+    run_context = make_run_context(
+        mock_ctx,
+        mock_event,
+        main_messages,
+        extra={"main_agent_runner": _FakeMainRunner(toolset)},
+    )
+
+    results = await run_handoff(make_handoff_tool(), run_context)
+    assert results[-1].content[0].text == "ok"
+
+    kwargs = get_tool_loop_agent_kwargs(mock_ctx)
+    # Byte-identical inheritance: contexts are dumps of the main agent's
+    # messages, and no extra system prompt is inserted (main system message is
+    # already at contexts[0]).
+    assert kwargs["contexts"] == [msg.model_dump() for msg in main_messages]
+    assert kwargs["system_prompt"] == ""
+    assert kwargs["tools"] is toolset
+    assert kwargs["prompt"].startswith("[SUBAGENT MODE: FORK]")
+    assert "# Role" in kwargs["prompt"]
+    assert "do research" in kwargs["prompt"]
+    # The subagent's agent context is marked for permission isolation.
+    assert kwargs["agent_context"].extra["is_subagent"] is True
+    assert kwargs["agent_context"].extra["subagent_name"] == "researcher"
+
+
+@pytest.mark.asyncio
+async def test_fork_mode_falls_back_without_main_runner(mock_ctx, mock_event):
+    SubAgentManager._context_inherit_mode = "fork"
+
+    run_context = make_run_context(mock_ctx, mock_event, make_main_messages())
+
+    await run_handoff(make_handoff_tool(), run_context)
+    kwargs = get_tool_loop_agent_kwargs(mock_ctx)
+    assert kwargs["contexts"] == [msg.model_dump() for msg in run_context.messages]
+    # Fallback toolset construction path (agent has no tools configured).
+    assert kwargs["tools"] is None
+
+
+@pytest.mark.asyncio
+async def test_normal_mode_keeps_existing_behavior(mock_ctx, mock_event):
+    SubAgentManager._context_inherit_mode = "normal"
+
+    toolset = ToolSet()
+    run_context = make_run_context(
+        mock_ctx,
+        mock_event,
+        make_main_messages(),
+        extra={"main_agent_runner": _FakeMainRunner(toolset)},
+    )
+
+    results = await run_handoff(make_handoff_tool(), run_context)
+    assert results[-1].content[0].text == "ok"
+
+    kwargs = get_tool_loop_agent_kwargs(mock_ctx)
+    assert kwargs["system_prompt"].startswith("# Role")
+    assert kwargs["prompt"] == "do research"
+    assert kwargs["contexts"] is None
+    assert kwargs["tools"] is not toolset
+    assert kwargs["agent_context"].extra["is_subagent"] is True
+
+
+@pytest.mark.asyncio
+async def test_auto_mode_forks_below_threshold(mock_ctx, mock_event):
+    SubAgentManager._context_inherit_mode = "auto"
+    mock_ctx.provider_manager.get_provider_by_id.return_value.provider_config[
+        "max_context_tokens"
+    ] = 1_000_000
+
+    run_context = make_run_context(
+        mock_ctx,
+        mock_event,
+        make_main_messages(),
+        extra={"main_agent_runner": _FakeMainRunner(ToolSet())},
+    )
+
+    await run_handoff(make_handoff_tool(), run_context)
+    kwargs = get_tool_loop_agent_kwargs(mock_ctx)
+    assert kwargs["prompt"].startswith("[SUBAGENT MODE: FORK]")
+    assert kwargs["system_prompt"] == ""
+
+
+@pytest.mark.asyncio
+async def test_auto_mode_uses_normal_above_threshold(mock_ctx, mock_event):
+    SubAgentManager._context_inherit_mode = "auto"
+    mock_ctx.provider_manager.get_provider_by_id.return_value.provider_config[
+        "max_context_tokens"
+    ] = 5
+
+    run_context = make_run_context(
+        mock_ctx,
+        mock_event,
+        make_main_messages(),
+        extra={"main_agent_runner": _FakeMainRunner(ToolSet())},
+    )
+
+    await run_handoff(make_handoff_tool(), run_context)
+    kwargs = get_tool_loop_agent_kwargs(mock_ctx)
+    assert kwargs["system_prompt"].startswith("# Role")
+    assert kwargs["prompt"] == "do research"
+
+
+@pytest.mark.asyncio
+async def test_auto_mode_forks_without_token_limit(mock_ctx, mock_event):
+    SubAgentManager._context_inherit_mode = "auto"
+    mock_ctx.provider_manager.get_provider_by_id.return_value.provider_config[
+        "max_context_tokens"
+    ] = 0
+
+    run_context = make_run_context(
+        mock_ctx,
+        mock_event,
+        make_main_messages(),
+        extra={"main_agent_runner": _FakeMainRunner(ToolSet())},
+    )
+
+    await run_handoff(make_handoff_tool(), run_context)
+    kwargs = get_tool_loop_agent_kwargs(mock_ctx)
+    assert kwargs["prompt"].startswith("[SUBAGENT MODE: FORK]")
+
+
+@pytest.mark.asyncio
+async def test_subagent_cannot_call_management_tool(mock_ctx, mock_event):
+    handler = AsyncMock(return_value="secret")
+    tool = FunctionTool(
+        name="create_subagent",
+        description="d",
+        parameters={"type": "object", "properties": {}},
+        handler=handler,
+    )
+    run_context = make_run_context(
+        mock_ctx,
+        mock_event,
+        [],
+        extra={"is_subagent": True, "subagent_name": "child"},
+    )
+
+    results = [
+        r
+        async for r in FunctionToolExecutor.execute(
+            tool=tool, run_context=run_context, input="x"
+        )
+    ]
+    handler.assert_not_called()
+    assert len(results) == 1
+    text = results[0].content[0].text
+    assert "Permission denied" in text
+    assert "create_subagent" in text
+
+
+@pytest.mark.asyncio
+async def test_subagent_cannot_call_handoff_tool(mock_ctx, mock_event):
+    handoff_tool = make_handoff_tool(name="inner")
+    run_context = make_run_context(
+        mock_ctx,
+        mock_event,
+        [],
+        extra={"is_subagent": True, "subagent_name": "child"},
+    )
+
+    results = [
+        r
+        async for r in FunctionToolExecutor.execute(
+            tool=handoff_tool, run_context=run_context, input="x"
+        )
+    ]
+    assert len(results) == 1
+    assert "Permission denied" in results[0].content[0].text
+    mock_ctx.tool_loop_agent.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_main_agent_context_can_still_call_tools(mock_ctx, mock_event):
+    handler = AsyncMock(return_value="ran")
+    tool = FunctionTool(
+        name="my_tool",
+        description="d",
+        parameters={"type": "object", "properties": {}},
+        handler=handler,
+    )
+    # No is_subagent marker: this is the main agent's run context.
+    run_context = make_run_context(mock_ctx, mock_event, [])
+
+    results = [
+        r
+        async for r in FunctionToolExecutor.execute(tool=tool, run_context=run_context)
+    ]
+    handler.assert_awaited_once()
+    assert any("ran" in c.text for r in results for c in r.content)
+
+
+def test_effective_raw_tool_set_property():
+    runner = ToolLoopAgentRunner()
+    # Before reset there is no request.
+    assert runner.effective_raw_tool_set is None
+
+    full_set = ToolSet()
+    runner.req = MagicMock()
+    runner.req.func_tool = full_set
+    runner.tool_schema_mode = "full"
+    assert runner.effective_raw_tool_set is full_set
+
+    # In skills_like mode req.func_tool holds the light schema set; the
+    # property must expose the raw full-schema set instead.
+    raw_set = ToolSet()
+    runner.tool_schema_mode = "skills_like"
+    runner._skill_like_raw_tool_set = raw_set
+    assert runner.effective_raw_tool_set is raw_set
+
+
+def test_configure_validates_inherit_mode():
+    SubAgentManager.configure(context_inherit_mode="fork")
+    assert SubAgentManager.get_context_inherit_mode() == "fork"
+    SubAgentManager.configure(context_inherit_mode="auto")
+    assert SubAgentManager.get_context_inherit_mode() == "auto"
+    SubAgentManager.configure(context_inherit_mode="bogus")
+    assert SubAgentManager.get_context_inherit_mode() == "normal"
+
+
+def test_main_agent_only_tools_set():
+    tools = SubAgentManager.get_main_agent_only_tools()
+    assert "transfer_to_subagent" in tools
+    for blacklisted in (
+        "create_subagent",
+        "remove_subagent",
+        "list_subagents",
+        "manage_subagent_protection",
+        "wait_for_subagent",
+        "orchestrate_tasks",
+        "broadcast_shared_context",
+        "view_shared_context",
+    ):
+        assert blacklisted in tools

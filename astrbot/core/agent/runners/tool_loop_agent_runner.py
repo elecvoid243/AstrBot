@@ -1532,6 +1532,27 @@ class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
     def get_final_llm_resp(self) -> LLMResponse | None:
         return self.final_llm_resp
 
+    @property
+    def effective_raw_tool_set(self) -> ToolSet | None:
+        """Return the full-schema tool set, even in skills_like mode.
+
+        In skills_like mode ``req.func_tool`` is swapped for a light schema set
+        without parameter definitions or handlers. Callers that need to inherit
+        this runner's executable tool set (e.g. subagent fork mode) should use
+        this property instead.
+
+        Returns:
+            The raw full-schema ToolSet, or None when not set.
+        """
+        raw_set = getattr(self, "_skill_like_raw_tool_set", None)
+        if (
+            getattr(self, "tool_schema_mode", None) == "skills_like"
+            and raw_set is not None
+        ):
+            return raw_set
+        req = getattr(self, "req", None)
+        return req.func_tool if req else None
+
     async def _finalize_aborted_step(self) -> AgentResponse:
         logger.info("Agent execution was requested to stop by user.")
 

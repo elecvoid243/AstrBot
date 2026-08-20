@@ -253,6 +253,18 @@ DEFAULT_CONFIG = {
         "shared_context_maxlen": 300,
         "subagent_history_maxlen": 300,
         "execution_timeout": 1200,
+        # Subagent context inheritance mode:
+        # - "normal": subagents start from their own system prompt and history
+        #   with their own toolset (default).
+        # - "fork": subagents byte-identically inherit the main agent's message
+        #   context and tool schema to maximize provider prefix cache hits;
+        #   subagent instructions are appended as a new user message after the
+        #   inherited prefix. Main-agent-only orchestration tools stay visible
+        #   but are rejected with a guidance message when called.
+        # - "auto": decide per delegation - use fork while the estimated
+        #   context usage stays below the compression threshold (82% of
+        #   max_context_tokens), otherwise fall back to normal mode.
+        "context_inherit_mode": "normal",
         "dag_enabled": False,
         "dag_max_nodes": 10,
         "dag_max_parallel": 5,
