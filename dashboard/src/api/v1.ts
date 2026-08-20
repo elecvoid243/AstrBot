@@ -1444,6 +1444,23 @@ export const pluginApi = {
   },
 };
 
+export type FileAccessModeValue = 'full' | 'readonly' | 'workspace'
+
+export interface FileAccessModeStatusData {
+  umo: string
+  mode: FileAccessModeValue
+  default_mode: FileAccessModeValue
+}
+
+export const fileAccessApi = {
+  get: (umo: string) =>
+    typed<FileAccessModeStatusData>(openApiV1.getFileAccessMode({ query: { umo } })),
+  set: (umo: string, mode: FileAccessModeValue) =>
+    typed<FileAccessModeStatusData>(
+      openApiV1.setFileAccessMode({ body: { umo, mode } }),
+    ),
+}
+
 export const pluginExtensionApi = {
   get<T = any>(pluginPath: string, config?: AxiosRequestConfig) {
     return apiV1Client.get<ApiEnvelope<T>>(
