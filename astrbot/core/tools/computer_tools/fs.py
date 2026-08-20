@@ -29,6 +29,12 @@ Behavior when `provider_settings.computer_use_require_admin=True`:
 When `computer_use_require_admin=False`, member behavior in this module matches
 admin behavior.
 
+File access mode (provider_settings.file_access_default_mode + per-session
+override via the dashboard): readonly rejects all writes (merged "plan"
+mode); workspace restricts writes to the workspace whitelist (workspace,
+temp dirs, configured extra roots, plugin dynamic roots) even for admins.
+Reads are never restricted by the mode.
+
 Local path resolution rule:
 - In local runtime, relative paths are resolved under the primary workspace.
 - In sandbox runtime, relative paths are passed through unchanged.
@@ -51,6 +57,7 @@ from astrbot.core.astr_agent_context import AstrAgentContext
 from astrbot.core.computer.computer_client import get_booter
 from astrbot.core.computer.file_read_utils import read_file_tool_result
 from astrbot.core.message.components import File, Image
+from astrbot.core.tools import fs_access
 from astrbot.core.utils.astrbot_path import (
     get_astrbot_builtin_plugin_path,
     get_astrbot_plugin_path,
@@ -161,12 +168,14 @@ def _read_allowed_roots(
 def _write_allowed_roots(
     umo: str,
     current_workspace_root: Path | None = None,
+    extra_roots: tuple[Path, ...] = (),
 ) -> tuple[Path, ...]:
     """Non-admin users can modify only workspace and temporary files."""
     return (
         current_workspace_root or _workspace_root(umo),
         Path(get_astrbot_system_tmp_path()).resolve(strict=False),
         Path(get_astrbot_temp_path()).resolve(strict=False),
+        *extra_roots,
     )
 
 
@@ -179,6 +188,30 @@ def _is_restricted_env(context: ContextWrapper[AstrAgentContext]) -> bool:
     provider_settings = cfg.get("provider_settings", {})
     require_admin = provider_settings.get("computer_use_require_admin", True)
     return require_admin and context.context.event.role != "admin"
+
+
+_READONLY_WRITE_ERROR = (
+    "Error: Write access is disabled — this conversation is in readonly "
+    "(plan) file access mode. Ask the user to switch the file access mode "
+    "before modifying files."
+)
+
+
+def _write_guard(
+    context: ContextWrapper[AstrAgentContext],
+) -> tuple[bool, tuple[Path, ...]]:
+    """Return (restricted, extra_write_roots) for a write under the mode.
+
+    Args:
+        context: Tool-call context.
+
+    Returns:
+        restricted: True when the write must pass the allowed-roots check.
+        extra_write_roots: Mode-configured roots to append to the allow list.
+    """
+    if fs_access.get_mode(context) is fs_access.FileAccessMode.WORKSPACE:
+        return True, fs_access.extra_write_roots(context)
+    return _is_restricted_env(context), ()
 
 
 def _resolve_tool_path(
@@ -233,10 +266,12 @@ def _is_path_within_allowed_roots(
         umo=umo,
         current_workspace_root=current_workspace_root,
     )
-    return any(
-        resolved == allowed_root or resolved.is_relative_to(allowed_root)
-        for allowed_root in allowed_roots
-    )
+    candidate = Path(os.path.normcase(str(resolved)))
+    for allowed_root in allowed_roots:
+        normalized_root = Path(os.path.normcase(str(allowed_root)))
+        if candidate == normalized_root or candidate.is_relative_to(normalized_root):
+            return True
+    return False
 
 
 def _reject_multi_link_file(path: str) -> None:
@@ -266,6 +301,7 @@ def _normalize_rw_path(
     umo: str,
     write: bool = False,
     current_workspace_root: Path | None = None,
+    extra_write_roots: tuple[Path, ...] = (),
 ) -> str:
     normalized_path = _resolve_tool_path(
         path,
@@ -277,9 +313,12 @@ def _normalize_rw_path(
         raise ValueError("`path` must be a non-empty string.")
     if restricted:
         allowed_roots = (
-            _write_allowed_roots(umo, current_workspace_root)
+            _write_allowed_roots(umo, current_workspace_root, tuple(extra_write_roots))
             if write
-            else _read_allowed_roots(umo, current_workspace_root)
+            else (
+                _read_allowed_roots(umo, current_workspace_root)
+                + tuple(extra_write_roots)
+            )
         )
     if restricted and not _is_path_within_allowed_roots(
         normalized_path,
@@ -439,8 +478,10 @@ class FileWriteTool(FunctionTool):
         path: str,
         content: str,
     ) -> ToolExecResult:
+        if fs_access.get_mode(context) is fs_access.FileAccessMode.READONLY:
+            return _READONLY_WRITE_ERROR
         local_env = is_local_runtime(context)
-        restricted = _is_restricted_env(context)
+        restricted, extra_write_roots = _write_guard(context)
         current_workspace_root = (
             await workspace_root_for_context(context) if local_env else None
         )
@@ -453,6 +494,7 @@ class FileWriteTool(FunctionTool):
                     umo=context.context.event.unified_msg_origin,
                     write=True,
                     current_workspace_root=current_workspace_root,
+                    extra_write_roots=extra_write_roots,
                 )
                 if local_env
                 else path.strip()
@@ -703,9 +745,11 @@ class FileEditTool(FunctionTool):
         backup_id: str | None = None,
         list_history: bool = False,
     ) -> ToolExecResult:
+        if fs_access.get_mode(context) is fs_access.FileAccessMode.READONLY:
+            return _READONLY_WRITE_ERROR
         umo = str(context.context.event.unified_msg_origin)
         local_env = is_local_runtime(context)
-        restricted = _is_restricted_env(context)
+        restricted, extra_write_roots = _write_guard(context)
         history_mgr = get_history_manager()
 
         current_workspace_root = (
@@ -720,6 +764,7 @@ class FileEditTool(FunctionTool):
                     umo=umo,
                     write=True,
                     current_workspace_root=current_workspace_root,
+                    extra_write_roots=extra_write_roots,
                 )
             else:
                 normalized_path = path.strip()

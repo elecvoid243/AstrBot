@@ -25,12 +25,14 @@ def _make_context(
     role: str = "admin",
     runtime: str = "local",
     umo: str = "qq:friend:user-1",
+    file_access_default_mode: str = "full",
 ) -> ContextWrapper:
     config_holder = SimpleNamespace(
         get_config=lambda umo=None: {
             "provider_settings": {
                 "computer_use_require_admin": require_admin,
                 "computer_use_runtime": runtime,
+                "file_access_default_mode": file_access_default_mode,
             }
         }
     )
@@ -734,3 +736,147 @@ async def test_file_read_tool_rejects_directory_with_clear_message(
     assert "is a directory, not a file" in result
     assert "my-directory" in result
     assert "'astrbot_execute_shell'" in result
+
+
+@pytest.mark.asyncio
+async def test_file_write_tool_blocked_in_readonly_mode(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+):
+    from astrbot.core.tools import fs_access
+
+    umo = "webchat:FriendMessage:webchat!tester!s1"
+    fs_access.set_mode_for_umo(umo, fs_access.FileAccessMode.READONLY)
+    try:
+        context = _make_context(umo=umo)
+        booter = SimpleNamespace(
+            fs=SimpleNamespace(write_file=AsyncMock(return_value={"success": True}))
+        )
+        monkeypatch.setattr(fs_tools, "get_booter", AsyncMock(return_value=booter))
+        result = await fs_tools.FileWriteTool().call(
+            context, path=str(tmp_path / "a.txt"), content="x"
+        )
+        assert result.startswith("Error:")
+        assert "readonly" in result
+        booter.fs.write_file.assert_not_awaited()
+    finally:
+        fs_access.reset()
+
+
+@pytest.mark.asyncio
+async def test_file_edit_tool_blocked_in_readonly_mode(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+):
+    from astrbot.core.tools import fs_access
+
+    umo = "webchat:FriendMessage:webchat!tester!s1"
+    fs_access.set_mode_for_umo(umo, fs_access.FileAccessMode.READONLY)
+    try:
+        context = _make_context(umo=umo)
+        monkeypatch.setattr(fs_tools, "get_booter", AsyncMock())
+        result = await fs_tools.FileEditTool().call(
+            context, path=str(tmp_path / "a.txt"), old="a", new="b"
+        )
+        assert result.startswith("Error:")
+        assert "readonly" in result
+    finally:
+        fs_access.reset()
+
+
+@pytest.mark.asyncio
+async def test_file_write_tool_workspace_mode_restricts_admin(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+):
+    from astrbot.core.tools import fs_access
+
+    umo = "webchat:FriendMessage:webchat!tester!s1"
+    fs_access.set_mode_for_umo(umo, fs_access.FileAccessMode.WORKSPACE)
+    try:
+        ws = tmp_path / "ws"
+        ws.mkdir()
+
+        async def _fake_root(_ctx):
+            return ws
+
+        monkeypatch.setattr(fs_tools, "workspace_root_for_context", _fake_root)
+        booter = SimpleNamespace(
+            fs=SimpleNamespace(write_file=AsyncMock(return_value={"success": True}))
+        )
+        monkeypatch.setattr(fs_tools, "get_booter", AsyncMock(return_value=booter))
+        context = _make_context(umo=umo, role="admin")
+
+        ok_result = await fs_tools.FileWriteTool().call(
+            context, path=str(ws / "inside.txt"), content="x"
+        )
+        assert ok_result.startswith("File written successfully")
+
+        blocked = await fs_tools.FileWriteTool().call(
+            context, path=str(tmp_path / "outside.txt"), content="x"
+        )
+        assert blocked.startswith("Error:")
+        assert "Allowed directories" in blocked
+    finally:
+        fs_access.reset()
+
+
+@pytest.mark.asyncio
+async def test_file_write_tool_workspace_mode_honors_dynamic_roots(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+):
+    from astrbot.core.tools import fs_access
+
+    umo = "webchat:FriendMessage:webchat!tester!s1"
+    fs_access.set_mode_for_umo(umo, fs_access.FileAccessMode.WORKSPACE)
+    wt = tmp_path / "worktree"
+    wt.mkdir()
+    fs_access.set_dynamic_roots(umo, [wt])
+    try:
+
+        async def _fake_root(_ctx):
+            return tmp_path / "ws"
+
+        monkeypatch.setattr(fs_tools, "workspace_root_for_context", _fake_root)
+        booter = SimpleNamespace(
+            fs=SimpleNamespace(write_file=AsyncMock(return_value={"success": True}))
+        )
+        monkeypatch.setattr(fs_tools, "get_booter", AsyncMock(return_value=booter))
+        context = _make_context(umo=umo, role="admin")
+        result = await fs_tools.FileWriteTool().call(
+            context, path=str(wt / "main.py"), content="x"
+        )
+        assert result.startswith("File written successfully")
+    finally:
+        fs_access.reset()
+
+
+@pytest.mark.asyncio
+async def test_file_read_tool_unaffected_by_readonly_mode(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+):
+    from astrbot.core.tools import fs_access
+
+    umo = "webchat:FriendMessage:webchat!tester!s1"
+    fs_access.set_mode_for_umo(umo, fs_access.FileAccessMode.READONLY)
+    try:
+        target = tmp_path / "readable.txt"
+        target.write_text("hello", encoding="utf-8")
+
+        async def _fake_root(_ctx):
+            return tmp_path
+
+        monkeypatch.setattr(fs_tools, "workspace_root_for_context", _fake_root)
+        monkeypatch.setattr(
+            fs_tools,
+            "read_file_tool_result",
+            AsyncMock(return_value="hello"),
+        )
+        monkeypatch.setattr(fs_tools, "get_booter", AsyncMock())
+        context = _make_context(umo=umo)
+        result = await fs_tools.FileReadTool().call(context, path=str(target))
+        assert result == "hello"
+    finally:
+        fs_access.reset()
