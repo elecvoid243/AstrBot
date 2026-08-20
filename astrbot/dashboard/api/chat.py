@@ -9,6 +9,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
+from astrbot.core.tools import fs_access
 from astrbot.dashboard.async_utils import run_maybe_async
 from astrbot.dashboard.responses import error, ok
 from astrbot.dashboard.schemas import (
@@ -19,6 +20,7 @@ from astrbot.dashboard.schemas import (
     ChatSessionPatchRequest,
     ChatThreadCreateRequest,
     ChatThreadMessageRequest,
+    FileAccessModeSetRequest,
 )
 from astrbot.dashboard.services.chat_service import (
     ChatService,
@@ -109,6 +111,29 @@ async def _send_chat(
             "Connection": "keep-alive",
         },
     )
+
+
+@router.get("/chat/file-access-mode")
+async def get_file_access_mode(
+    request: Request,
+    umo: str = Query(...),
+    auth: AuthContext = Depends(require_chat_scope),
+):
+    default = fs_access.resolve_default(request.app.state.core_lifecycle.astrbot_config)
+    mode = fs_access.get_mode_for_umo(umo, default=default)
+    return ok({"umo": umo, "mode": mode.value, "default_mode": default.value})
+
+
+@router.post("/chat/file-access-mode")
+async def set_file_access_mode(
+    payload: FileAccessModeSetRequest,
+    request: Request,
+    auth: AuthContext = Depends(require_chat_scope),
+):
+    default = fs_access.resolve_default(request.app.state.core_lifecycle.astrbot_config)
+    fs_access.set_mode_for_umo(payload.umo, fs_access.FileAccessMode(payload.mode))
+    mode = fs_access.get_mode_for_umo(payload.umo, default=default)
+    return ok({"umo": payload.umo, "mode": mode.value, "default_mode": default.value})
 
 
 @router.get("/chat/sessions/new")

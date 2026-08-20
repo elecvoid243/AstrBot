@@ -1361,6 +1361,27 @@ export type ListChatSessionsResponse = (SuccessEnvelope);
 
 export type ListChatSessionsError = unknown;
 
+export type GetFileAccessModeData = {
+    query: {
+        umo: string;
+    };
+};
+
+export type GetFileAccessModeResponse = (SuccessEnvelope);
+
+export type GetFileAccessModeError = unknown;
+
+export type SetFileAccessModeData = {
+    body: {
+        umo: string;
+        mode: 'full' | 'readonly' | 'workspace';
+    };
+};
+
+export type SetFileAccessModeResponse = (SuccessEnvelope);
+
+export type SetFileAccessModeError = unknown;
+
 export type CreateChatSessionData = {
     query?: {
         platform_id?: string;

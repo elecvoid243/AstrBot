@@ -124,6 +124,11 @@ class ChatSessionPatchRequest(OpenModel):
     display_name: str | None = None
 
 
+class FileAccessModeSetRequest(OpenModel):
+    umo: str
+    mode: Literal["full", "readonly", "workspace"]
+
+
 class ChatOpenFileRequest(OpenModel):
     """Request to open a local file on the AstrBot host (2026-08-14)."""
 

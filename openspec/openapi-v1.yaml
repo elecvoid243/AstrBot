@@ -1236,6 +1236,43 @@ paths:
         "200":
           $ref: "#/components/responses/Ok"
 
+  /api/v1/chat/file-access-mode:
+    get:
+      tags: [Chat]
+      summary: Get the effective file access mode for a session
+      operationId: getFileAccessMode
+      x-astrbot-scope: chat
+      parameters:
+        - name: umo
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+    post:
+      tags: [Chat]
+      summary: Set the file access mode for a session
+      operationId: setFileAccessMode
+      x-astrbot-scope: chat
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [umo, mode]
+              properties:
+                umo:
+                  type: string
+                mode:
+                  type: string
+                  enum: [full, readonly, workspace]
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+
   /api/v1/chat/sessions/new:
     get:
       tags: [Chat]
