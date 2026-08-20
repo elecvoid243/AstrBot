@@ -7,32 +7,33 @@
     @drop.prevent="handleDrop"
   >
     <!--
-      spcode status row. Shown above the main status row when the spcode
-      plugin is enabled. The project chip exposes a services popover
+      Status row above the main input. Always rendered — the file access
+      mode chip must be reachable without the spcode plugin. The left
+      project chip (plugin-gated) exposes a services popover
       (codegraph / vivado MCP status) via its small side button.
     -->
-    <div v-if="showSpcodeIndicator" class="input-area__status-row">
-      <div class="input-area__status-row__left">
+    <div class="input-area__status-row">
+      <div
+        v-if="showSpcodeIndicator"
+        class="input-area__status-row__left"
+      >
         <SpcodeProjectIndicator
           @open-load-dialog="openLoadDialog"
           @open-codegraph-dialog="openCodegraphLoadDialog"
         />
       </div>
       <!--
-            Right-side group: keeps the plan-mode chip visually adjacent to
-            the git-diff chip regardless of which of the two is shown.
-            Without this wrapper, .input-area__status-row's
+            Right-side group: keeps the file-access-mode chip visually
+            adjacent to the git-diff chip regardless of which of the two
+            is shown. Without this wrapper, .input-area__status-row's
             ``justify-content: space-between`` distributes the three chips
-            (project / plan / git-diff) across the full row width, so
-            enabling the git-diff chip pushes the plan chip into the
+            (project / file-access / git-diff) across the full row width,
+            so enabling the git-diff chip pushes the mode chip into the
             middle of the row.
           -->
       <div class="input-area__status-row__right">
         <div class="input-area__status-row__chips-stack">
-          <SpcodePlanModeChip
-            v-if="showPlanModeChip"
-            @toggle="handlePlanModeToggle"
-          />
+          <FileAccessModeChip @change="handleFileAccessModeChange" />
           <GitDiffChip
             v-if="spcodeStatus.status.value.loaded"
             @open-diff-sidebar="emit('open-diff-sidebar')"
@@ -589,7 +590,7 @@ import ProjectLoadMenuItem from "./ProjectLoadMenuItem.vue";
 import ProjectLoadDialog from "./ProjectLoadDialog.vue";
 import type { ProjectLoadSubmitPayload } from "./ProjectLoadDialog.vue";
 import SpcodeProjectIndicator from "./SpcodeProjectIndicator.vue";
-import SpcodePlanModeChip from "./SpcodePlanModeChip.vue";
+import FileAccessModeChip from "./FileAccessModeChip.vue";
 import GitDiffChip from "./GitDiffChip.vue";
 import SkillGuideMenuItem from "./SkillGuideMenuItem.vue";
 import { useSkillGuide } from "@/composables/useSkillGuide";
@@ -607,8 +608,8 @@ import { useFileComments } from "@/composables/useFileComments";
 import { useFileReferences } from "@/composables/useFileReferences";
 import { useConfirmDialog } from "@/utils/confirmDialog";
 import { useSpcodeProjectLoad } from "@/composables/useSpcodeProjectLoad";
-import { useSpcodePlanMode } from "@/composables/useSpcodePlanMode";
-import { useSpcodePlanModeLoad } from "@/composables/useSpcodePlanModeLoad";
+import { useFileAccessMode } from "@/composables/useFileAccessMode";
+import type { FileAccessMode } from "@/composables/useFileAccessMode";
 import { attachmentPresentation } from "./attachmentPresentation";
 import type { Session } from "@/composables/useSessions";
 import type { SuggestionCommand } from "./CommandSuggestion.vue";
@@ -893,21 +894,13 @@ const { isProjectLoadAvailable, refreshPluginState } =
   useSpcodeProjectLoad(allCommands);
 const showSpcodeIndicator = isProjectLoadAvailable;
 
-// Visibility gate for the plan/build chip (next to the project
-// indicator). Mirrors the project-load gate: spcode plugin enabled
-// AND both /plan and /build commands registered. The chip is a
-// toggle, so we require BOTH commands to avoid showing a chip that
-// can only move the user into a state with no in-app way out.
-const { isPlanModeChipAvailable } = useSpcodePlanModeLoad(allCommands);
-const showPlanModeChip = isPlanModeChipAvailable;
-
-// Singleton state for the chip's per-umo plan/build flag. We expose
-// it here so the toggle handler can both read the current state (to
-// decide which command to inject) and optimistically flip it for
-// instant feedback. The authoritative refresh runs from Chat.vue's
-// `currSessionId` watcher so the chip converges with the bot's
-// response on every session switch.
-const spcodePlanMode = useSpcodePlanMode();
+// Singleton state for the file access mode chip (full / readonly /
+// workspace), keyed per-umo by AstrBot core. Exposed here so the
+// change handler can optimistically flip it for instant feedback.
+// The authoritative refresh runs from the session watcher below and
+// from Chat.vue's watchers so the chip converges with the backend
+// on every session switch and stream end.
+const fileAccessMode = useFileAccessMode();
 const wakePrefixes = ref<string[]>(["/"]);
 const currentConfigId = ref((props.configId as string) || "default");
 
@@ -1515,55 +1508,42 @@ async function handleProjectLoadSubmit(
 }
 
 /**
- * Handle a click on the plan/build chip.
+ * Handle a mode change from the file access chip.
  *
- * The chip is a one-click toggle. The primary path (spcode v2.22.0+)
- * flips the mode through the plugin's ``POST /spcode/plan-mode``
- * endpoint, which changes the backend state directly and leaves NO
- * ``/plan`` or ``/build`` message in the conversation history.
+ * Primary path: POST the new mode to AstrBot core, keyed by the
+ * session's full unified_msg_origin. Fallbacks:
+ *   - no current session yet — only readonly has a command fallback
+ *     (``/plan``); the other modes need a umo and are dropped until
+ *     a session exists;
+ *   - the POST fails — resync from the backend, and readonly
+ *     additionally falls back to the ``/plan`` chat command.
  *
- * Fallbacks dispatch the chat command instead (previous behavior):
- *   - no current session yet — the command path creates one in
- *     ``Chat.vue.sendSystemCommand`` before we can know its umo;
- *   - the POST fails (older plugin without the route, network error).
- * In the fallback case the optimistic flip below already matches the
- * command's intent, so no rollback is needed; the authoritative
- * refresh from ``Chat.vue``'s watchers corrects any drift if the
- * command itself fails.
- *
- * The optimistic ``setActive`` flip happens here so the chip color
- * updates immediately. The authoritative state arrives via the POST
- * response (or, on the fallback path, the next refresh tick).
+ * The optimistic ``setOptimistic`` flip happens first so the chip
+ * highlights immediately; failures are corrected by the resync.
  */
-function handlePlanModeToggle(): void {
-  // Read current state and decide the target mode. We intentionally
-  // do NOT short-circuit on `active === null` — unknown umo is
-  // treated as build (the chip displays "Build") and clicking it
-  // switches to plan, which matches what the user sees on the chip.
-  const isPlan = spcodePlanMode.status.value.active === true;
-  const target = !isPlan;
-  // Optimistic flip: chip will turn warning/green immediately instead
-  // of waiting for the backend round-trip.
-  spcodePlanMode.setActive(target);
+function handleFileAccessModeChange(mode: FileAccessMode): void {
+  // Optimistic flip so the chip highlights immediately.
+  fileAccessMode.setOptimistic(mode);
 
   const session = props.currentSession;
   if (!session) {
-    // No session → no umo to address the POST at. The command path
-    // creates the session lazily in Chat.vue.sendSystemCommand.
-    emit("send-command", target ? "/plan" : "/build");
+    // No session yet → no umo. Only readonly has a command fallback.
+    if (mode === "readonly") {
+      emit("send-command", "/plan");
+    }
     return;
   }
-  // CRITICAL: the backend keys its per-session state on the full
-  // unified_msg_origin (see the showPlanModeChip watcher below), not
-  // the bare conversation id.
   const umo = buildWebchatUmoDetails(
     session.session_id,
     Boolean(session.is_group),
   ).umo;
-  void spcodePlanMode.setPlanMode(umo, target).then((ok) => {
+  void fileAccessMode.setMode(umo, mode).then((ok) => {
     if (!ok) {
-      // Older plugin / network failure: fall back to the chat command.
-      emit("send-command", target ? "/plan" : "/build");
+      // Resync on failure; readonly additionally falls back to /plan.
+      void fileAccessMode.refresh(umo);
+      if (mode === "readonly") {
+        emit("send-command", "/plan");
+      }
     }
   });
 }
@@ -1887,37 +1867,30 @@ watch(
   { immediate: false },
 );
 
-// Pull initial plan/build state when the chip becomes visible.
-// The Chat.vue watcher covers the session-switch refresh, but on
-// the very first paint we still need a value to render the chip
-// in the correct color. Same immediate-false pattern as above to
-// avoid racing the plugin state fetch.
+// Keep the file access chip in sync with the backend's per-session
+// state: refresh whenever the active session changes (and once on
+// first paint via `immediate`), reset when no session is active.
 //
 // CRITICAL: refresh() must receive the full unified_msg_origin (umo)
-// string the backend keys its per-session state on, not the raw
-// webchat conversation id. The backend's webchat adapter sets
-// `abm.session_id = f"webchat!{username}!{cid}"`, so the umo that
-// lands in spcode's `_plan_mode` dict is
-// `webchat:FriendMessage:webchat!<username>!<conversation_id>`.
-// Passing the bare conversation id here would make the backend
-// look up a key that does not exist and return active=False,
-// which would clobber the chip's optimistic state right after
-// every /plan toggle.
+// string the backend keys its per-session state on — built via
+// :func:`buildWebchatUmoDetails` — not the bare webchat conversation
+// id. Passing the raw id would make the backend look up a key that
+// does not exist and silently fall back to the default mode,
+// clobbering the chip's optimistic state right after every change.
 watch(
-  showPlanModeChip,
-  async (visible) => {
-    if (!visible) return;
-    if (!props.currentSession) {
-      await spcodePlanMode.refresh();
+  () => props.currentSession?.session_id ?? null,
+  async (sid) => {
+    if (!sid || !props.currentSession) {
+      fileAccessMode.reset();
       return;
     }
     const umo = buildWebchatUmoDetails(
       props.currentSession.session_id,
       Boolean(props.currentSession.is_group),
     ).umo;
-    await spcodePlanMode.refresh(umo);
+    await fileAccessMode.refresh(umo);
   },
-  { immediate: false },
+  { immediate: true },
 );
 
 onMounted(() => {
@@ -2000,8 +1973,8 @@ defineExpose({
 }
 
 /*
- * Right cluster: plan/build segmented control + git-diff ghost button.
- * Horizontal (was column-stack) because the new segmented control is
+ * Right cluster: file access mode segmented control + git-diff ghost
+ * button. Horizontal (was column-stack) because the segmented control is
  * always-visible (no v-if) so the column fallback is no longer needed.
  */
 .input-area__status-row__right {

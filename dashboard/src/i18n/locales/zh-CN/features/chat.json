@@ -1733,5 +1733,11 @@
     "matches": "条匹配",
     "prevPage": "上一页",
     "nextPage": "下一页"
+  },
+  "fileAccessChip": {
+    "fullLabel": "完全",
+    "readonlyLabel": "只读",
+    "workspaceLabel": "工作区",
+    "tooltip": "文件访问模式：完全=任意路径可写；只读=Plan 模式，禁止一切写入；工作区=仅会话工作区与白名单内可写（shell 不受此限制）"
   }
 }

@@ -1097,6 +1097,7 @@ import { useSpcodeOperationProgress } from "@/composables/useSpcodeOperationProg
 import { useSpcodeCodegraphStatus } from "@/composables/useSpcodeCodegraphStatus";
 import { useSpcodeVivadoStatus } from "@/composables/useSpcodeVivadoStatus";
 import { useSpcodePlanMode } from "@/composables/useSpcodePlanMode";
+import { useFileAccessMode } from "@/composables/useFileAccessMode";
 import StyledMenu from "@/components/shared/StyledMenu.vue";
 import ProjectDialog, {
   type ProjectFormData,
@@ -1199,6 +1200,10 @@ const vivadoStatus = useSpcodeVivadoStatus();
 // Plan/build mode singleton. Mirrors the spcodeStatus lifecycle so
 // both chips stay in sync across session switches and stream-ends.
 const spcodePlanMode = useSpcodePlanMode();
+// File access mode singleton (core-owned, per-umo). Refreshed in
+// lockstep with spcodePlanMode so the chip stays in sync across
+// session switches and stream-ends.
+const fileAccessMode = useFileAccessMode();
 const confirmDialog = useConfirmDialog();
 const toast = useToast();
 // Sessions with an unanswered ask_user_choice prompt — drives the sidebar
@@ -1769,6 +1774,16 @@ const {
       // (not the bare session id) so the backend's `_plan_mode[umo]`
       // lookup actually hits the key the bot just wrote.
       void spcodePlanMode.refresh(resolveCurrentUmo(currSessionId.value));
+      // File access mode is also per-umo and may have been changed by
+      // commands processed during the stream (e.g. /plan), so refresh
+      // it in lockstep with the plan/build state above. Unlike the
+      // plugin endpoints, the core route requires a umo — no bare
+      // refresh fallback — so guard with the resolved value.
+      if (resolvedUmo) {
+        void fileAccessMode.refresh(resolvedUmo);
+      } else {
+        fileAccessMode.reset();
+      }
       // Codegraph MCP state is global (not per-umo), so no umo arg.
       // Mirrors project/plan: stream-end is the authoritative sync
       // point — the bot has just finished processing any
@@ -2178,6 +2193,15 @@ watch(
     // (webchat conversation id). See :func:`resolveCurrentUmo` for the
     // exact format.
     await spcodePlanMode.refresh(resolveCurrentUmo(next));
+    // File access mode: same per-umo lifecycle — refetch on every
+    // session switch so the chip matches the core backend. The core
+    // route requires a umo, so mirror the guard above: reset in the
+    // unresolved-umo window rather than refresh bare.
+    if (resolvedUmo) {
+      await fileAccessMode.refresh(resolvedUmo);
+    } else {
+      fileAccessMode.reset();
+    }
   },
   { immediate: true },
 );
