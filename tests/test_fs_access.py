@@ -1,0 +1,154 @@
+from __future__ import annotations
+
+import os
+from types import SimpleNamespace
+
+import pytest
+
+from astrbot.core.agent.run_context import ContextWrapper
+from astrbot.core.tools import fs_access
+from astrbot.core.tools.fs_access import FileAccessMode
+
+UMO = "webchat:FriendMessage:webchat!tester!s1"
+
+
+def _make_context(config: dict | None = None, umo: str = UMO) -> ContextWrapper:
+    config_holder = SimpleNamespace(
+        get_config=lambda umo=None: (
+            config or {"provider_settings": {"file_access_default_mode": "full"}}
+        )
+    )
+    event = SimpleNamespace(
+        role="admin", unified_msg_origin=umo, get_sender_id=lambda: "tester"
+    )
+    astr_ctx = SimpleNamespace(context=config_holder, event=event)
+    return ContextWrapper(context=astr_ctx)
+
+
+@pytest.fixture(autouse=True)
+def _clean_state():
+    fs_access.reset()
+    yield
+    fs_access.reset()
+
+
+def test_override_beats_config_default():
+    fs_access.set_mode_for_umo(UMO, FileAccessMode.READONLY)
+    mode = fs_access.get_mode_for_umo(
+        UMO,
+        default=fs_access.resolve_default(
+            {"provider_settings": {"file_access_default_mode": "workspace"}}
+        ),
+    )
+    assert mode is FileAccessMode.READONLY
+
+
+def test_get_mode_reads_config_default_via_context():
+    context = _make_context(
+        {"provider_settings": {"file_access_default_mode": "workspace"}}
+    )
+    assert fs_access.get_mode(context) is FileAccessMode.WORKSPACE
+
+
+def test_resolve_default_invalid_value_falls_back_to_full():
+    assert (
+        fs_access.resolve_default(
+            {"provider_settings": {"file_access_default_mode": "bogus"}}
+        )
+        is FileAccessMode.FULL
+    )
+
+
+def test_restore_writable_returns_last_non_readonly():
+    fs_access.set_mode_for_umo(UMO, FileAccessMode.WORKSPACE)
+    fs_access.set_mode_for_umo(UMO, FileAccessMode.READONLY)
+    restored = fs_access.restore_writable_for_umo(UMO, default=FileAccessMode.FULL)
+    assert restored is FileAccessMode.WORKSPACE
+
+
+def test_restore_writable_never_restores_readonly():
+    fs_access.set_mode_for_umo(UMO, FileAccessMode.READONLY)
+    restored = fs_access.restore_writable_for_umo(UMO, default=FileAccessMode.READONLY)
+    assert restored is FileAccessMode.FULL
+
+
+def test_count_readonly_overrides_and_clear():
+    fs_access.set_mode_for_umo("u1", FileAccessMode.READONLY)
+    fs_access.set_mode_for_umo("u2", FileAccessMode.WORKSPACE)
+    assert fs_access.count_readonly_overrides() == 1
+    fs_access.clear_mode_for_umo("u1")
+    assert fs_access.count_readonly_overrides() == 0
+
+
+def test_dynamic_roots_set_and_clear(tmp_path):
+    fs_access.set_dynamic_roots(UMO, [tmp_path])
+    assert fs_access.get_dynamic_roots(UMO) == (tmp_path,)
+    fs_access.set_dynamic_roots(UMO, None)
+    assert fs_access.get_dynamic_roots(UMO) == ()
+
+
+def test_extra_write_roots_combines_config_and_dynamic(tmp_path):
+    other = tmp_path / "other"
+    other.mkdir()
+    context = _make_context(
+        {"provider_settings": {"file_access_extra_roots": [str(other)]}}
+    )
+    fs_access.set_dynamic_roots(UMO, [tmp_path])
+    roots = fs_access.extra_write_roots(context)
+    assert other in roots
+    assert tmp_path in roots
+
+
+@pytest.mark.asyncio
+async def test_assert_writable_full_is_noop(tmp_path):
+    await fs_access.assert_writable(str(tmp_path / "anywhere.txt"), _make_context())
+
+
+@pytest.mark.asyncio
+async def test_assert_writable_readonly_rejects(tmp_path):
+    fs_access.set_mode_for_umo(UMO, FileAccessMode.READONLY)
+    with pytest.raises(PermissionError):
+        await fs_access.assert_writable(
+            str(tmp_path / "a.txt"), _make_context(), current_workspace_root=tmp_path
+        )
+
+
+@pytest.mark.asyncio
+async def test_assert_writable_workspace_blocks_outside(tmp_path):
+    fs_access.set_mode_for_umo(UMO, FileAccessMode.WORKSPACE)
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    # Inside the workspace root passes.
+    await fs_access.assert_writable(
+        str(ws / "a.txt"), _make_context(), current_workspace_root=ws
+    )
+    # Outside fails.
+    with pytest.raises(PermissionError):
+        await fs_access.assert_writable(
+            str(tmp_path / "outside.txt"),
+            _make_context(),
+            current_workspace_root=ws,
+        )
+
+
+@pytest.mark.asyncio
+async def test_assert_writable_workspace_allows_dynamic_roots(tmp_path):
+    fs_access.set_mode_for_umo(UMO, FileAccessMode.WORKSPACE)
+    wt = tmp_path / "worktree"
+    wt.mkdir()
+    fs_access.set_dynamic_roots(UMO, [wt])
+    await fs_access.assert_writable(str(wt / "main.py"), _make_context())
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "nt", reason="case-insensitive paths are Windows-only")
+async def test_assert_writable_windows_case_insensitive(tmp_path):
+    fs_access.set_mode_for_umo(UMO, FileAccessMode.WORKSPACE)
+    ws = tmp_path / "MyWorkspace"
+    ws.mkdir()
+    context = _make_context()
+    await fs_access.assert_writable(
+        str(tmp_path / "myworkspace" / "a.txt"),
+        context,
+        current_workspace_root=ws,
+    )
