@@ -13,6 +13,7 @@ from astrbot.core.agent.tool import ToolExecResult
 from astrbot.core.astr_agent_context import AstrAgentContext
 from astrbot.core.computer.booters.local import LocalShellComponent
 from astrbot.core.computer.computer_client import get_booter
+from astrbot.core.tools import fs_access
 from astrbot.core.utils.astrbot_path import get_astrbot_system_tmp_path
 
 from ..registry import builtin_tool
@@ -101,6 +102,12 @@ class ExecuteShellTool(FunctionTool):
     ) -> ToolExecResult:
         if permission_error := check_admin_permission(context, "Shell execution"):
             return permission_error
+
+        if fs_access.get_mode(context) is fs_access.FileAccessMode.READONLY:
+            return (
+                "Error: Shell execution is disabled — this conversation is "
+                "in readonly (plan) file access mode."
+            )
 
         sb = await get_booter(
             context.context.context,
@@ -341,6 +348,11 @@ class ShellSessionTool(FunctionTool):
             "Shell session management",
         ):
             return permission_error
+        if fs_access.get_mode(context) is fs_access.FileAccessMode.READONLY:
+            return (
+                "Error: Shell sessions are disabled — this conversation is "
+                "in readonly (plan) file access mode."
+            )
         if not is_local_runtime(context):
             return "Error managing shell session: only local runtime is supported."
 

@@ -880,3 +880,43 @@ async def test_file_read_tool_unaffected_by_readonly_mode(
         assert result == "hello"
     finally:
         fs_access.reset()
+
+
+@pytest.mark.asyncio
+async def test_execute_shell_blocked_in_readonly_mode(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from astrbot.core.tools import fs_access
+    from astrbot.core.tools.computer_tools import shell as shell_tools
+
+    umo = "webchat:FriendMessage:webchat!tester!s1"
+    fs_access.set_mode_for_umo(umo, fs_access.FileAccessMode.READONLY)
+    try:
+        context = _make_context(umo=umo)
+        monkeypatch.setattr(shell_tools, "get_booter", AsyncMock())
+        result = await shell_tools.ExecuteShellTool().call(context, command="echo hi")
+        assert isinstance(result, str)
+        assert result.startswith("Error:")
+        assert "readonly" in result
+    finally:
+        fs_access.reset()
+
+
+@pytest.mark.asyncio
+async def test_shell_session_blocked_in_readonly_mode(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from astrbot.core.tools import fs_access
+    from astrbot.core.tools.computer_tools import shell as shell_tools
+
+    umo = "webchat:FriendMessage:webchat!tester!s1"
+    fs_access.set_mode_for_umo(umo, fs_access.FileAccessMode.READONLY)
+    try:
+        context = _make_context(umo=umo)
+        monkeypatch.setattr(shell_tools, "get_booter", AsyncMock())
+        result = await shell_tools.ShellSessionTool().call(context, action="list")
+        assert isinstance(result, str)
+        assert result.startswith("Error:")
+        assert "readonly" in result
+    finally:
+        fs_access.reset()
