@@ -1739,6 +1739,22 @@
     "readonlyLabel": "只读",
     "workspaceLabel": "工作区",
     "tooltip": "文件访问模式：完全=任意路径可写；只读=Plan 模式，禁止一切写入；工作区=仅会话工作区与白名单内可写（shell 不受此限制）",
-    "menuTitle": "文件访问模式"
+    "menuTitle": "文件访问模式",
+    "rootsDialog": {
+      "title": "工作区白名单",
+      "gearTooltip": "编辑工作区白名单",
+      "autoSection": "自动包含",
+      "customSection": "自定义目录",
+      "emptyHint": "暂无自定义目录",
+      "addPlaceholder": "绝对路径，如 F:/repo",
+      "addButton": "添加",
+      "removeLabel": "移除",
+      "cancelButton": "取消",
+      "saveButton": "保存",
+      "invalidPath": "请输入有效的绝对路径",
+      "kind_workspace": "工作区",
+      "kind_temp": "临时",
+      "kind_project": "项目"
+    }
   }
 }

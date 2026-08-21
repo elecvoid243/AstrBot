@@ -1706,6 +1706,22 @@
     "readonlyLabel": "Read-only",
     "workspaceLabel": "Workspace",
     "tooltip": "File access mode: Full = unrestricted writes; Read-only = plan mode, all writes disabled; Workspace = writes allowed only inside the session workspace and whitelist (shell is not path-restricted)",
-    "menuTitle": "File access mode"
+    "menuTitle": "File access mode",
+    "rootsDialog": {
+      "title": "Workspace whitelist",
+      "gearTooltip": "Edit the workspace whitelist",
+      "autoSection": "Always included",
+      "customSection": "Custom directories",
+      "emptyHint": "No custom directories yet",
+      "addPlaceholder": "Absolute path, e.g. F:/repo",
+      "addButton": "Add",
+      "removeLabel": "Remove",
+      "cancelButton": "Cancel",
+      "saveButton": "Save",
+      "invalidPath": "Enter a valid absolute path",
+      "kind_workspace": "Workspace",
+      "kind_temp": "Temp",
+      "kind_project": "Project"
+    }
   }
 }

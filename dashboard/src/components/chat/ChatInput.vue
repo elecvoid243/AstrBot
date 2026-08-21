@@ -33,7 +33,10 @@
           -->
       <div class="input-area__status-row__right">
         <div class="input-area__status-row__chips-stack">
-          <FileAccessModeChip @change="handleFileAccessModeChange" />
+          <FileAccessModeChip
+            :umo="currentSessionUmo"
+            @change="handleFileAccessModeChange"
+          />
           <GitDiffChip
             v-if="spcodeStatus.status.value.loaded"
             @open-diff-sidebar="emit('open-diff-sidebar')"
@@ -901,6 +904,16 @@ const showSpcodeIndicator = isProjectLoadAvailable;
 // from Chat.vue's watchers so the chip converges with the backend
 // on every session switch and stream end.
 const fileAccessMode = useFileAccessMode();
+// Full unified_msg_origin of the current session (backend state key), or
+// null when no session is active. Feeds the chip's whitelist dialog.
+const currentSessionUmo = computed<string | null>(() => {
+  const session = props.currentSession;
+  if (!session) return null;
+  return buildWebchatUmoDetails(
+    session.session_id,
+    Boolean(session.is_group),
+  ).umo;
+});
 const wakePrefixes = ref<string[]>(["/"]);
 const currentConfigId = ref((props.configId as string) || "default");
 
@@ -1525,18 +1538,14 @@ function handleFileAccessModeChange(mode: FileAccessMode): void {
   // Optimistic flip so the chip highlights immediately.
   fileAccessMode.setOptimistic(mode);
 
-  const session = props.currentSession;
-  if (!session) {
+  const umo = currentSessionUmo.value;
+  if (!umo) {
     // No session yet → no umo. Only readonly has a command fallback.
     if (mode === "readonly") {
       emit("send-command", "/plan");
     }
     return;
   }
-  const umo = buildWebchatUmoDetails(
-    session.session_id,
-    Boolean(session.is_group),
-  ).umo;
   void fileAccessMode.setMode(umo, mode).then((ok) => {
     if (!ok) {
       // Resync on failure; readonly additionally falls back to /plan.
