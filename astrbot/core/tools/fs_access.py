@@ -9,6 +9,11 @@ Three modes (docs/superpowers/specs/2026-08-20-file-access-mode-design.md):
 State is process-local and per-umo; it resets to the config default on
 restart. The mode is enforced at tool-call time (see computer_tools/fs.py
 and shell.py) so it also covers subagent tool calls.
+
+Workspace-mode roots are composed of: the session workspace root, AstrBot
+temp dirs, config extra roots, plugin dynamic roots (loaded project dir /
+active worktree), and per-umo custom roots edited from the dashboard
+(persisted in SharedPreferences, so they survive restarts).
 """
 
 from __future__ import annotations
@@ -19,6 +24,7 @@ from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from astrbot.core import sp
 from astrbot.core.utils.astrbot_path import (
     get_astrbot_system_tmp_path,
     get_astrbot_temp_path,
@@ -40,6 +46,9 @@ class FileAccessMode(str, Enum):
 _mode_overrides: dict[str, FileAccessMode] = {}
 _last_writable: dict[str, FileAccessMode] = {}
 _dynamic_roots: dict[str, tuple[Path, ...]] = {}
+_custom_roots_cache: dict[str, tuple[Path, ...]] = {}
+
+_CUSTOM_ROOTS_KEY = "fs_access_custom_roots"
 
 
 def resolve_default(cfg: dict) -> FileAccessMode:
@@ -103,6 +112,7 @@ def reset() -> None:
     _mode_overrides.clear()
     _last_writable.clear()
     _dynamic_roots.clear()
+    _custom_roots_cache.clear()
 
 
 def set_dynamic_roots(umo: str, roots: Sequence[Path | str] | None) -> None:
@@ -122,6 +132,65 @@ def set_dynamic_roots(umo: str, roots: Sequence[Path | str] | None) -> None:
 
 def get_dynamic_roots(umo: str) -> tuple[Path, ...]:
     return _dynamic_roots.get(umo, ())
+
+
+def _normalize_roots(roots: Sequence[Path | str] | None) -> tuple[Path, ...]:
+    """Trim, resolve, and case-insensitively dedupe a root list."""
+    normalized: list[Path] = []
+    seen: set[str] = set()
+    for item in roots or []:
+        text = str(item).strip()
+        if not text:
+            continue
+        path = Path(text).expanduser().resolve(strict=False)
+        key = os.path.normcase(str(path))
+        if key in seen:
+            continue
+        seen.add(key)
+        normalized.append(path)
+    return tuple(normalized)
+
+
+async def get_custom_roots(umo: str) -> tuple[Path, ...]:
+    """Per-umo user-defined whitelist roots (persisted in SharedPreferences).
+
+    Args:
+        umo: Unified message origin.
+
+    Returns:
+        Normalized custom roots; empty when none were configured. The
+        first read per umo hydrates the in-memory cache from storage.
+    """
+    cached = _custom_roots_cache.get(umo)
+    if cached is None:
+        try:
+            raw = await sp.session_get(umo, _CUSTOM_ROOTS_KEY, [])
+        except Exception:
+            # Storage unavailable: fail closed with no custom roots rather
+            # than breaking every workspace-mode tool call.
+            raw = []
+        cached = _normalize_roots(raw if isinstance(raw, list) else [])
+        _custom_roots_cache[umo] = cached
+    return cached
+
+
+async def set_custom_roots(
+    umo: str, roots: Sequence[Path | str] | None
+) -> tuple[Path, ...]:
+    """Replace the umo's custom roots and persist them.
+
+    Args:
+        umo: Unified message origin.
+        roots: Raw root strings/paths; empty entries are dropped and the
+            list is deduplicated case-insensitively.
+
+    Returns:
+        The normalized custom roots now in effect.
+    """
+    normalized = _normalize_roots(roots)
+    _custom_roots_cache[umo] = normalized
+    await sp.session_put(umo, _CUSTOM_ROOTS_KEY, [str(p) for p in normalized])
+    return normalized
 
 
 def configured_extra_roots(cfg: dict) -> tuple[Path, ...]:
@@ -150,10 +219,13 @@ def get_mode(context: ToolContext) -> FileAccessMode:
     return resolve_default(_config_for(context))
 
 
-def extra_write_roots(context: ToolContext) -> tuple[Path, ...]:
-    """Configured extra roots plus plugin dynamic roots for this context."""
-    return configured_extra_roots(_config_for(context)) + get_dynamic_roots(
-        context.context.event.unified_msg_origin
+async def extra_write_roots(context: ToolContext) -> tuple[Path, ...]:
+    """Configured + plugin dynamic + per-umo custom roots for this context."""
+    umo = context.context.event.unified_msg_origin
+    return (
+        configured_extra_roots(_config_for(context))
+        + get_dynamic_roots(umo)
+        + await get_custom_roots(umo)
     )
 
 
@@ -172,7 +244,7 @@ async def write_roots(
         Path(root).resolve(strict=False),
         Path(get_astrbot_system_tmp_path()).resolve(strict=False),
         Path(get_astrbot_temp_path()).resolve(strict=False),
-        *extra_write_roots(context),
+        *await extra_write_roots(context),
     )
 
 

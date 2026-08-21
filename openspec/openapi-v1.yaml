@@ -1273,6 +1273,30 @@ paths:
         "200":
           $ref: "#/components/responses/Ok"
 
+  /api/v1/chat/file-access-mode/roots:
+    post:
+      tags: [Chat]
+      summary: Replace a session's custom workspace whitelist roots
+      operationId: setFileAccessRoots
+      x-astrbot-scope: chat
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [umo, roots]
+              properties:
+                umo:
+                  type: string
+                roots:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+
   /api/v1/chat/sessions/new:
     get:
       tags: [Chat]

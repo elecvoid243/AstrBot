@@ -67,6 +67,20 @@ def _make_sandbox_context(
     return ContextWrapper(context=astr_ctx)
 
 
+@pytest.fixture(autouse=True)
+def _fake_fs_access_sp(monkeypatch: pytest.MonkeyPatch):
+    """Isolate fs_access custom-root persistence from the real store."""
+
+    class _FakeSp:
+        async def session_get(self, umo, key, default=None):
+            return default
+
+        async def session_put(self, umo, key, value):
+            return None
+
+    monkeypatch.setattr(fs_tools.fs_access, "sp", _FakeSp())
+
+
 @pytest.mark.asyncio
 async def test_sandbox_file_download_handles_windows_remote_filename(
     monkeypatch: pytest.MonkeyPatch,

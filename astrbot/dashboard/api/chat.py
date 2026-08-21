@@ -10,6 +10,10 @@ from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 from astrbot.core.tools import fs_access
+from astrbot.core.utils.astrbot_path import (
+    get_astrbot_system_tmp_path,
+    get_astrbot_temp_path,
+)
 from astrbot.dashboard.async_utils import run_maybe_async
 from astrbot.dashboard.responses import error, ok
 from astrbot.dashboard.schemas import (
@@ -21,6 +25,7 @@ from astrbot.dashboard.schemas import (
     ChatThreadCreateRequest,
     ChatThreadMessageRequest,
     FileAccessModeSetRequest,
+    FileAccessRootsSetRequest,
 )
 from astrbot.dashboard.services.chat_service import (
     ChatService,
@@ -113,6 +118,37 @@ async def _send_chat(
     )
 
 
+async def _file_access_fixed_roots(request: Request, umo: str) -> list[dict]:
+    """Implicit workspace-mode roots: session workspace + AstrBot temp dirs.
+
+    Returns:
+        [{"path": ..., "kind": "workspace" | "temp"}, ...] for the chip's
+        whitelist dialog (the loaded project dir is added frontend-side
+        from the spcode project status).
+    """
+    from astrbot.core.tools.computer_tools.util import workspace_root
+
+    root: Path | None = None
+    db = getattr(request.app.state, "db", None)
+    if db is not None:
+        try:
+            from astrbot.core.db import BaseDatabase
+
+            if isinstance(db, BaseDatabase):
+                from astrbot.core.workspace import resolve_workspace_root_for_umo
+
+                root = await resolve_workspace_root_for_umo(umo, db)
+        except Exception:
+            root = None
+    if root is None:
+        root = workspace_root(umo)
+    return [
+        {"path": str(root), "kind": "workspace"},
+        {"path": get_astrbot_system_tmp_path(), "kind": "temp"},
+        {"path": get_astrbot_temp_path(), "kind": "temp"},
+    ]
+
+
 @router.get("/chat/file-access-mode")
 async def get_file_access_mode(
     request: Request,
@@ -125,7 +161,16 @@ async def get_file_access_mode(
         request.app.state.core_lifecycle.astrbot_config_mgr.get_conf(umo)
     )
     mode = fs_access.get_mode_for_umo(umo, default=default)
-    return ok({"umo": umo, "mode": mode.value, "default_mode": default.value})
+    custom_roots = await fs_access.get_custom_roots(umo)
+    return ok(
+        {
+            "umo": umo,
+            "mode": mode.value,
+            "default_mode": default.value,
+            "fixed_roots": await _file_access_fixed_roots(request, umo),
+            "custom_roots": [str(r) for r in custom_roots],
+        }
+    )
 
 
 @router.post("/chat/file-access-mode")
@@ -140,6 +185,16 @@ async def set_file_access_mode(
     fs_access.set_mode_for_umo(payload.umo, fs_access.FileAccessMode(payload.mode))
     mode = fs_access.get_mode_for_umo(payload.umo, default=default)
     return ok({"umo": payload.umo, "mode": mode.value, "default_mode": default.value})
+
+
+@router.post("/chat/file-access-mode/roots")
+async def set_file_access_mode_roots(
+    payload: FileAccessRootsSetRequest,
+    auth: AuthContext = Depends(require_chat_scope),
+):
+    """Replace the session's custom workspace-whitelist roots."""
+    roots = await fs_access.set_custom_roots(payload.umo, payload.roots)
+    return ok({"umo": payload.umo, "custom_roots": [str(r) for r in roots]})
 
 
 @router.get("/chat/sessions/new")

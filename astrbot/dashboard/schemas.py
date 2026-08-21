@@ -129,6 +129,13 @@ class FileAccessModeSetRequest(OpenModel):
     mode: Literal["full", "readonly", "workspace"]
 
 
+class FileAccessRootsSetRequest(OpenModel):
+    """Replace a session's custom workspace-whitelist roots."""
+
+    umo: str
+    roots: list[str]
+
+
 class ChatOpenFileRequest(OpenModel):
     """Request to open a local file on the AstrBot host (2026-08-14)."""
 

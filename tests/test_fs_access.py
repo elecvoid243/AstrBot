@@ -25,8 +25,22 @@ def _make_context(config: dict | None = None, umo: str = UMO) -> ContextWrapper:
     return ContextWrapper(context=astr_ctx)
 
 
+class _FakeSp:
+    """In-memory SharedPreferences stand-in for fs_access persistence."""
+
+    def __init__(self) -> None:
+        self.store: dict[tuple[str, str], object] = {}
+
+    async def session_get(self, umo, key, default=None):
+        return self.store.get((umo, key), default)
+
+    async def session_put(self, umo, key, value):
+        self.store[(umo, key)] = value
+
+
 @pytest.fixture(autouse=True)
-def _clean_state():
+def _clean_state(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(fs_access, "sp", _FakeSp())
     fs_access.reset()
     yield
     fs_access.reset()
@@ -87,16 +101,59 @@ def test_dynamic_roots_set_and_clear(tmp_path):
     assert fs_access.get_dynamic_roots(UMO) == ()
 
 
-def test_extra_write_roots_combines_config_and_dynamic(tmp_path):
+@pytest.mark.asyncio
+async def test_extra_write_roots_combines_config_and_dynamic(tmp_path):
     other = tmp_path / "other"
     other.mkdir()
     context = _make_context(
         {"provider_settings": {"file_access_extra_roots": [str(other)]}}
     )
     fs_access.set_dynamic_roots(UMO, [tmp_path])
-    roots = fs_access.extra_write_roots(context)
+    roots = await fs_access.extra_write_roots(context)
     assert other in roots
     assert tmp_path in roots
+
+
+@pytest.mark.asyncio
+async def test_custom_roots_roundtrip_normalized_and_deduped(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    roots = await fs_access.set_custom_roots(
+        UMO, [str(repo), "  ", str(repo), str(tmp_path / "b")]
+    )
+    assert roots == (repo.resolve(), (tmp_path / "b").resolve())
+
+
+@pytest.mark.asyncio
+async def test_custom_roots_rehydrate_from_storage_after_reset(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    await fs_access.set_custom_roots(UMO, [str(repo)])
+    fs_access.reset()  # clears the in-memory cache only, not SharedPreferences
+    assert await fs_access.get_custom_roots(UMO) == (repo.resolve(),)
+
+
+@pytest.mark.asyncio
+async def test_extra_write_roots_include_custom_roots(tmp_path):
+    custom = tmp_path / "custom"
+    custom.mkdir()
+    await fs_access.set_custom_roots(UMO, [str(custom)])
+    roots = await fs_access.extra_write_roots(_make_context())
+    assert custom.resolve() in roots
+
+
+@pytest.mark.asyncio
+async def test_custom_roots_storage_failure_fails_closed(monkeypatch):
+    class _BrokenSp:
+        async def session_get(self, *_args, **_kwargs):
+            raise RuntimeError("storage down")
+
+        async def session_put(self, *_args, **_kwargs):
+            raise RuntimeError("storage down")
+
+    monkeypatch.setattr(fs_access, "sp", _BrokenSp())
+    fs_access.reset()
+    assert await fs_access.get_custom_roots(UMO) == ()
 
 
 @pytest.mark.asyncio

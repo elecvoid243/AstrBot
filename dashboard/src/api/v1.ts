@@ -1446,10 +1446,17 @@ export const pluginApi = {
 
 export type FileAccessModeValue = 'full' | 'readonly' | 'workspace'
 
+export interface FileAccessFixedRoot {
+  path: string
+  kind: 'workspace' | 'temp'
+}
+
 export interface FileAccessModeStatusData {
   umo: string
   mode: FileAccessModeValue
   default_mode: FileAccessModeValue
+  fixed_roots: FileAccessFixedRoot[]
+  custom_roots: string[]
 }
 
 export const fileAccessApi = {
@@ -1458,6 +1465,10 @@ export const fileAccessApi = {
   set: (umo: string, mode: FileAccessModeValue) =>
     typed<FileAccessModeStatusData>(
       openApiV1.setFileAccessMode({ body: { umo, mode } }),
+    ),
+  setRoots: (umo: string, roots: string[]) =>
+    typed<{ umo: string; custom_roots: string[] }>(
+      openApiV1.setFileAccessRoots({ body: { umo, roots } }),
     ),
 }
 

@@ -109,6 +109,13 @@ State and API (behavioral contract; exact signatures finalized in code):
     (reuse `workspace_root_for_context`, `computer_tools/util.py:27`) +
     `get_astrbot_temp_path()` + `get_astrbot_system_tmp_path()` +
     config `file_access_extra_roots` + per-umo dynamic roots.
+    Amendment (2026-08-21): dynamic roots also include the loaded spcode
+    project directory (`/project load`), synced per request by the plugin,
+    and **per-umo custom roots** editable from the chip's whitelist dialog
+    (`POST /chat/file-access-mode/roots`), persisted in SharedPreferences
+    so they survive restarts. The dialog lists the implicit roots
+    (workspace / project / temp) read-only with badges and the custom
+    roots as an editable list.
   - `assert_writable(path: str, context) -> None` — raises `PermissionError`:
     - `FULL`: no-op.
     - `READONLY`: always reject (writes forbidden everywhere).

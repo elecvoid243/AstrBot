@@ -1382,6 +1382,17 @@ export type SetFileAccessModeResponse = (SuccessEnvelope);
 
 export type SetFileAccessModeError = unknown;
 
+export type SetFileAccessRootsData = {
+    body: {
+        umo: string;
+        roots: Array<(string)>;
+    };
+};
+
+export type SetFileAccessRootsResponse = (SuccessEnvelope);
+
+export type SetFileAccessRootsError = unknown;
+
 export type CreateChatSessionData = {
     query?: {
         platform_id?: string;

@@ -197,7 +197,7 @@ _READONLY_WRITE_ERROR = (
 )
 
 
-def _write_guard(
+async def _write_guard(
     context: ContextWrapper[AstrAgentContext],
 ) -> tuple[bool, tuple[Path, ...]]:
     """Return (restricted, extra_write_roots) for a write under the mode.
@@ -210,7 +210,7 @@ def _write_guard(
         extra_write_roots: Mode-configured roots to append to the allow list.
     """
     if fs_access.get_mode(context) is fs_access.FileAccessMode.WORKSPACE:
-        return True, fs_access.extra_write_roots(context)
+        return True, await fs_access.extra_write_roots(context)
     return _is_restricted_env(context), ()
 
 
@@ -402,13 +402,14 @@ class FileReadTool(FunctionTool):
         local_env = is_local_runtime(context)
         restricted = _is_restricted_env(context)
         # In workspace mode, restricted reads also cover the extra + dynamic
-        # roots so a writable root is always readable (worktree round-trip).
-        extra_read_roots = (
-            fs_access.extra_write_roots(context)
-            if restricted
+        # + custom roots so a writable root is always readable (worktree
+        # round-trip).
+        extra_read_roots: tuple[Path, ...] = ()
+        if (
+            restricted
             and fs_access.get_mode(context) is fs_access.FileAccessMode.WORKSPACE
-            else ()
-        )
+        ):
+            extra_read_roots = await fs_access.extra_write_roots(context)
         current_workspace_root = (
             await workspace_root_for_context(context) if local_env else None
         )
@@ -490,7 +491,7 @@ class FileWriteTool(FunctionTool):
         if fs_access.get_mode(context) is fs_access.FileAccessMode.READONLY:
             return _READONLY_WRITE_ERROR
         local_env = is_local_runtime(context)
-        restricted, extra_write_roots = _write_guard(context)
+        restricted, extra_write_roots = await _write_guard(context)
         current_workspace_root = (
             await workspace_root_for_context(context) if local_env else None
         )
@@ -758,7 +759,7 @@ class FileEditTool(FunctionTool):
             return _READONLY_WRITE_ERROR
         umo = str(context.context.event.unified_msg_origin)
         local_env = is_local_runtime(context)
-        restricted, extra_write_roots = _write_guard(context)
+        restricted, extra_write_roots = await _write_guard(context)
         history_mgr = get_history_manager()
 
         current_workspace_root = (
@@ -1203,13 +1204,13 @@ class GrepTool(FunctionTool):
         local_env = is_local_runtime(context)
         restricted = _is_restricted_env(context)
         # Same workspace-mode read widening as FileReadTool: restricted reads
-        # also cover the extra + dynamic roots.
-        extra_read_roots = (
-            fs_access.extra_write_roots(context)
-            if restricted
+        # also cover the extra + dynamic + custom roots.
+        extra_read_roots: tuple[Path, ...] = ()
+        if (
+            restricted
             and fs_access.get_mode(context) is fs_access.FileAccessMode.WORKSPACE
-            else ()
-        )
+        ):
+            extra_read_roots = await fs_access.extra_write_roots(context)
         current_workspace_root = (
             await workspace_root_for_context(context) if local_env else None
         )
