@@ -259,7 +259,8 @@ worktree paths). Workspace mode must not break the worktree workflow:
 | Tool / surface | full | readonly | workspace |
 |---|---|---|---|
 | builtin `astrbot_file_read_tool` / grep | ✓ | ✓ | ✓ |
-| builtin `astrbot_file_write_tool` / `astrbot_file_edit_tool` (incl. rollback) / upload | ✓ (status quo) | hidden + call-time reject | roots only (workspace + temp + extra + dynamic) |
+| builtin `astrbot_file_write_tool` / `astrbot_file_edit_tool` (incl. rollback) | ✓ (status quo) | hidden + call-time reject | roots only (workspace + temp + extra + dynamic) |
+| builtin `astrbot_upload_file` / `astrbot_download_file` (sandbox runtime) | ✓ | ✓ (unaffected by mode: upload leaves the host FS untouched; download writes only into always-allowed temp dirs) | ✓ |
 | builtin `astrbot_execute_shell` / `astrbot_shell_session` | ✓ | hidden + call-time reject | ✓ (unrestricted by design) |
 | plugin `astrbot_file_remove` | ✓ (own blacklist + recycle bin) | hidden + call-time reject | roots only + own blacklist stacked |
 | plugin `code_format` | ✓ | hidden + call-time reject | roots only |
@@ -276,6 +277,10 @@ worktree paths). Workspace mode must not break the worktree workflow:
 - **Hard-filter bypass**: if the plugin is disabled or the blocklist misses a
   tool, layer ② still rejects direct file writes in readonly/workspace.
   Shell and MCP remain blocklist-only — documented boundary.
+- **Upgraded plugin installs**: the saved plugin config keeps the old
+  `plan_mode_blocked_tools` (defaults only apply to fresh installs), so the
+  new shell tool entries may be absent; core's call-time shell gate remains
+  the readonly backstop in that case.
 - **Windows**: `resolve()` + `normcase` both sides; junction/symlink escape
   collapses via resolve. Multi-hard-link rejection
   (`_reject_multi_link_file`) keeps applying in restricted paths.
