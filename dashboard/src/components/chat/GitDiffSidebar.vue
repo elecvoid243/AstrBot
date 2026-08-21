@@ -1845,6 +1845,9 @@ onMounted(() => {
   // v-menu does internally with its overlay).
   document.addEventListener("mousedown", closeContextMenuOnOutside, true);
   document.addEventListener("keydown", closeContextMenuOnEscape, true);
+  // 2026-08-21 git-conflict: refocus refresh (see refreshConflictOnWake).
+  window.addEventListener("focus", refreshConflictOnWake);
+  document.addEventListener("visibilitychange", refreshConflictOnWake);
   // Fullscreen cancel handler: bound to document (not window) in
   // bubble phase so the component-local Escape handlers (the file
   // browsers' capture-phase handlers, SearchPanel, etc.) run first.
@@ -1907,6 +1910,11 @@ watch(
       // lifecycle so externally-triggered merges (agent in a terminal)
       // light up the banner within one cadence.
       gitConflict.startPolling(30_000);
+      // 2026-08-21 git-conflict: setInterval waits a full cadence
+      // before the first fetch — refresh immediately on open so a
+      // conflict created while the sidebar was closed lights up the
+      // banner right away instead of 30 s later.
+      void gitConflict.refresh();
     } else {
       branchesComposable.stopPolling();
       gitConflict.stopPolling();
@@ -1914,6 +1922,23 @@ watch(
   },
   { immediate: true },
 );
+
+// 2026-08-21 git-conflict: catch the "user ran git in a terminal and
+// alt-tabs back" case without waiting out the 30 s cadence. Both
+// window focus (alt-tab / OS switch) and tab visibility (browser tab
+// switch) funnel into one guarded refresh; refresh() is single-flight
+// (aborts the in-flight request), so double-firing is harmless. The
+// listener pair is registered in onMounted and removed in
+// onBeforeUnmount like the other document-level listeners.
+function refreshConflictOnWake(): void {
+  if (
+    document.visibilityState === "visible" &&
+    props.modelValue &&
+    isGitRepo.value
+  ) {
+    void gitConflict.refresh();
+  }
+}
 
 // Spec 2026-07-16: one-shot check on open. The prompt is driven by
 // "is the loaded directory a Git repo?", which doesn't change while
@@ -2752,6 +2777,35 @@ async function onStashPop(params: { index: number; ref: string }): Promise<void>
       tm("spcodeProjectLoad.diffSidebar.stash.popped", {
         count: result.snapshot.fileCount,
         ref: result.snapshot.ref,
+      }),
+      "success",
+    );
+    return;
+  }
+  const meta = classifyStashReason(result.reason);
+  showSnackbar(
+    tm(meta.i18nKey, { reason: result.reason, stderr: result.stderr ?? "" }),
+    meta.color,
+    meta.withStderr ? result.stderr : undefined,
+  );
+}
+
+// 2026-08-21 git-stash-drop: delete a stash entry. The worktree is
+// untouched, so only the stash list needs a refresh.
+async function onStashDrop(params: { index: number; ref: string }): Promise<void> {
+  const result = await gitStash.drop({
+    index: params.index,
+    ref: params.ref,
+    worktree: selectedWorktree.value,
+    umo: spcodeStatus.status.value.umo,
+  });
+  if (isAborted(result)) return;
+  if (result.ok) {
+    await gitStash.refreshList();
+    showSnackbar(
+      tm("spcodeProjectLoad.diffSidebar.stash.dropped", {
+        ref: result.snapshot.ref,
+        count: result.snapshot.stashCount,
       }),
       "success",
     );
@@ -4166,6 +4220,8 @@ onBeforeUnmount(() => {
   }
   document.removeEventListener("mousedown", closeContextMenuOnOutside, true);
   document.removeEventListener("keydown", closeContextMenuOnEscape, true);
+  window.removeEventListener("focus", refreshConflictOnWake);
+  document.removeEventListener("visibilitychange", refreshConflictOnWake);
   document.removeEventListener("keydown", onFullscreenKeyDown);
   // Always restore body overflow on unmount. The watcher above already
   // does this whenever both modes become false; the explicit reset
@@ -5500,11 +5556,13 @@ watch(
           :listing="gitStash.listState.value.kind === 'loading'"
           :is-stashing="gitStash.isStashing.value"
           :popping="gitStash.popping.value"
+          :dropping="gitStash.dropping.value"
           :has-local-changes="hasLocalChanges"
           :load-error="stashLoadError"
           :truncated="stashListTruncated"
           @stash="onStashSubmit"
           @pop="onStashPop"
+          @drop="onStashDrop"
           @refresh="gitStash.refreshList()"
         />
 

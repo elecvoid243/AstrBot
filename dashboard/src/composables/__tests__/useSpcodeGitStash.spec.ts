@@ -267,4 +267,72 @@ describe("useSpcodeGitStash", () => {
     expect(r.ok).toBe(true);
     expect(popping.value).toBeNull();
   });
+
+  // ── drop (POST /spcode/git-stash-drop) ─────────────────────────
+
+  it("drop() posts the index and parses success", async () => {
+    mockPost.mockResolvedValueOnce({
+      data: {
+        status: "ok",
+        data: {
+          dropped: true,
+          ref: "stash@{0}",
+          sha: "d".repeat(40),
+          stash_count: 2,
+          reason: null,
+          stderr: "",
+          elapsed_ms: 9,
+        },
+      },
+    });
+    const { drop, dropping } = withSetup(() => useSpcodeGitStash());
+    const p = drop({ index: 0, ref: "stash@{0}", umo: "u" });
+    expect(dropping.value).toBe("stash@{0}");
+    const r = await p;
+    expect(dropping.value).toBeNull();
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.snapshot.dropped).toBe(true);
+      expect(r.snapshot.stashCount).toBe(2);
+    }
+    const [endpoint, body] = mockPost.mock.calls[0];
+    expect(endpoint).toBe("spcode/git-stash-drop");
+    expect(body).toEqual({ index: 0, umo: "u" });
+  });
+
+  it("drop() passes failure reason + stderr through", async () => {
+    mockPost.mockResolvedValueOnce({
+      data: {
+        status: "ok",
+        data: {
+          dropped: false,
+          ref: "stash@{3}",
+          reason: "stash_not_found",
+          stderr: "",
+        },
+      },
+    });
+    const { drop } = withSetup(() => useSpcodeGitStash());
+    const r = await drop({ index: 3, ref: "stash@{3}" });
+    expect(r).toEqual({ ok: false, reason: "stash_not_found" });
+  });
+
+  it("drop() is blocked while a pop is in flight (shared single-flight)", async () => {
+    let resolvePending: (v: unknown) => void = () => {};
+    mockPost.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolvePending = resolve;
+        }),
+    );
+    const { pop, drop } = withSetup(() => useSpcodeGitStash());
+    const popping = pop({ index: 0, ref: "stash@{0}" });
+    const r = await drop({ index: 1, ref: "stash@{1}" });
+    expect(r).toEqual({ ok: false, reason: "aborted" });
+    resolvePending({
+      data: { status: "ok", data: { popped: true, reason: null, files: [] } },
+    });
+    await popping;
+    expect(mockPost).toHaveBeenCalledTimes(1);
+  });
 });

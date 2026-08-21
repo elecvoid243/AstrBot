@@ -152,6 +152,21 @@ export interface SpcodeStashPopSnapshot {
   stashCount: number;
 }
 
+export interface SpcodeStashDropSnapshot {
+  success: boolean;
+  reason: string | null;
+  stderr: string;
+  elapsedMs: number;
+  umo: string;
+  worktree: string;
+  directory: string;
+  dropped: boolean;
+  ref: string;
+  sha: string;
+  /** Stash entries remaining after the drop. */
+  stashCount: number;
+}
+
 export type ParseResult<T> =
   | { kind: "ok"; snapshot: T }
   | { kind: "error"; reason: string };
@@ -233,6 +248,29 @@ export function parseSpcodeStashPop(
   };
 }
 
+/** Parse the envelope from POST /spcode/git-stash-drop. */
+export function parseSpcodeStashDrop(
+  raw: unknown,
+): ParseResult<SpcodeStashDropSnapshot> {
+  const d = unwrapData(raw);
+  return {
+    kind: "ok",
+    snapshot: {
+      success: d.reason === null || d.reason === undefined,
+      reason: (d.reason as string | null) ?? null,
+      stderr: asString(d.stderr),
+      elapsedMs: asNumber(d.elapsed_ms),
+      umo: asString(d.umo),
+      worktree: asString(d.worktree),
+      directory: asString(d.directory),
+      dropped: asBoolean(d.dropped),
+      ref: asString(d.ref),
+      sha: asString(d.sha),
+      stashCount: asNumber(d.stash_count),
+    },
+  };
+}
+
 // ── Reason classification ────────────────────────────────
 
 const STASH_PREFIX = "spcodeProjectLoad.diffSidebar.stash";
@@ -263,6 +301,11 @@ const STASH_REASON_CODES: Record<string, GitOpReasonMeta> = {
   stash_conflict: {
     i18nKey: `${STASH_PREFIX}.error.stash_conflict`,
     color: "warning",
+    withStderr: true,
+  },
+  stash_drop_failed: {
+    i18nKey: `${STASH_PREFIX}.error.stash_drop_failed`,
+    color: "error",
     withStderr: true,
   },
   worktree_dirty: {
