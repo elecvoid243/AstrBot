@@ -119,7 +119,11 @@ async def get_file_access_mode(
     umo: str = Query(...),
     auth: AuthContext = Depends(require_chat_scope),
 ):
-    default = fs_access.resolve_default(request.app.state.core_lifecycle.astrbot_config)
+    # Resolve the default per-umo (config-profile aware), mirroring how
+    # enforcement resolves it via star.Context.get_config(umo=...).
+    default = fs_access.resolve_default(
+        request.app.state.core_lifecycle.astrbot_config_mgr.get_conf(umo)
+    )
     mode = fs_access.get_mode_for_umo(umo, default=default)
     return ok({"umo": umo, "mode": mode.value, "default_mode": default.value})
 
@@ -130,7 +134,9 @@ async def set_file_access_mode(
     request: Request,
     auth: AuthContext = Depends(require_chat_scope),
 ):
-    default = fs_access.resolve_default(request.app.state.core_lifecycle.astrbot_config)
+    default = fs_access.resolve_default(
+        request.app.state.core_lifecycle.astrbot_config_mgr.get_conf(payload.umo)
+    )
     fs_access.set_mode_for_umo(payload.umo, fs_access.FileAccessMode(payload.mode))
     mode = fs_access.get_mode_for_umo(payload.umo, default=default)
     return ok({"umo": payload.umo, "mode": mode.value, "default_mode": default.value})
