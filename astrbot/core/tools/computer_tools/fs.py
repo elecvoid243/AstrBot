@@ -401,6 +401,14 @@ class FileReadTool(FunctionTool):
     ) -> ToolExecResult:
         local_env = is_local_runtime(context)
         restricted = _is_restricted_env(context)
+        # In workspace mode, restricted reads also cover the extra + dynamic
+        # roots so a writable root is always readable (worktree round-trip).
+        extra_read_roots = (
+            fs_access.extra_write_roots(context)
+            if restricted
+            and fs_access.get_mode(context) is fs_access.FileAccessMode.WORKSPACE
+            else ()
+        )
         current_workspace_root = (
             await workspace_root_for_context(context) if local_env else None
         )
@@ -412,6 +420,7 @@ class FileReadTool(FunctionTool):
                     local_env=local_env,
                     umo=context.context.event.unified_msg_origin,
                     current_workspace_root=current_workspace_root,
+                    extra_write_roots=extra_read_roots,
                 )
                 if local_env
                 else path.strip()
@@ -1123,6 +1132,7 @@ class GrepTool(FunctionTool):
         local_env: bool,
         umo: str,
         current_workspace_root: Path | None = None,
+        extra_read_roots: tuple[Path, ...] = (),
     ) -> list[str]:
         normalized = (
             [
@@ -1141,6 +1151,7 @@ class GrepTool(FunctionTool):
                 return [
                     str(root)
                     for root in _read_allowed_roots(umo, current_workspace_root)
+                    + tuple(extra_read_roots)
                 ]
             if local_env:
                 return [str(current_workspace_root or _workspace_root(umo))]
@@ -1153,7 +1164,8 @@ class GrepTool(FunctionTool):
                 if not _is_path_within_allowed_roots(
                     path,
                     umo=umo,
-                    allowed_roots=_read_allowed_roots(umo, current_workspace_root),
+                    allowed_roots=_read_allowed_roots(umo, current_workspace_root)
+                    + tuple(extra_read_roots),
                     current_workspace_root=current_workspace_root,
                 )
             ]
@@ -1190,6 +1202,14 @@ class GrepTool(FunctionTool):
 
         local_env = is_local_runtime(context)
         restricted = _is_restricted_env(context)
+        # Same workspace-mode read widening as FileReadTool: restricted reads
+        # also cover the extra + dynamic roots.
+        extra_read_roots = (
+            fs_access.extra_write_roots(context)
+            if restricted
+            and fs_access.get_mode(context) is fs_access.FileAccessMode.WORKSPACE
+            else ()
+        )
         current_workspace_root = (
             await workspace_root_for_context(context) if local_env else None
         )
@@ -1201,6 +1221,7 @@ class GrepTool(FunctionTool):
                     local_env=local_env,
                     umo=context.context.event.unified_msg_origin,
                     current_workspace_root=current_workspace_root,
+                    extra_read_roots=extra_read_roots,
                 )
                 if local_env
                 else ([path.strip()] if path and path.strip() else ["."])

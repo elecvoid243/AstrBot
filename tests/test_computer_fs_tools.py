@@ -883,6 +883,129 @@ async def test_file_read_tool_unaffected_by_readonly_mode(
 
 
 @pytest.mark.asyncio
+async def test_file_read_tool_workspace_mode_includes_dynamic_roots_for_restricted_user(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+):
+    """Non-admin + workspace mode: reads cover the dynamic root, stay blocked outside."""
+    from astrbot.core.tools import fs_access
+
+    umo = "webchat:FriendMessage:webchat!tester!s1"
+    fs_access.set_mode_for_umo(umo, fs_access.FileAccessMode.WORKSPACE)
+    wt = tmp_path / "worktree"
+    wt.mkdir()
+    fs_access.set_dynamic_roots(umo, [wt])
+    try:
+        target = wt / "main.py"
+        target.write_text("print('hi')", encoding="utf-8")
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        outside_file = outside / "secret.txt"
+        outside_file.write_text("secret", encoding="utf-8")
+
+        async def _fake_root(_ctx):
+            return tmp_path / "ws"
+
+        monkeypatch.setattr(fs_tools, "workspace_root_for_context", _fake_root)
+        monkeypatch.setattr(
+            fs_tools,
+            "read_file_tool_result",
+            AsyncMock(return_value="print('hi')"),
+        )
+        monkeypatch.setattr(fs_tools, "get_booter", AsyncMock())
+        context = _make_context(umo=umo, role="member")
+
+        allowed = await fs_tools.FileReadTool().call(context, path=str(target))
+        assert allowed == "print('hi')"
+
+        blocked = await fs_tools.FileReadTool().call(context, path=str(outside_file))
+        assert blocked.startswith("Error:")
+        assert "Read access is restricted" in blocked
+    finally:
+        fs_access.reset()
+
+
+@pytest.mark.asyncio
+async def test_file_read_tool_workspace_mode_admin_arbitrary_path_still_reads(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+):
+    """Admin + workspace mode: reads are never restricted, arbitrary paths work."""
+    from astrbot.core.tools import fs_access
+
+    umo = "webchat:FriendMessage:webchat!tester!s1"
+    fs_access.set_mode_for_umo(umo, fs_access.FileAccessMode.WORKSPACE)
+    try:
+        target = tmp_path / "outside" / "anywhere.txt"
+        target.parent.mkdir()
+        target.write_text("free", encoding="utf-8")
+
+        async def _fake_root(_ctx):
+            return tmp_path / "ws"
+
+        monkeypatch.setattr(fs_tools, "workspace_root_for_context", _fake_root)
+        monkeypatch.setattr(
+            fs_tools,
+            "read_file_tool_result",
+            AsyncMock(return_value="free"),
+        )
+        monkeypatch.setattr(fs_tools, "get_booter", AsyncMock())
+        context = _make_context(umo=umo, role="admin")
+        result = await fs_tools.FileReadTool().call(context, path=str(target))
+        assert result == "free"
+    finally:
+        fs_access.reset()
+
+
+@pytest.mark.asyncio
+async def test_grep_tool_workspace_mode_includes_dynamic_roots_for_restricted_user(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+):
+    """Non-admin + workspace mode: grep may search inside the dynamic root only."""
+    from astrbot.core.tools import fs_access
+
+    umo = "webchat:FriendMessage:webchat!tester!s1"
+    fs_access.set_mode_for_umo(umo, fs_access.FileAccessMode.WORKSPACE)
+    wt = tmp_path / "worktree"
+    wt.mkdir()
+    fs_access.set_dynamic_roots(umo, [wt])
+    try:
+        (wt / "main.py").write_text("match-here\n", encoding="utf-8")
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        (outside / "secret.txt").write_text("match-there\n", encoding="utf-8")
+
+        async def _fake_root(_ctx):
+            return tmp_path / "ws"
+
+        booter = SimpleNamespace(
+            fs=SimpleNamespace(
+                search_files=AsyncMock(
+                    return_value={"success": True, "content": "match-here\n"}
+                )
+            )
+        )
+        monkeypatch.setattr(fs_tools, "workspace_root_for_context", _fake_root)
+        monkeypatch.setattr(fs_tools, "get_booter", AsyncMock(return_value=booter))
+        context = _make_context(umo=umo, role="member")
+
+        allowed = await fs_tools.GrepTool().call(
+            context, pattern="match", path=str(wt / "main.py")
+        )
+        assert "match-here" in allowed
+        booter.fs.search_files.assert_awaited_once()
+
+        blocked = await fs_tools.GrepTool().call(
+            context, pattern="match", path=str(outside / "secret.txt")
+        )
+        assert blocked.startswith("Error:")
+        assert "Read access is restricted" in blocked
+    finally:
+        fs_access.reset()
+
+
+@pytest.mark.asyncio
 async def test_execute_shell_blocked_in_readonly_mode(
     monkeypatch: pytest.MonkeyPatch,
 ):
