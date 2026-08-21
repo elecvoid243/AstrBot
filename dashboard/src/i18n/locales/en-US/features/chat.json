@@ -1731,6 +1731,8 @@
   "search": {
     "title": "Search messages",
     "placeholder": "Search conversation history...",
+    "hint": "Type a keyword, then press Enter or click Search",
+    "action": "Search",
     "loading": "Searching...",
     "error": "Search failed, please try again",
     "retry": "Retry",

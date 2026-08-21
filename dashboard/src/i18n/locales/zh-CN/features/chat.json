@@ -1764,6 +1764,8 @@
   "search": {
     "title": "搜索消息",
     "placeholder": "搜索历史消息...",
+    "hint": "输入关键词，按 Enter 或点击「搜索」开始",
+    "action": "搜索",
     "loading": "搜索中...",
     "error": "搜索失败，请稍后重试",
     "retry": "重试",
