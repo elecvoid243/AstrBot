@@ -1738,7 +1738,7 @@
     "fullLabel": "完全",
     "readonlyLabel": "只读",
     "workspaceLabel": "工作区",
-    "tooltip": "文件访问模式：完全=任意路径可写；只读=Plan 模式，禁止一切写入；工作区=仅会话工作区与白名单内可写（shell 不受此限制）",
+    "tooltip": "设置文件读写权限",
     "menuTitle": "文件访问模式",
     "rootsDialog": {
       "title": "工作区白名单",
