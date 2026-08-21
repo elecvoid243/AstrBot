@@ -114,8 +114,9 @@ State and API (behavioral contract; exact signatures finalized in code):
     and **per-umo custom roots** editable from the chip's whitelist dialog
     (`POST /chat/file-access-mode/roots`), persisted in SharedPreferences
     so they survive restarts. The dialog lists the implicit roots
-    (workspace / project / temp) read-only with badges and the custom
-    roots as an editable list.
+    (workspace / project / temp / active worktree) read-only with badges
+    and the custom roots as an editable list; the worktree entry follows
+    the picker's current selection.
   - `assert_writable(path: str, context) -> None` — raises `PermissionError`:
     - `FULL`: no-op.
     - `READONLY`: always reject (writes forbidden everywhere).

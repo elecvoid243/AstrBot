@@ -1635,7 +1635,8 @@
       "invalidPath": "Введите корректный абсолютный путь",
       "kind_workspace": "Рабочая область",
       "kind_temp": "Временные",
-      "kind_project": "Проект"
+      "kind_project": "Проект",
+      "kind_worktree": "Worktree"
     }
   }
 }

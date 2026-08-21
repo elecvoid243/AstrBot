@@ -1754,7 +1754,8 @@
       "invalidPath": "请输入有效的绝对路径",
       "kind_workspace": "工作区",
       "kind_temp": "临时",
-      "kind_project": "项目"
+      "kind_project": "项目",
+      "kind_worktree": "工作树"
     }
   }
 }

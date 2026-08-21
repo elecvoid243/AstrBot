@@ -1721,7 +1721,8 @@
       "invalidPath": "Enter a valid absolute path",
       "kind_workspace": "Workspace",
       "kind_temp": "Temp",
-      "kind_project": "Project"
+      "kind_project": "Project",
+      "kind_worktree": "Worktree"
     }
   }
 }

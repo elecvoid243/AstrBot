@@ -21,6 +21,7 @@ import {
   type FileAccessMode,
 } from "@/composables/useFileAccessMode";
 import { useSpcodeProjectStatus } from "@/composables/useSpcodeProjectStatus";
+import { useSpcodeWorktrees } from "@/composables/useSpcodeWorktrees";
 
 interface Props {
   umo: string | null;
@@ -31,6 +32,7 @@ const props = defineProps<Props>();
 const { tm } = useModuleI18n("features/chat");
 const { status, setRoots } = useFileAccessMode();
 const { status: spcodeStatus } = useSpcodeProjectStatus();
+const worktrees = useSpcodeWorktrees();
 
 const emit = defineEmits<{
   (e: "change", mode: FileAccessMode): void;
@@ -78,7 +80,7 @@ function select(mode: FileAccessMode): void {
 
 // ── Workspace whitelist dialog ─────────────────────────────────────
 
-type FixedKind = "workspace" | "temp" | "project";
+type FixedKind = "workspace" | "temp" | "project" | "worktree";
 
 interface FixedEntry {
   path: string;
@@ -94,6 +96,15 @@ const savingRoots = ref(false);
 // Windows drive letter, POSIX root, or UNC prefix.
 const ABSOLUTE_PATH_RE = /^([a-zA-Z]:[\\/]|\/|\\\\)/;
 
+// Active worktree from the picker singleton (kept fresh by the project
+// indicator next to this chip). Enforcement-wise the plugin already
+// registers it as a dynamic write root on every LLM request; this list
+// only mirrors what is currently active.
+const activeWorktree = computed<string | null>(() => {
+  const s = worktrees.state.value;
+  return s.kind === "ok" ? (s.snapshot.meta.activeWorktree ?? null) : null;
+});
+
 const fixedEntries = computed<FixedEntry[]>(() => {
   const entries: FixedEntry[] = status.value.fixedRoots.map((r) => ({
     path: r.path,
@@ -102,6 +113,9 @@ const fixedEntries = computed<FixedEntry[]>(() => {
   const projectDir = spcodeStatus.value.directory;
   if (spcodeStatus.value.loaded && projectDir) {
     entries.push({ path: projectDir, kind: "project" });
+  }
+  if (activeWorktree.value) {
+    entries.push({ path: activeWorktree.value, kind: "worktree" });
   }
   return entries;
 });
