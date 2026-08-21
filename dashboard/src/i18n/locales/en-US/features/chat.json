@@ -1705,6 +1705,7 @@
     "fullLabel": "Full",
     "readonlyLabel": "Read-only",
     "workspaceLabel": "Workspace",
-    "tooltip": "File access mode: Full = unrestricted writes; Read-only = plan mode, all writes disabled; Workspace = writes allowed only inside the session workspace and whitelist (shell is not path-restricted)"
+    "tooltip": "File access mode: Full = unrestricted writes; Read-only = plan mode, all writes disabled; Workspace = writes allowed only inside the session workspace and whitelist (shell is not path-restricted)",
+    "menuTitle": "File access mode"
   }
 }
