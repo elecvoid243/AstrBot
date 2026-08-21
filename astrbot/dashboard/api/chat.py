@@ -368,6 +368,44 @@ async def open_chat_local_file(
     return ok({"path": str(target)})
 
 
+@router.post("/chat/open-folder")
+async def open_chat_local_folder(
+    payload: ChatOpenFileRequest,
+    _auth: AuthContext = Depends(require_chat_scope),
+):
+    """Open the folder containing a file on the AstrBot host.
+
+    Companion to /chat/open-file (2026-08-21) for the webchat file-change
+    cards: the file is revealed and selected where the platform supports
+    it. A missing file (e.g. removals) still opens its parent folder.
+    """
+    raw_path = payload.path.strip()
+    if not raw_path:
+        return error("Missing file path")
+    target = Path(raw_path).expanduser()
+    folder = target if target.is_dir() else target.parent
+    if not folder.exists():
+        return error(f"Folder not found: {folder}")
+    try:
+        if sys.platform == "win32" and target.is_file():
+            # "explorer /select" reveals and selects the file in its folder.
+            await asyncio.create_subprocess_exec("explorer", f"/select,{target}")
+        elif sys.platform == "darwin" and target.is_file():
+            # "open -R" reveals and selects the file in Finder.
+            await asyncio.create_subprocess_exec("open", "-R", str(target))
+        elif sys.platform == "win32":
+            os.startfile(folder)  # noqa: S606
+        else:
+            # Linux has no cross-desktop "select file" convention; open the folder.
+            await asyncio.create_subprocess_exec(
+                "open" if sys.platform == "darwin" else "xdg-open",
+                str(folder),
+            )
+    except OSError as exc:
+        return error(f"Failed to open folder: {exc}")
+    return ok({"path": str(folder)})
+
+
 @router.get("/chat/runs/{run_id}/stream")
 async def resume_chat_run(
     run_id: str,

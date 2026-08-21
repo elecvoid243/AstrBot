@@ -159,7 +159,10 @@
     "editing": "Редактирование…",
     "openOnDisk": "Открыть на диске",
     "opened": "Открыт файл {name}",
-    "openFailed": "Не удалось открыть файл: {message}"
+    "openFailed": "Не удалось открыть файл: {message}",
+    "openFolder": "Открыть папку",
+    "folderOpened": "Открыта папка с файлом {name}",
+    "folderOpenFailed": "Не удалось открыть папку: {message}"
   },
   "shellSession": {
     "headers": {
@@ -864,6 +867,41 @@
           "git_error": "Не удалось задать remote: {stderr}",
           "network": "Ошибка сети",
           "unknown": "Не удалось задать remote ({reason})"
+        }
+      },
+      "stash": {
+        "button": "Stash",
+        "dialogTitle": "Git stash",
+        "messageLabel": "Описание stash (необязательно)",
+        "messagePlaceholder": "напр. экспериментальный рефакторинг",
+        "stashButton": "Сохранить текущие изменения в stash",
+        "stashButtonDisabledHint": "Нет изменений для stash",
+        "stashed": "Сохранены изменения в {count} файл(ах) ({ref})",
+        "popButton": "Применить этот stash к рабочему дереву (pop)",
+        "popDisabledHint": "В рабочем дереве есть незакоммиченные изменения — сначала stash или commit",
+        "popped": "Восстановлены изменения в {count} файл(ах) из {ref}",
+        "listTitle": "Существующие stash",
+        "listEmpty": "Пока нет stash",
+        "listTruncated": "Показаны только последние stash",
+        "refresh": "Обновить список stash",
+        "close": "Закрыть",
+        "fileCount": "{count} файл(ов)",
+        "untracked": "не отслеживался",
+        "binary": "бинарный",
+        "loadFailed": "Не удалось загрузить список stash ({reason})",
+        "error": {
+          "nothing_to_stash": "Нет локальных изменений для stash",
+          "stash_failed": "Не удалось выполнить stash: {stderr}",
+          "stash_not_found": "Этот stash больше не существует — обновите список",
+          "stash_conflict": "Конфликты при применении; запись stash сохранена — разрешите их и повторите",
+          "worktree_dirty": "В рабочем дереве есть незакоммиченные изменения — сначала stash или commit",
+          "operation_in_progress": "Идёт конфликт merge / cherry-pick / revert — сначала завершите его",
+          "invalid_body": "Некорректное тело запроса",
+          "invalid_message": "Некорректное описание stash",
+          "invalid_param": "Некорректный параметр",
+          "git_error": "Ошибка команды git: {stderr}",
+          "network": "Ошибка сети",
+          "unknown": "Не удалось выполнить stash ({reason})"
         }
       },
       "moreActions": {

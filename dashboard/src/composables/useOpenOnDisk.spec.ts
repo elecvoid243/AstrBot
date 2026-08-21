@@ -9,6 +9,7 @@ import { useOpenOnDisk } from "./useOpenOnDisk";
 
 const mocks = vi.hoisted(() => ({
   openLocalFile: vi.fn(),
+  openLocalFolder: vi.fn(),
   toastError: vi.fn(),
   toastSuccess: vi.fn(),
 }));
@@ -16,6 +17,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/api/v1", () => ({
   chatApi: {
     openLocalFile: mocks.openLocalFile,
+    openLocalFolder: mocks.openLocalFolder,
   },
 }));
 
@@ -29,9 +31,13 @@ vi.mock("@/utils/toast", () => ({
 describe("useOpenOnDisk", () => {
   beforeEach(() => {
     mocks.openLocalFile.mockReset();
+    mocks.openLocalFolder.mockReset();
     mocks.toastError.mockReset();
     mocks.toastSuccess.mockReset();
     mocks.openLocalFile.mockResolvedValue({
+      data: { status: "ok", message: null, data: {} },
+    });
+    mocks.openLocalFolder.mockResolvedValue({
       data: { status: "ok", message: null, data: {} },
     });
   });
@@ -87,5 +93,29 @@ describe("useOpenOnDisk", () => {
     resolvePending({ data: { status: "ok", message: null, data: {} } });
     await first;
     expect(mocks.openLocalFile).toHaveBeenCalledTimes(1);
+  });
+
+  // ── 2026-08-21 open-folder ───────────────────────────────────────
+
+  it("reveals the containing folder and toasts on success", async () => {
+    const { openFolder, opening } = useOpenOnDisk("fileChange");
+    await openFolder("F:\\proj\\a.py", "a.py");
+    expect(mocks.openLocalFolder).toHaveBeenCalledWith("F:\\proj\\a.py");
+    expect(mocks.openLocalFile).not.toHaveBeenCalled();
+    expect(mocks.toastSuccess).toHaveBeenCalledWith("已打开 a.py 所在文件夹");
+    expect(mocks.toastError).not.toHaveBeenCalled();
+    expect(opening.value).toBe(false);
+  });
+
+  it("toasts the backend message when opening the folder fails", async () => {
+    mocks.openLocalFolder.mockResolvedValue({
+      data: { status: "error", message: "Folder not found: x" },
+    });
+    const { openFolder } = useOpenOnDisk("fileChange");
+    await openFolder("F:\\gone\\a.py");
+    expect(mocks.toastError).toHaveBeenCalledWith(
+      "打开文件夹失败：Folder not found: x",
+    );
+    expect(mocks.toastSuccess).not.toHaveBeenCalled();
   });
 });

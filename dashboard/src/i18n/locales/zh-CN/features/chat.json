@@ -159,7 +159,10 @@
     "editing": "正在编辑…",
     "openOnDisk": "在磁盘上打开",
     "opened": "已打开 {name}",
-    "openFailed": "打开文件失败：{message}"
+    "openFailed": "打开文件失败：{message}",
+    "openFolder": "打开文件夹",
+    "folderOpened": "已打开 {name} 所在文件夹",
+    "folderOpenFailed": "打开文件夹失败：{message}"
   },
   "shellSession": {
     "headers": {
@@ -987,6 +990,41 @@
           "git_error": "设置 remote 失败：{stderr}",
           "network": "网络连接失败",
           "unknown": "设置 remote 失败（{reason}）"
+        }
+      },
+      "stash": {
+        "button": "贮藏",
+        "dialogTitle": "Git 贮藏",
+        "messageLabel": "贮藏说明（可选）",
+        "messagePlaceholder": "例如：实验性重构",
+        "stashButton": "贮藏当前改动",
+        "stashButtonDisabledHint": "没有可贮藏的改动",
+        "stashed": "已贮藏 {count} 个文件的改动（{ref}）",
+        "popButton": "恢复该贮藏到工作区（pop）",
+        "popDisabledHint": "工作区有未提交改动，请先贮藏或提交再恢复",
+        "popped": "已从 {ref} 恢复 {count} 个文件的改动",
+        "listTitle": "现有贮藏",
+        "listEmpty": "暂无贮藏",
+        "listTruncated": "仅显示最近的贮藏条目",
+        "refresh": "刷新贮藏列表",
+        "close": "关闭",
+        "fileCount": "{count} 个文件",
+        "untracked": "未跟踪",
+        "binary": "二进制",
+        "loadFailed": "读取贮藏列表失败（{reason}）",
+        "error": {
+          "nothing_to_stash": "工作区没有可贮藏的改动",
+          "stash_failed": "贮藏失败：{stderr}",
+          "stash_not_found": "该贮藏不存在，请刷新列表",
+          "stash_conflict": "恢复时产生冲突，贮藏条目已保留，请手动处理后重试",
+          "worktree_dirty": "工作区有未提交改动，请先贮藏或提交",
+          "operation_in_progress": "已有合并 / cherry-pick / revert 冲突正在进行，请先处理",
+          "invalid_body": "请求参数无效",
+          "invalid_message": "贮藏说明无效",
+          "invalid_param": "参数无效",
+          "git_error": "git 命令执行失败：{stderr}",
+          "network": "网络连接失败",
+          "unknown": "贮藏失败（{reason}）"
         }
       },
       "moreActions": {

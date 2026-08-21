@@ -1481,6 +1481,22 @@ paths:
         "200":
           $ref: "#/components/responses/Ok"
 
+  /api/v1/chat/open-folder:
+    post:
+      tags: [Chat]
+      summary: Open the folder containing a local file on the AstrBot host
+      operationId: openChatLocalFolder
+      x-astrbot-scope: chat
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChatOpenFileRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+
   /api/v1/chat/runs/{run_id}/stream:
     get:
       tags: [Chat]

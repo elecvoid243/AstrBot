@@ -1509,6 +1509,14 @@ export type OpenChatLocalFileResponse = (SuccessEnvelope);
 
 export type OpenChatLocalFileError = unknown;
 
+export type OpenChatLocalFolderData = {
+    body: ChatOpenFileRequest;
+};
+
+export type OpenChatLocalFolderResponse = (SuccessEnvelope);
+
+export type OpenChatLocalFolderError = unknown;
+
 export type ResumeChatRunData = {
     path: {
         run_id: string;

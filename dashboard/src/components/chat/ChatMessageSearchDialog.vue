@@ -16,7 +16,11 @@
           <button v-if="query" class="clear-btn" @click="clearQuery">
             <X :size="14" />
           </button>
+          <span v-else class="enter-hint">Enter</span>
         </div>
+        <button class="search-btn" :disabled="!query.trim() || loading" @click="onSearch">
+          {{ tm('search.action') }}
+        </button>
         <button class="esc-btn" @click="closeDialog">
           <span class="esc-hint">ESC</span>
         </button>
@@ -34,6 +38,10 @@
 
       <div v-else-if="hasSearched && results.length === 0" class="search-empty">
         <span class="empty-text">{{ tm('search.noResults') }}</span>
+      </div>
+
+      <div v-else-if="!hasSearched" class="search-empty">
+        <span class="empty-text">{{ tm('search.hint') }}</span>
       </div>
 
       <div v-else-if="results.length > 0" class="search-results">
@@ -197,9 +205,10 @@ function escRE(s: string): string {
   z-index: 2000;
 }
 .search-dialog {
-  width: 480px;
-  min-height: 132px;
-  max-height: 450px;
+  width: 640px;
+  max-width: calc(100vw - 48px);
+  min-height: 160px;
+  max-height: min(70vh, 620px);
   background: rgb(var(--v-theme-surface));
   border-radius: 8px;
   border: 1px solid rgba(var(--v-theme-on-surface), 0.12);

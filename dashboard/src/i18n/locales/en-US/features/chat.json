@@ -159,7 +159,10 @@
     "editing": "Editing…",
     "openOnDisk": "Open on disk",
     "opened": "Opened {name}",
-    "openFailed": "Failed to open file: {message}"
+    "openFailed": "Failed to open file: {message}",
+    "openFolder": "Open containing folder",
+    "folderOpened": "Opened the folder containing {name}",
+    "folderOpenFailed": "Failed to open folder: {message}"
   },
   "shellSession": {
     "headers": {
@@ -987,6 +990,41 @@
           "git_error": "Failed to set remote: {stderr}",
           "network": "Network error",
           "unknown": "Failed to set remote ({reason})"
+        }
+      },
+      "stash": {
+        "button": "Stash",
+        "dialogTitle": "Git Stash",
+        "messageLabel": "Stash message (optional)",
+        "messagePlaceholder": "e.g. experimental refactor",
+        "stashButton": "Stash current changes",
+        "stashButtonDisabledHint": "No changes to stash",
+        "stashed": "Stashed changes to {count} file(s) ({ref})",
+        "popButton": "Pop this stash onto the working tree",
+        "popDisabledHint": "Working tree has uncommitted changes; stash or commit them first",
+        "popped": "Restored changes to {count} file(s) from {ref}",
+        "listTitle": "Existing stashes",
+        "listEmpty": "No stashes yet",
+        "listTruncated": "Showing only the most recent stashes",
+        "refresh": "Refresh stash list",
+        "close": "Close",
+        "fileCount": "{count} file(s)",
+        "untracked": "untracked",
+        "binary": "binary",
+        "loadFailed": "Failed to load stash list ({reason})",
+        "error": {
+          "nothing_to_stash": "No local changes to stash",
+          "stash_failed": "Stash failed: {stderr}",
+          "stash_not_found": "This stash no longer exists; refresh the list",
+          "stash_conflict": "Conflicts while applying; the stash entry was kept — resolve them and retry",
+          "worktree_dirty": "Working tree has uncommitted changes; stash or commit them first",
+          "operation_in_progress": "A merge / cherry-pick / revert conflict is in progress; resolve it first",
+          "invalid_body": "Invalid request body",
+          "invalid_message": "Invalid stash message",
+          "invalid_param": "Invalid parameter",
+          "git_error": "git command failed: {stderr}",
+          "network": "Network error",
+          "unknown": "Stash failed ({reason})"
         }
       },
       "moreActions": {

@@ -12,10 +12,11 @@ import { flushPromises, mount } from "@vue/test-utils";
 import FileChangeCard from "./FileChangeCard.vue";
 import type { FileChangeEntry } from "@/utils/fileChangeTool";
 
-// 2026-08-14 open-on-disk: mock the API wrapper and the toast store so
-// the card can be mounted without pinia / network.
+// 2026-08-14 open-on-disk / 2026-08-21 open-folder: mock the API wrapper
+// and the toast store so the card can be mounted without pinia / network.
 const mocks = vi.hoisted(() => ({
   openLocalFile: vi.fn(),
+  openLocalFolder: vi.fn(),
   toastError: vi.fn(),
   toastSuccess: vi.fn(),
 }));
@@ -23,6 +24,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/api/v1", () => ({
   chatApi: {
     openLocalFile: mocks.openLocalFile,
+    openLocalFolder: mocks.openLocalFolder,
   },
 }));
 
@@ -109,9 +111,13 @@ function mountCard(entry: FileChangeEntry) {
 describe("FileChangeCard", () => {
   beforeEach(() => {
     mocks.openLocalFile.mockReset();
+    mocks.openLocalFolder.mockReset();
     mocks.toastError.mockReset();
     mocks.toastSuccess.mockReset();
     mocks.openLocalFile.mockResolvedValue({
+      data: { status: "ok", message: null, data: {} },
+    });
+    mocks.openLocalFolder.mockResolvedValue({
       data: { status: "ok", message: null, data: {} },
     });
   });
@@ -220,11 +226,19 @@ describe("FileChangeCard", () => {
         finished_ts: 2,
       },
     };
-    expect(mountCard(removeEntry).find(".file-change-open-btn").exists()).toBe(
-      false,
-    );
+    const removeCard = mountCard(removeEntry);
+    expect(
+      removeCard
+        .find(".file-change-open-btn:not(.file-change-folder-btn)")
+        .exists(),
+    ).toBe(false);
+    // the folder survives the removal, so the folder button stays
+    expect(removeCard.find(".file-change-folder-btn").exists()).toBe(true);
     expect(
       mountCard(RUNNING_EDIT_ENTRY).find(".file-change-open-btn").exists(),
+    ).toBe(false);
+    expect(
+      mountCard(RUNNING_EDIT_ENTRY).find(".file-change-folder-btn").exists(),
     ).toBe(false);
   });
 
@@ -234,6 +248,33 @@ describe("FileChangeCard", () => {
     });
     const wrapper = mountCard(EDIT_ENTRY);
     await wrapper.find(".file-change-open-btn").trigger("click");
+    await flushPromises();
+    expect(mocks.toastError).toHaveBeenCalled();
+    expect(mocks.toastSuccess).not.toHaveBeenCalled();
+  });
+
+  // ── 2026-08-21 open-folder ───────────────────────────────────────
+
+  it("opens the containing folder via the API without expanding the card", async () => {
+    const wrapper = mountCard(WRITE_ENTRY);
+    const btn = wrapper.find(".file-change-folder-btn");
+    expect(btn.exists()).toBe(true);
+    await btn.trigger("click");
+    await flushPromises();
+    expect(mocks.openLocalFolder).toHaveBeenCalledWith("F:\\proj\\b.txt");
+    expect(mocks.openLocalFile).not.toHaveBeenCalled();
+    expect(mocks.toastSuccess).toHaveBeenCalled();
+    expect(mocks.toastError).not.toHaveBeenCalled();
+    // the click must not toggle the collapse state
+    expect(wrapper.find(".file-change-body").exists()).toBe(false);
+  });
+
+  it("surfaces folder-open backend errors as an error toast", async () => {
+    mocks.openLocalFolder.mockResolvedValue({
+      data: { status: "error", message: "Folder not found: x" },
+    });
+    const wrapper = mountCard(EDIT_ENTRY);
+    await wrapper.find(".file-change-folder-btn").trigger("click");
     await flushPromises();
     expect(mocks.toastError).toHaveBeenCalled();
     expect(mocks.toastSuccess).not.toHaveBeenCalled();

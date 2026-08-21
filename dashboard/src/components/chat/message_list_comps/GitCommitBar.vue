@@ -22,6 +22,8 @@ const props = defineProps<{
   isStagingAll: boolean;
   isUnstagingAll: boolean;
   isCommitting: boolean;
+  /** 2026-08-21: disables the stash entry while git stash push is in flight. */
+  isStashing: boolean;
   /** Drives the bulk action label/handler:
    *    "staged"   → "取消全部暂存" → emit('unstage-all')
    *    "unstaged" | "all" → "全部暂存" → emit('stage-all')
@@ -37,6 +39,10 @@ const emit = defineEmits<{
   // the sidebar header — sitting next to the stage/commit workflow
   // controls makes it discoverable as a Git-management setting.
   (e: "open-gitignore"): void;
+  // 2026-08-21: opens the stash dialog (stash current changes + browse
+  // existing stash entries with file lists). Not gated on having local
+  // changes — browsing existing stashes stays possible on a clean tree.
+  (e: "open-stash"): void;
 }>();
 
 // The bulk action flips between stage-all and unstage-all based on
@@ -152,6 +158,18 @@ function onBulkClick(): void {
         @click="emit('open-gitignore')"
       >
         {{ tm("spcodeProjectLoad.diffSidebar.gitWorkflow.gitignore.openTooltip") }}
+      </v-btn>
+      <!-- 2026-08-21: stash entry — opens the stash dialog (stash current
+           changes + browse existing stashes). Disabled only while a
+           stash push is in flight; a clean tree can still browse. -->
+      <v-btn
+        size="small"
+        variant="tonal"
+        prepend-icon="mdi-archive-arrow-down-outline"
+        :disabled="isStashing"
+        @click="emit('open-stash')"
+      >
+        {{ tm("spcodeProjectLoad.diffSidebar.stash.button") }}
       </v-btn>
     </div>
     <div class="git-commit-bar-actions">

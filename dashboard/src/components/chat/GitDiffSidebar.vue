@@ -83,6 +83,9 @@ import {
 import GitPullDialog from "@/components/chat/GitPullDialog.vue";
 import GitPushDialog from "@/components/chat/GitPushDialog.vue";
 import GitRemoteUrlDialog from "@/components/chat/GitRemoteUrlDialog.vue";
+import GitStashDialog from "@/components/chat/GitStashDialog.vue";
+import { useSpcodeGitStash } from "@/composables/useSpcodeGitStash";
+import { classifyStashReason } from "@/composables/parseSpcodeGitStash";
 import { useSpcodeGitConflict } from "@/composables/useSpcodeGitConflict";
 import GitMergeDialog from "@/components/chat/GitMergeDialog.vue";
 import GitCherryPickDialog from "@/components/chat/GitCherryPickDialog.vue";
@@ -767,6 +770,9 @@ const gitSquash = useSpcodeGitSquash();
 // safely reference them. Handler logic lives in the branch block.
 const gitMerge = useSpcodeGitMerge();
 const gitRemoteSync = useSpcodeGitRemoteSync();
+// 2026-08-21 git-stash: stash dialog owns list + push; worktree is read
+// from selectedWorktree at call time (dialog-driven fetch, no polling).
+const gitStash = useSpcodeGitStash(selectedWorktree);
 const gitConflict = useSpcodeGitConflict(selectedWorktree);
 
 // ── .gitignore editor overlay (2026-07-17, latency rework 2026-07-18) ─
@@ -2657,6 +2663,108 @@ async function onPullSubmit(params: {
   );
 }
 
+// ── 2026-08-21 git-stash: stash current changes + browse stashes ──
+// The stash dialog combines both halves of the endpoint: POST push -u
+// for the working tree, GET list for the existing entries (with their
+// per-file numstat details). List loads on dialog open only — stash
+// changes are not polled.
+const stashDialogOpen = ref(false);
+
+watch(stashDialogOpen, (open) => {
+  if (open) void gitStash.refreshList();
+});
+
+const stashEntries = computed(() => {
+  const s = gitStash.listState.value;
+  return s.kind === "ok" ? s.snapshot.stashes : [];
+});
+const stashListTruncated = computed(() => {
+  const s = gitStash.listState.value;
+  return s.kind === "ok" && s.snapshot.truncated;
+});
+const stashLoadError = computed(() => {
+  const s = gitStash.listState.value;
+  return s.kind === "error" ? s.reason : null;
+});
+
+// Gates the dialog's stash button, mirroring the backend's
+// nothing_to_stash pre-check. Reads the authoritative dirty flag from
+// git-status (scope-independent; total includes untracked).
+const hasLocalChanges = computed(() => {
+  const s = gitStatus.state.value;
+  if (s.kind !== "ok") return false;
+  return s.snapshot.summary.total > 0;
+});
+
+async function onStashSubmit(params: { message: string }): Promise<void> {
+  const result = await gitStash.stash({
+    message: params.message || undefined,
+    worktree: selectedWorktree.value,
+    umo: spcodeStatus.status.value.umo,
+  });
+  if (isAborted(result)) return;
+  if (result.ok) {
+    // The changes left the worktree: refresh diff + status so the rows
+    // disappear immediately, and the stash list so the new entry shows.
+    await Promise.all([
+      gitStash.refreshList(),
+      composable.refresh(),
+      gitStatus.refresh(),
+    ]);
+    showSnackbar(
+      tm("spcodeProjectLoad.diffSidebar.stash.stashed", {
+        count: result.snapshot.fileCount,
+        ref: result.snapshot.ref,
+      }),
+      "success",
+    );
+    return;
+  }
+  const meta = classifyStashReason(result.reason);
+  showSnackbar(
+    tm(meta.i18nKey, { reason: result.reason, stderr: result.stderr ?? "" }),
+    meta.color,
+    meta.withStderr ? result.stderr : undefined,
+  );
+}
+
+// 2026-08-21 git-stash-pop: apply a stash entry back onto the working
+// tree (git drops the entry on a clean apply; on conflict the entry is
+// kept and the reason is stash_conflict).
+async function onStashPop(params: { index: number; ref: string }): Promise<void> {
+  const result = await gitStash.pop({
+    index: params.index,
+    ref: params.ref,
+    worktree: selectedWorktree.value,
+    umo: spcodeStatus.status.value.umo,
+  });
+  if (isAborted(result)) return;
+  if (result.ok) {
+    // The changes are back in the worktree: refresh diff + status so
+    // the rows appear immediately, and the stash list so the popped
+    // entry disappears (indices after it shift down by one).
+    await Promise.all([
+      gitStash.refreshList(),
+      composable.refresh(),
+      gitStatus.refresh(),
+    ]);
+    showSnackbar(
+      tm("spcodeProjectLoad.diffSidebar.stash.popped", {
+        count: result.snapshot.fileCount,
+        ref: result.snapshot.ref,
+      }),
+      "success",
+    );
+    return;
+  }
+  const meta = classifyStashReason(result.reason);
+  showSnackbar(
+    tm(meta.i18nKey, { reason: result.reason, stderr: result.stderr ?? "" }),
+    meta.color,
+    meta.withStderr ? result.stderr : undefined,
+  );
+}
+
 // 2026-08-13: push 现在走确认对话框 (onPushSubmit)；原一键直推的
 // onPushClick 已移除，避免未使用的直推入口残留。
 
@@ -4033,6 +4141,7 @@ onBeforeUnmount(() => {
   branchesComposable.dispose();
   gitMerge.dispose();
   gitRemoteSync.dispose();
+  gitStash.dispose();
   gitConflict.dispose();
   // Spec 2026-07-16: abort in-flight probe + init + clear polling
   // interval. Mirrors the worktree composable's dispose pattern.
@@ -5237,11 +5346,13 @@ watch(
           :is-staging-all="gitStage.isStagingAll.value"
           :is-unstaging-all="gitUnstage.isUnstagingAll.value"
           :is-committing="gitCommit.isCommitting.value"
+          :is-stashing="gitStash.isStashing.value"
           :selected-scope="selectedScope"
           @stage-all="onClickStageAll"
           @unstage-all="onClickUnstageAll"
           @commit="onClickCommit"
           @open-gitignore="onOpenGitIgnoreEditor"
+          @open-stash="stashDialogOpen = true"
         />
 
         <!-- Spec §6.3: inline <v-dialog persistent> confirmation.
@@ -5379,6 +5490,22 @@ watch(
           :removing="remoteRemoving"
           @submit="onRemoteUrlSubmit"
           @remove="onRemoteRemove"
+        />
+
+        <!-- 2026-08-21 git-stash: stash current changes + browse the
+             existing stash entries with their file lists. -->
+        <GitStashDialog
+          v-model="stashDialogOpen"
+          :stashes="stashEntries"
+          :listing="gitStash.listState.value.kind === 'loading'"
+          :is-stashing="gitStash.isStashing.value"
+          :popping="gitStash.popping.value"
+          :has-local-changes="hasLocalChanges"
+          :load-error="stashLoadError"
+          :truncated="stashListTruncated"
+          @stash="onStashSubmit"
+          @pop="onStashPop"
+          @refresh="gitStash.refreshList()"
         />
 
         <!-- 2026-08-01 git-cherry-pick: dialog for log-row + toolbar

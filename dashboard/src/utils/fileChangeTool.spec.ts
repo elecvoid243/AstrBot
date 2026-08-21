@@ -172,6 +172,30 @@ describe("collectFileChanges", () => {
     });
   });
 
+  // 2026-08-21: the write result carries the backend-resolved absolute
+  // path, which wins over a (possibly relative) args.path.
+  it("prefers the result path over a relative args path for writes", () => {
+    const relative = {
+      ...WRITE_TOOL,
+      args: { path: "notes\\b.txt", content: "x" },
+      result: "File written successfully: F:\\workspaces\\default\\notes\\b.txt",
+    };
+    const changes = collectFileChanges([
+      { type: "tool_call", tool_calls: [relative] },
+    ]);
+    expect(changes[0].filePath).toBe(
+      "F:\\workspaces\\default\\notes\\b.txt",
+    );
+  });
+
+  it("falls back to the args path while a write call is still running", () => {
+    const running = { ...WRITE_TOOL, result: undefined, finished_ts: undefined };
+    const changes = collectFileChanges([
+      { type: "tool_call", tool_calls: [running] },
+    ]);
+    expect(changes[0].filePath).toBe("F:\\proj\\b.txt");
+  });
+
   it("marks calls without finished_ts as running", () => {
     const running = { ...WRITE_TOOL, finished_ts: undefined, result: undefined };
     const changes = collectFileChanges([

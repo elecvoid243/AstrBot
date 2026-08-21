@@ -77,6 +77,19 @@
       >
         <v-icon size="14">mdi-open-in-new</v-icon>
       </button>
+      <!-- 2026-08-21 open-folder: reveal the file's containing folder in
+           the host file manager. Also shown for removals — the folder
+           survives the delete — but not while the call is running. -->
+      <button
+        v-if="canOpenFolder"
+        type="button"
+        class="file-change-open-btn file-change-folder-btn"
+        :disabled="opening"
+        :title="tm('fileChange.openFolder')"
+        @click.stop="openFolder(entry.filePath, basename)"
+      >
+        <v-icon size="14">mdi-folder-open-outline</v-icon>
+      </button>
     </div>
 
     <div v-if="isExpanded" class="file-change-body">
@@ -151,9 +164,9 @@ const { tm } = useModuleI18n("features/chat");
 
 const isExpanded = ref(false);
 
-// ── 2026-08-14 open-on-disk ───────────────────────────────────────
+// ── 2026-08-14 open-on-disk / 2026-08-21 open-folder ──────────────
 
-const { opening, openOnDisk } = useOpenOnDisk("fileChange");
+const { opening, openOnDisk, openFolder } = useOpenOnDisk("fileChange");
 
 /** Removals delete the file and a running call may not have flushed
  *  yet, so the open action only makes sense for finished edit/write
@@ -163,6 +176,12 @@ const canOpenOnDisk = computed(
     Boolean(props.entry.filePath) &&
     props.entry.kind !== "remove" &&
     props.entry.status !== "running",
+);
+
+/** The containing folder survives a removal, so it can be opened for
+ *  every finished entry kind; only running calls are excluded. */
+const canOpenFolder = computed(
+  () => Boolean(props.entry.filePath) && props.entry.status !== "running",
 );
 
 const kindIcon = computed(() => {

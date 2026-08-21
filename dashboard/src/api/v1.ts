@@ -881,6 +881,9 @@ export const chatApi = {
   openLocalFile(path: string) {
     return typed<any>(openApiV1.openChatLocalFile({ body: { path } }));
   },
+  openLocalFolder(path: string) {
+    return typed<any>(openApiV1.openChatLocalFolder({ body: { path } }));
+  },
   updateMessage(
     sessionId: string,
     messageId: string | number,

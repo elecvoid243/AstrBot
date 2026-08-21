@@ -224,10 +224,19 @@ export function collectFileChanges(
                 });
             } else {
                 const content = String(args.content ?? "");
+                // 2026-08-21: prefer the backend-resolved absolute path from
+                // the success result ("File written successfully: {path}");
+                // args.path may be relative (the backend resolves it against
+                // the workspace root, so only the result knows the real
+                // location). Fall back to args.path while the call is
+                // running or when no result is available.
+                const writtenPath =
+                    result.match(/^File written successfully:\s+(.+)$/m)?.[1] ??
+                    "";
                 entries.push({
                     ...base,
                     kind: "write",
-                    filePath: String(args.path ?? "") || "",
+                    filePath: writtenPath || String(args.path ?? "") || "",
                     diffStat: null,
                     lineCount: content ? content.split("\n").length : null,
                 });
