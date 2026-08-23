@@ -878,6 +878,7 @@ class BaseDatabase(abc.ABC):
         page_size: int = 20,
         exclude_project_sessions: bool = False,
         archived: bool | None = None,
+        search: str | None = None,
     ) -> tuple[list[dict], int]:
         """Get paginated platform sessions and total count for a creator.
 
@@ -890,6 +891,8 @@ class BaseDatabase(abc.ABC):
                 to a ChatUI project.
             archived: When None keep both states; True returns only archived
                 sessions; False excludes archived sessions.
+            search: Optional case-insensitive substring filter on the
+                session display name, applied at the database layer.
 
         Returns:
             tuple[list[dict], int]: (sessions_with_project_info, total_count)

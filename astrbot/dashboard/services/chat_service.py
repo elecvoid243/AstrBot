@@ -2235,33 +2235,26 @@ class ChatService:
         """
         page = max(page, 1)
         page_size = max(1, min(page_size, 100))
-        search = (search or "").strip()
+        # Normalize to None so an empty search is not passed to the DB query.
+        search = (search or "").strip() or None
 
-        # Collect every archived session (the accessor is paginated; loop
-        # with a hard cap so a pathological history cannot run away).
-        raw_items: list[dict] = []
-        scan_page = 1
-        while True:
-            sessions, _ = await self.db.get_platform_sessions_by_creator_paginated(
-                creator=username,
-                platform_id=platform_id,
-                page=scan_page,
-                page_size=200,
-                exclude_project_sessions=False,
-                archived=True,
-            )
-            raw_items.extend(sessions)
-            if len(sessions) < 200 or len(raw_items) >= 1000:
-                break
-            scan_page += 1
+        # Pagination and the display-name search are both applied at the
+        # database layer; only the requested page is loaded instead of the
+        # full archived set (see get_platform_sessions_by_creator_paginated).
+        sessions, total = await self.db.get_platform_sessions_by_creator_paginated(
+            creator=username,
+            platform_id=platform_id,
+            page=page,
+            page_size=page_size,
+            exclude_project_sessions=False,
+            archived=True,
+            search=search,
+        )
 
-        sessions_data = []
-        for item in raw_items:
+        items = []
+        for item in sessions:
             session = item["session"]
-            display_name = session.display_name or ""
-            if search and search.lower() not in display_name.lower():
-                continue
-            sessions_data.append(
+            items.append(
                 {
                     "session_id": session.session_id,
                     "platform_id": session.platform_id,
@@ -2276,9 +2269,9 @@ class ChatService:
                 }
             )
 
-        session_ids = {item["session_id"] for item in sessions_data}
+        session_ids = {item["session_id"] for item in items}
         relations = await self.get_branch_relations()
-        for item in sessions_data:
+        for item in items:
             relation = relations.get(item["session_id"])
             item["branch_source"] = (
                 {
@@ -2295,11 +2288,9 @@ class ChatService:
                 and child_id in session_ids
             ]
 
-        total = len(sessions_data)
         total_pages = (total + page_size - 1) // page_size if total else 1
-        offset = (page - 1) * page_size
         return {
-            "items": sessions_data[offset : offset + page_size],
+            "items": items,
             "pagination": {
                 "page": page,
                 "page_size": page_size,

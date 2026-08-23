@@ -1969,6 +1969,7 @@ class SQLiteDatabase(BaseDatabase):
         platform_id: str | None = None,
         exclude_project_sessions: bool = False,
         archived: bool | None = None,
+        search: str | None = None,
     ):
         query = (
             select(
@@ -1996,6 +1997,11 @@ class SQLiteDatabase(BaseDatabase):
         if archived is not None:
             # 2026-08-13 session archive: filter by the archived flag.
             query = query.where(col(PlatformSession.archived) == (1 if archived else 0))
+        if search:
+            # Case-insensitive substring filter on the display name. SQLite
+            # ILIKE is ASCII-case-insensitive (Chinese has no case), matching
+            # the previous Python-level `search.lower() in name.lower()`.
+            query = query.where(PlatformSession.display_name.ilike(f"%{search}%"))
 
         return query
 
@@ -2026,6 +2032,7 @@ class SQLiteDatabase(BaseDatabase):
         page_size: int = 20,
         exclude_project_sessions: bool = False,
         archived: bool | None = None,
+        search: str | None = None,
     ) -> tuple[list[dict], int]:
         """Get paginated Platform sessions for a creator with total count.
 
@@ -2038,6 +2045,8 @@ class SQLiteDatabase(BaseDatabase):
                 to a ChatUI project.
             archived: When None keep both states; True returns only archived
                 sessions; False excludes archived sessions.
+            search: Optional case-insensitive substring filter on the
+                session display name, applied at the database layer.
 
         Returns:
             tuple[list[dict], int]: (sessions_with_project_info, total_count)
@@ -2051,6 +2060,7 @@ class SQLiteDatabase(BaseDatabase):
                 platform_id=platform_id,
                 exclude_project_sessions=exclude_project_sessions,
                 archived=archived,
+                search=search,
             )
 
             total_result = await session.execute(

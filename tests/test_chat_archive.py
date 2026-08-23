@@ -10,6 +10,8 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+from astrbot.core.db.po import PlatformSession
+from astrbot.core.db.sqlite import SQLiteDatabase
 from astrbot.dashboard.services.chat_service import ChatService, ChatServiceError
 from astrbot.dashboard.services.chatui_project_service import ChatUIProjectService
 
@@ -95,58 +97,63 @@ async def test_get_archived_sessions_keeps_project_members():
 
 
 @pytest.mark.asyncio
-async def test_get_archived_sessions_paginates():
-    """归档列表按 page/page_size 分页。"""
+async def test_get_archived_sessions_paginates_at_db_layer():
+    """归档列表把 page/page_size/archived 下推到 DB，不再内存切片。"""
     service = _make_chat_service()
-    sessions = [
+    page_items = [
         {
-            "session": _session(session_id=f"arch-{i}"),
+            "session": _session(session_id="arch-2"),
             "project_id": None,
             "project_title": None,
             "project_emoji": None,
         }
-        for i in range(5)
     ]
     service.db.get_platform_sessions_by_creator_paginated = AsyncMock(
-        return_value=(sessions, 5)
+        return_value=(page_items, 5)
     )
     service.get_branch_relations = AsyncMock(return_value={})
 
-    result = await service.get_archived_sessions("alice", "webchat", page=2, page_size=2)
+    result = await service.get_archived_sessions(
+        "alice", "webchat", page=2, page_size=2
+    )
 
-    assert [item["session_id"] for item in result["items"]] == ["arch-2", "arch-3"]
-    assert result["pagination"]["total"] == 5
-    assert result["pagination"]["total_pages"] == 3
-    assert result["pagination"]["page"] == 2
+    kwargs = service.db.get_platform_sessions_by_creator_paginated.await_args.kwargs
+    assert kwargs["page"] == 2
+    assert kwargs["page_size"] == 2
+    assert kwargs["archived"] is True
+    assert kwargs["exclude_project_sessions"] is False
+    # 服务层不再自行切片：返回 DB 已分页的项。
+    assert [item["session_id"] for item in result["items"]] == ["arch-2"]
+    assert result["pagination"] == {
+        "page": 2,
+        "page_size": 2,
+        "total": 5,
+        "total_pages": 3,
+    }
 
 
 @pytest.mark.asyncio
-async def test_get_archived_sessions_search_filters_by_title():
-    """归档列表按会话标题（大小写不敏感子串）过滤。"""
+async def test_get_archived_sessions_forwards_search_to_db():
+    """归档搜索下推到 DB 层（search 透传给分页查询）。"""
     service = _make_chat_service()
-    sessions = [
+    filtered = [
         {
             "session": _session(session_id="s1", display_name="分支 · 需求分析"),
             "project_id": None,
             "project_title": None,
             "project_emoji": None,
-        },
-        {
-            "session": _session(session_id="s2", display_name="日常闲聊"),
-            "project_id": None,
-            "project_title": None,
-            "project_emoji": None,
-        },
+        }
     ]
     service.db.get_platform_sessions_by_creator_paginated = AsyncMock(
-        return_value=(sessions, 2)
+        return_value=(filtered, 1)
     )
     service.get_branch_relations = AsyncMock(return_value={})
 
-    result = await service.get_archived_sessions(
-        "alice", "webchat", search="需求"
-    )
+    result = await service.get_archived_sessions("alice", "webchat", search="需求")
 
+    kwargs = service.db.get_platform_sessions_by_creator_paginated.await_args.kwargs
+    assert kwargs["search"] == "需求"
+    assert kwargs["page"] == 1
     assert [item["session_id"] for item in result["items"]] == ["s1"]
     assert result["pagination"]["total"] == 1
 
@@ -221,9 +228,7 @@ async def test_message_search_excludes_archived_sessions():
         return_value=([], 0)
     )
 
-    await service.search_messages(
-        q="keyword", page=1, page_size=20, username="alice"
-    )
+    await service.search_messages(q="keyword", page=1, page_size=20, username="alice")
 
     kwargs = (
         service.db_helper.get_platform_sessions_by_creator_paginated.await_args.kwargs
@@ -318,14 +323,117 @@ async def test_get_session_exposes_archived_flag():
     service.platform_history_mgr.get = AsyncMock(return_value=[])
     service.get_active_chat_runs = AsyncMock(return_value=[])
 
-    service.db.get_platform_session_by_id = AsyncMock(
-        return_value=_session(archived=1)
-    )
+    service.db.get_platform_session_by_id = AsyncMock(return_value=_session(archived=1))
     result = await service.get_session("alice", SRC_SESSION_ID)
     assert result["archived"] is True
 
-    service.db.get_platform_session_by_id = AsyncMock(
-        return_value=_session(archived=0)
-    )
+    service.db.get_platform_session_by_id = AsyncMock(return_value=_session(archived=0))
     result = await service.get_session("alice", SRC_SESSION_ID)
     assert result["archived"] is False
+
+
+async def _seed_archived_sessions(db: SQLiteDatabase) -> None:
+    """Insert 4 archived sessions with distinct display names."""
+    # updated_at ascending by index, so the newest session is s3.
+    names = ["Project Draft", "需求分析", "Project Notes", "项目会话"]
+    async with db.get_db() as session:
+        async with session.begin():
+            session.add_all(
+                [
+                    PlatformSession(
+                        session_id=f"s{i}",
+                        platform_id="webchat",
+                        creator="alice",
+                        display_name=name,
+                        is_group=0,
+                        archived=1,
+                        created_at=datetime(2026, 8, 1, tzinfo=UTC),
+                        updated_at=datetime(2026, 8, 1 + i, tzinfo=UTC),
+                    )
+                    for i, name in enumerate(names)
+                ]
+            )
+
+
+def _session_ids(items: list[dict]) -> set[str]:
+    return {item["session"].session_id for item in items}
+
+
+@pytest.mark.asyncio
+async def test_db_paginated_search_filters_by_display_name(tmp_path):
+    """DB 层按 display_name（大小写不敏感子串）过滤并统计总数。"""
+    db = SQLiteDatabase(str(tmp_path / "archive.db"))
+    await db.initialize()
+    await _seed_archived_sessions(db)
+
+    page1, total = await db.get_platform_sessions_by_creator_paginated(
+        creator="alice",
+        platform_id="webchat",
+        page=1,
+        page_size=10,
+        archived=True,
+        search="需求",
+    )
+
+    assert total == 1
+    assert _session_ids(page1) == {"s1"}
+
+
+@pytest.mark.asyncio
+async def test_db_paginated_search_pages_and_counts(tmp_path):
+    """DB 层同时应用搜索 + LIMIT/OFFSET 分页，total 反映过滤后的总数。"""
+    db = SQLiteDatabase(str(tmp_path / "archive.db"))
+    await db.initialize()
+    await _seed_archived_sessions(db)
+
+    # search 匹配 s0/s2（大小写不敏感），每页 1 条，验证分页切分与总数。
+    page1, total = await db.get_platform_sessions_by_creator_paginated(
+        creator="alice",
+        platform_id="webchat",
+        page=1,
+        page_size=1,
+        archived=True,
+        search="project",
+    )
+    page2, _ = await db.get_platform_sessions_by_creator_paginated(
+        creator="alice",
+        platform_id="webchat",
+        page=2,
+        page_size=1,
+        archived=True,
+        search="project",
+    )
+
+    assert total == 2
+    assert len(page1) == 1
+    assert len(page2) == 1
+    assert _session_ids(page1) | _session_ids(page2) == {"s0", "s2"}
+    assert _session_ids(page1) & _session_ids(page2) == set()
+
+
+@pytest.mark.asyncio
+async def test_db_paginated_search_case_insensitive(tmp_path):
+    """DB 层搜索大小写不敏感（ASCII）。"""
+    db = SQLiteDatabase(str(tmp_path / "archive.db"))
+    await db.initialize()
+    await _seed_archived_sessions(db)
+
+    _, total_lower = await db.get_platform_sessions_by_creator_paginated(
+        creator="alice",
+        platform_id="webchat",
+        page=1,
+        page_size=10,
+        archived=True,
+        search="draft",
+    )
+    _, total_upper = await db.get_platform_sessions_by_creator_paginated(
+        creator="alice",
+        platform_id="webchat",
+        page=1,
+        page_size=10,
+        archived=True,
+        search="DRAFT",
+    )
+
+    assert total_lower == 1
+    assert total_upper == 1
