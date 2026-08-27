@@ -606,6 +606,16 @@ watch(
 // unambiguous; Vue's `<script setup>` does not hoist `let`.
 let prevWorktreePaths: ReadonlySet<string> | null = null;
 
+// Singleton spcode project status. Declared HERE — before the
+// immediate worktree-list watcher below — because that watcher's
+// callback reads `projectRoot` (→ `spcodeStatus`) on its immediate
+// tick. Instantiating it further down (its natural home next to the
+// other composables) puts the binding in TDZ during the immediate
+// tick; production swallows the resulting ReferenceError with a bare
+// console.error and silently skips the watcher's non-git hydration
+// branch on every mount.
+const spcodeStatus = useSpcodeProjectStatus();
+
 // When the worktree list first loads, validate the persisted worktree
 // AND cross-validate the persisted currentPath against the new root.
 // This is the only place where fileBrowserCurrentPath is overwritten
@@ -748,7 +758,6 @@ const composable = useSpcodeGitDiff(selectedWorktree, selectedScope);
 // (refresh + 10s polling + dispose) is wired in the modelValue / viewMode
 // watcher and onBeforeUnmount below.
 const gitStatus = useSpcodeGitStatus(selectedWorktree);
-const spcodeStatus = useSpcodeProjectStatus();
 const expandedSet = ref<Set<string>>(new Set());
 
 // ── Git workflow composables (spec 2026-06-24 §3.2) ──────────────
@@ -4008,7 +4017,20 @@ function onCancelCommit(): void {
 // handler takes any meaningful arguments beyond the existing
 // composable state.
 async function onRepoInitConfirm(): Promise<void> {
-  if (!projectRoot.value) return;
+  // projectRoot (from /spcode/project-status) is the primary path source,
+  // but it is a live computed over a ref other code refreshes — if it has
+  // been momentarily emptied while the probe still holds a directory
+  // snapshot, falling back to that snapshot keeps the click functional.
+  // Returning silently here was indistinguishable from a dead button.
+  const path =
+    projectRoot.value ||
+    (gitRepoProbe.state.value.kind === "not_a_git_repo"
+      ? gitRepoProbe.state.value.directory
+      : "");
+  if (!path) {
+    repoInitLastError.value = { reason: "unknown" };
+    return;
+  }
   repoInitLastError.value = null;
   isRepoInitSubmitting.value = true;
   // v2.17.1: `force: true` skips the backend's "non-empty directory"
@@ -4020,7 +4042,7 @@ async function onRepoInitConfirm(): Promise<void> {
   // unlocks (existing files become untracked, nothing is deleted).
   // Refs: docs/api/v2.17.1-git-init-force-frontend-notice.md §4.
   const result = await gitRepoProbe.gitInit({
-    path: projectRoot.value,
+    path,
     force: true,
   });
   isRepoInitSubmitting.value = false;

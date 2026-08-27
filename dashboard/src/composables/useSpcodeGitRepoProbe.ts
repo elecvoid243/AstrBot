@@ -109,7 +109,8 @@ export function useSpcodeGitRepoProbe(): UseSpcodeGitRepoProbe {
     if (!isMounted) return { ok: false, reason: "aborted" };
 
     initAbort?.abort();
-    initAbort = new AbortController();
+    const myAbort = new AbortController();
+    initAbort = myAbort;
     state.value = { kind: "loading" };
     try {
       const resp = await pluginExtensionApi.post<unknown>(
@@ -120,9 +121,9 @@ export function useSpcodeGitRepoProbe(): UseSpcodeGitRepoProbe {
           bare: false,
           force: params.force ?? false,
         },
-        { signal: initAbort.signal },
+        { signal: myAbort.signal },
       );
-      if (!isMounted || initAbort.signal.aborted) {
+      if (!isMounted || myAbort.signal.aborted) {
         return { ok: false, reason: "aborted" };
       }
       const envelope = (resp as { data?: { data?: unknown } }).data?.data;
@@ -138,6 +139,15 @@ export function useSpcodeGitRepoProbe(): UseSpcodeGitRepoProbe {
       if (!isMounted) return { ok: false, reason: "aborted" };
       if ((err as { name?: string })?.name === "CanceledError") {
         return { ok: false, reason: "aborted" };
+      }
+      // Network-level failure (404 / 500 / connection error). Restore the
+      // prompt-bearing state — leaving `loading` here would unmount the
+      // GitRepoInitPrompt and swallow the failure with no way to retry.
+      // Guarded on OUR controller still being the single-flight owner so
+      // a newer gitInit's in-flight state isn't clobbered by this older
+      // call's late rejection.
+      if (!myAbort.signal.aborted) {
+        state.value = { kind: "not_a_git_repo", directory: params.path };
       }
       return { ok: false, reason: classifyNetworkError(err) };
     }

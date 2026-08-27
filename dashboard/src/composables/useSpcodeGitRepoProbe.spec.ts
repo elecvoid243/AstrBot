@@ -229,4 +229,21 @@ describe("useSpcodeGitRepoProbe", () => {
     expect(secondR.ok).toBe(true);
     unmount();
   });
+
+  it("gitInit() network failure restores 'not_a_git_repo' so the prompt stays mounted", async () => {
+    // Regression: a rejected POST used to leave the state on "loading"
+    // forever, unmounting the GitRepoInitPrompt and hiding the failure.
+    getMock.mockResolvedValueOnce(okEnvelope(GIT_REPO_CHECK_NOT_A_REPO));
+    postMock.mockRejectedValueOnce(new Error("Network Error"));
+    const { result, unmount } = withSetup(() => useSpcodeGitRepoProbe());
+    await result.refresh();
+    expect(result.state.value.kind).toBe("not_a_git_repo");
+    const r = await result.gitInit({ path: "D:/tmp" });
+    expect(r).toEqual({ ok: false, reason: "network" });
+    expect(result.state.value).toEqual({
+      kind: "not_a_git_repo",
+      directory: "D:/tmp",
+    });
+    unmount();
+  });
 });
