@@ -24,11 +24,12 @@ UMO = "test_platform:private:s1"
 class _FakeMainRunner:
     """Minimal stand-in for the main agent runner stored in agent context extra."""
 
-    def __init__(self, toolset, schema_mode="full"):
+    def __init__(self, toolset, schema_mode="full", provider=None):
         self.req = MagicMock()
         self.req.func_tool = toolset
         self.tool_schema_mode = schema_mode
         self.effective_raw_tool_set = toolset
+        self.provider = provider
 
 
 def make_handoff_tool(name="researcher", instructions="You are a researcher."):
@@ -293,6 +294,57 @@ async def test_auto_mode_band_between_fork_line_and_compression_trigger_uses_nor
         run_context, mock_ctx, "provider-1", agent_name, sys_prompt, task
     )
     assert mode == "fork"
+
+
+@pytest.mark.asyncio
+async def test_fork_mode_falls_back_to_normal_on_provider_mismatch(
+    mock_ctx, mock_event
+):
+    """Fork on a different provider can never hit the prefix cache.
+
+    The delegated subagent's provider (handoff.provider_id) differs from
+    the main runner's actual provider — inheritance would be pure
+    overhead, so the handoff must fall back to normal mode even with the
+    inherit mode forced to "fork".
+    """
+    SubAgentManager._context_inherit_mode = "fork"
+    main_provider = MagicMock()
+    main_provider.provider_config = {"id": "provider-main"}
+    run_context = make_run_context(
+        mock_ctx,
+        mock_event,
+        make_main_messages(),
+        extra={"main_agent_runner": _FakeMainRunner(ToolSet(), provider=main_provider)},
+    )
+
+    handoff = make_handoff_tool()
+    handoff.provider_id = "provider-sub"
+    await run_handoff(handoff, run_context)
+    kwargs = get_tool_loop_agent_kwargs(mock_ctx)
+    assert kwargs["system_prompt"].startswith("# Role")
+    assert kwargs["prompt"] == "do research"
+    # The fork prompt (and the inherited message prefix) must NOT be used.
+    assert not kwargs["prompt"].startswith("[SUBAGENT MODE: FORK]")
+
+
+@pytest.mark.asyncio
+async def test_fork_mode_keeps_fork_on_matching_provider(mock_ctx, mock_event):
+    SubAgentManager._context_inherit_mode = "fork"
+    main_provider = MagicMock()
+    main_provider.provider_config = {"id": "provider-1"}
+    run_context = make_run_context(
+        mock_ctx,
+        mock_event,
+        make_main_messages(),
+        extra={"main_agent_runner": _FakeMainRunner(ToolSet(), provider=main_provider)},
+    )
+
+    # tool.provider_id unset -> prov_id falls back to the session's current
+    # provider ("provider-1" from the mock ctx), matching the main runner.
+    await run_handoff(make_handoff_tool(), run_context)
+    kwargs = get_tool_loop_agent_kwargs(mock_ctx)
+    assert kwargs["prompt"].startswith("[SUBAGENT MODE: FORK]")
+    assert kwargs["system_prompt"] == ""
 
 
 @pytest.mark.asyncio

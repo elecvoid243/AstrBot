@@ -589,6 +589,31 @@ class FunctionToolExecutor(BaseFunctionToolExecutor[AstrAgentContext]):
                 run_context, ctx, prov_id, agent_name, subagent_system_prompt, input_
             )
         use_fork_context = inherit_mode == "fork"
+        if use_fork_context:
+            # Fork only pays off when the inherited prefix can hit the
+            # provider's prefix cache — a subagent on a DIFFERENT provider
+            # never can, so the inheritance would be pure overhead. Compare
+            # the delegated provider against the main runner's actual
+            # provider and fall back to normal mode on mismatch. Applies to
+            # both forced "fork" and auto-resolved fork. When the main
+            # runner (or its provider) cannot be determined, keep fork —
+            # that matches the existing toolset fallback path.
+            main_runner = (run_context.context.extra or {}).get("main_agent_runner")
+            main_provider = getattr(main_runner, "provider", None)
+            main_provider_id = (
+                str(main_provider.provider_config.get("id") or "")
+                if main_provider is not None
+                else ""
+            )
+            if main_provider_id and prov_id != main_provider_id:
+                logger.info(
+                    "[SubAgent:Fork] subagent provider %s != main agent provider %s; "
+                    "fork prefix cache cannot hit, falling back to normal mode",
+                    prov_id,
+                    main_provider_id,
+                )
+                inherit_mode = "normal"
+                use_fork_context = False
 
         if use_fork_context:
             # Fork mode: byte-identical inheritance of the main agent's message

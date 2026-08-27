@@ -262,7 +262,10 @@ DEFAULT_CONFIG = {
         #   context and tool schema to maximize provider prefix cache hits;
         #   subagent instructions are appended as a new user message after the
         #   inherited prefix. Main-agent-only orchestration tools stay visible
-        #   but are rejected with a guidance message when called.
+        #   but are rejected with a guidance message when called. When the
+        #   subagent runs on a different provider than the main agent, fork is
+        #   skipped in favor of normal mode — the prefix cache cannot hit
+        #   across providers, so the inheritance would be pure overhead.
         # - "auto": decide per delegation - use fork while the estimated
         #   context usage stays at or below 45% of max_context_tokens,
         #   well below the 82% compression trigger: the subagent appends
