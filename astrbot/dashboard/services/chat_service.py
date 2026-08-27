@@ -1689,6 +1689,10 @@ class ChatService:
             SSE iterator yielding ``data: {json}\\n\\n`` chunks.
         """
         queue = webchat_queue_mgr.subscribe_system(session_id)
+        from astrbot.core.platform.sources.webchat.webchat_queue_mgr import (
+            orphan_run_registry,
+        )
+
         accumulators: dict[str, BotMessageAccumulator] = {}
 
         async def flush(message_id: str) -> None:
@@ -1739,6 +1743,23 @@ class ChatService:
 
         async def stream():
             try:
+                # 2026-08-27 switch-back catch-up: seed (re)subscribers with
+                # the accumulated state of in-flight orphan turns (goal-loop
+                # / collab synthetic turns). The system stream is a live-tail
+                # channel — without this snapshot, switching back to a
+                # session mid-turn only showed output from the switch moment
+                # onward; everything streamed while another session was open
+                # was dropped.
+                for orphan in orphan_run_registry.active_for_conversation(session_id):
+                    if not orphan.message_parts:
+                        continue
+                    snapshot = {
+                        "type": "run_snapshot",
+                        "message_id": orphan.run_id,
+                        "streaming": True,
+                        "data": {"message": deepcopy(orphan.message_parts)},
+                    }
+                    yield f"data: {json.dumps(snapshot, ensure_ascii=False)}\n\n"
                 while True:
                     payload = await queue.get()
                     if not isinstance(payload, dict):

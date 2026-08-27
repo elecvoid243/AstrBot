@@ -388,19 +388,60 @@ export function processSystemPayload(
 ): boolean {
   const type = payload?.type;
   // Accept the same `type` set the system stream server forwards
-  // (`plain` / `complete` / `end`) and the agent_stats top-level event
-  // the primary consumer republishes. Anything else is not ours.
+  // (`plain` / `complete` / `end`), the `run_snapshot` catch-up event
+  // emitted on (re)subscribe for in-flight orphan turns, and the
+  // agent_stats top-level event the primary consumer republishes.
+  // Anything else is not ours.
   if (
     type !== "plain" &&
     type !== "complete" &&
     type !== "end" &&
-    type !== "agent_stats"
+    type !== "agent_stats" &&
+    type !== "run_snapshot"
   ) {
     return false;
   }
   const messageId = payload?.message_id;
   if (messageId == null || messageId === "") return false;
   const key = String(messageId);
+
+  // 2026-08-27 switch-back catch-up: `run_snapshot` seeds a live record
+  // with the server-side accumulated state of an in-flight orphan turn,
+  // so re-subscribing to a session restores everything streamed while
+  // another session was open. If a record for this turn already exists
+  // (frozen by `finalizeSystemSession` on session switch), reattach and
+  // update it in place instead of pushing a duplicate bubble.
+  if (type === "run_snapshot") {
+    const snapshotParts = Array.isArray(payload?.data?.message)
+      ? payload.data.message
+      : [];
+    const existingId = `system-${key}`;
+    const existingIdx = records.findIndex((r) => r.id === existingId);
+    let entry: LiveEntry;
+    if (existingIdx >= 0) {
+      // Reattach: reuse the frozen bubble both in the render list and in
+      // the live-tracking map, so subsequent payloads keep mutating the
+      // same record instead of an invisible fresh one.
+      const reused = records[existingIdx];
+      state.liveBySession[sessionId] = state.liveBySession[sessionId] || {};
+      state.liveBySession[sessionId][key] = reused;
+      const accs = accOf(state)[sessionId] || {};
+      accs[key] = makeAccState();
+      accOf(state)[sessionId] = accs;
+      entry = { record: reused, state: accs[key] };
+    } else {
+      entry = getOrCreateLive(state, sessionId, key);
+      if (!records.includes(entry.record)) {
+        records.push(entry.record);
+      }
+    }
+    entry.record.content.message = snapshotParts.map(
+      (part: SystemMessagePart) => ({ ...part }),
+    );
+    syncReasoningField(entry);
+    entry.record.content.isLoading = entry.record.content.message.length === 0;
+    return true;
+  }
 
   const entry = getOrCreateLive(state, sessionId, key);
   if (!records.includes(entry.record)) {

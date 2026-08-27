@@ -3130,6 +3130,12 @@ async function selectSession(sessionId: string, pushRoute = true) {
   }
   if (!loadedSessions[sessionId]) {
     await loadSessionMessages(sessionId);
+  } else {
+    // Already-loaded sessions still refresh quietly on switch: turns from
+    // the goal loop / agent collab may have run (or finished) while another
+    // session was open, and the frozen system-stream bubbles need to be
+    // reconciled against the persisted history + active-run recovery.
+    await loadSessionMessages(sessionId, true, false);
   }
   // Timing-safe backstop for spcode auto-load: the currSessionId watcher can
   // fire before loadSessionMessages populates the session→project reverse-map,

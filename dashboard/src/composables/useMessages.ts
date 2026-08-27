@@ -498,13 +498,28 @@ export function useMessages(options: UseMessagesOptions) {
       // Live records (system stream / run resume) may have arrived while the
       // history snapshot was in flight; the snapshot then overwrote them.
       // Re-append anything not present in the snapshot so no message is lost.
+      // System-stream records (`system-${run_id}`, goal-loop / collab turns)
+      // are special: an in-flight orphan turn is not in the snapshot (it is
+      // persisted only on completion) and is re-seeded by the freshly
+      // re-subscribed system stream's run_snapshot — keep it. A finished one
+      // is superseded by the persisted record now in the snapshot — drop the
+      // frozen partial, otherwise both would render.
       const existing = messagesBySession[sessionId] || [];
       messagesBySession[sessionId] = records;
       if (existing.length) {
         const historyIds = new Set(records.map((r: ChatRecord) => String(r.id)));
-        const live = existing.filter(
-          (r: ChatRecord) => !historyIds.has(String(r.id)),
+        const activeOrphanIds = new Set(
+          (Array.isArray(payload.active_runs) ? payload.active_runs : [])
+            .filter((r: ActiveChatRun) => !r.llm_checkpoint_id)
+            .map((r: ActiveChatRun) => `system-${r.run_id}`),
         );
+        const live = existing.filter((r: ChatRecord) => {
+          const recordId = String(r.id || "");
+          if (recordId.startsWith("system-")) {
+            return activeOrphanIds.has(recordId);
+          }
+          return !historyIds.has(recordId);
+        });
         if (live.length) {
           messagesBySession[sessionId] = [...records, ...live].sort(
             (a: ChatRecord, b: ChatRecord) =>
@@ -530,8 +545,12 @@ export function useMessages(options: UseMessagesOptions) {
     sessionId: string,
     activeRuns: ActiveChatRun[],
   ) {
-    const run = activeRuns[0];
-    if (!run?.run_id || isSessionRunning(sessionId)) return;
+    // 2026-08-27: orphan runs (goal-loop / collab synthetic turns,
+    // llm_checkpoint_id = null) are owned by the system event stream —
+    // its subscribe-time run_snapshot re-seeds the in-flight turn, so
+    // attaching a resume stream here would render the turn twice.
+    const run = activeRuns.find((candidate) => candidate.run_id && candidate.llm_checkpoint_id);
+    if (!run || isSessionRunning(sessionId)) return;
 
     const checkpointId = run.llm_checkpoint_id || null;
     const records = (messagesBySession[sessionId] || []).filter((record) => {

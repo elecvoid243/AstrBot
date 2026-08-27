@@ -563,3 +563,77 @@ test("plain text flushes before a non-plain part so the order matches the wire",
   assert.equal(toolPart.type, "tool_call");
   assert.equal(toolPart.tool_calls![0].id, "c1");
 });
+
+test("run_snapshot seeds a live record with the accumulated parts", () => {
+  // Switch-back catch-up: subscribing to a session mid-turn delivers the
+  // server-side accumulated state first, so output streamed while the
+  // session was closed is not lost.
+  const state = createSystemStreamState();
+  const records = makeRecords();
+
+  const consumed = processSystemPayload(state, "s1", records, {
+    type: "run_snapshot",
+    message_id: "orphan-1",
+    streaming: true,
+    data: {
+      message: [
+        { type: "think", think: "step one" },
+        { type: "plain", text: "partial output" },
+      ],
+    },
+  });
+
+  assert.equal(consumed, true);
+  assert.equal(records.length, 1);
+  assert.equal(records[0].id, "system-orphan-1");
+  assert.equal(records[0].content.message.length, 2);
+  assert.equal(records[0].content.reasoning, "step one");
+  // Still in flight: the loading placeholder is cleared because the
+  // snapshot carries content.
+  assert.equal(records[0].content.isLoading, false);
+});
+
+test("run_snapshot reattaches a frozen record in place instead of duplicating", () => {
+  // Session switch freezes the live record (isLoading=false) and drops
+  // the live-tracking entry; re-subscribing must update the existing
+  // bubble, not append a second one.
+  const state = createSystemStreamState();
+  const records = makeRecords();
+
+  processSystemPayload(state, "s1", records, {
+    type: "plain",
+    data: "before switch",
+    streaming: true,
+    message_id: "orphan-1",
+  });
+  finalizeSystemSession(state, "s1");
+  assert.equal(records.length, 1);
+  assert.equal(records[0].content.isLoading, false);
+
+  const consumed = processSystemPayload(state, "s1", records, {
+    type: "run_snapshot",
+    message_id: "orphan-1",
+    streaming: true,
+    data: {
+      message: [
+        { type: "plain", text: "before switch" },
+        { type: "plain", text: "streamed while away" },
+      ],
+    },
+  });
+
+  assert.equal(consumed, true);
+  assert.equal(records.length, 1, "the frozen bubble must be reused");
+  assert.equal(records[0].content.message.length, 2);
+  assert.equal(records[0].content.isLoading, false);
+
+  // The live tail continues into the same record.
+  processSystemPayload(state, "s1", records, {
+    type: "plain",
+    data: " after re-subscribe",
+    streaming: true,
+    message_id: "orphan-1",
+  });
+  const last = records[0].content.message.at(-1) as { text?: string };
+  assert.equal(last.text, "streamed while away after re-subscribe");
+});
