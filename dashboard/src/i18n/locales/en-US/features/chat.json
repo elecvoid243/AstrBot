@@ -1314,7 +1314,8 @@
       "openMenu": {
         "buttonAria": "Open {path}",
         "inFileBrowser": "Open in file browser",
-        "onDisk": "Open on disk"
+        "onDisk": "Open on disk",
+        "openFolder": "Open folder"
       },
       "gitWorkflow": {
         "stage": {

@@ -1188,7 +1188,8 @@
       "openMenu": {
         "buttonAria": "Открыть {path}",
         "inFileBrowser": "Открыть в файловом браузере",
-        "onDisk": "Открыть на диске"
+        "onDisk": "Открыть на диске",
+        "openFolder": "Открыть папку"
       },
       "gitWorkflow": {
         "stage": {

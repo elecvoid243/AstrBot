@@ -182,12 +182,21 @@ const openOnDiskRoot = inject<ComputedRef<string | null> | null>(
   "openOnDiskRoot",
   null,
 );
-const { opening: openingOnDisk, openOnDisk } = useOpenOnDisk(
+const { opening: openingOnDisk, openOnDisk, openFolder } = useOpenOnDisk(
   "spcodeProjectLoad.fileBrowser.preview",
 );
 const openOnDiskAbsPath = computed(() => {
   const root = openOnDiskRoot?.value;
   if (!root || props.file.status === "D") return "";
+  return absoluteFromSelectedDoc(root, ".", props.file.path);
+});
+
+// 2026-08-27 open-folder: unlike on-disk (hidden once the file is
+// gone), the containing folder survives a deletion, so this stays
+// available for "D" rows — the backend reveals the parent folder.
+const openFolderAbsPath = computed(() => {
+  const root = openOnDiskRoot?.value;
+  if (!root) return "";
   return absoluteFromSelectedDoc(root, ".", props.file.path);
 });
 
@@ -197,10 +206,19 @@ function onOpenOnDiskClick(e: MouseEvent | KeyboardEvent): void {
   void openOnDisk(openOnDiskAbsPath.value, displayName.value);
 }
 
+function onOpenFolderClick(e: MouseEvent | KeyboardEvent): void {
+  e.stopPropagation();
+  if (!openFolderAbsPath.value) return;
+  void openFolder(openFolderAbsPath.value, displayName.value);
+}
+
 /** 2026-08-14 open-menu: the merged "open" button is visible when at
  *  least one open target exists (in-browser view and/or on disk). */
 const showOpenMenu = computed(
-  () => Boolean(props.onOpenFile) || Boolean(openOnDiskAbsPath.value),
+  () =>
+    Boolean(props.onOpenFile) ||
+    Boolean(openOnDiskAbsPath.value) ||
+    Boolean(openFolderAbsPath.value),
 );
 
 /** Stable identifier for a file row. Used by the parent to dedupe
@@ -385,6 +403,17 @@ function rowKey(): string {
             </template>
             <v-list-item-title>
               {{ tm("spcodeProjectLoad.diffSidebar.openMenu.onDisk") }}
+            </v-list-item-title>
+          </v-list-item>
+          <v-list-item
+            v-if="openFolderAbsPath"
+            @click="onOpenFolderClick"
+          >
+            <template #prepend>
+              <v-icon :size="16">mdi-folder-open-outline</v-icon>
+            </template>
+            <v-list-item-title>
+              {{ tm("spcodeProjectLoad.diffSidebar.openMenu.openFolder") }}
             </v-list-item-title>
           </v-list-item>
         </v-list>
