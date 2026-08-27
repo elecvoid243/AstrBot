@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from astrbot.core.agent.agent import Agent
+from astrbot.core.agent.context.token_counter import EstimateTokenCounter
 from astrbot.core.agent.handoff import HandoffTool
 from astrbot.core.agent.message import Message
 from astrbot.core.agent.run_context import ContextWrapper
@@ -248,6 +249,50 @@ async def test_auto_mode_forks_without_token_limit(mock_ctx, mock_event):
     await run_handoff(make_handoff_tool(), run_context)
     kwargs = get_tool_loop_agent_kwargs(mock_ctx)
     assert kwargs["prompt"].startswith("[SUBAGENT MODE: FORK]")
+
+
+@pytest.mark.asyncio
+async def test_auto_mode_band_between_fork_line_and_compression_trigger_uses_normal(
+    mock_ctx, mock_event
+):
+    """Prefix usage between the 0.4 auto-fork line and the 0.82
+    compression trigger must fall back to normal.
+
+    Regression for the old 0.82 line: a prefix just below the
+    compression trigger left the subagent almost no run headroom — its
+    own steps (tool results, appended instructions) pushed it over the
+    trigger within a step or two, losing the cache benefit AND the
+    inherited context, which is strictly worse than a clean normal
+    start.
+    """
+    SubAgentManager._context_inherit_mode = "auto"
+    agent_name, sys_prompt, task = "researcher", "You are a researcher.", "do research"
+
+    run_context = make_run_context(mock_ctx, mock_event, make_main_messages())
+
+    # Reference estimate of exactly what the resolver measures: main
+    # messages plus the fork prompt it would send.
+    fork_prompt = FunctionToolExecutor._build_fork_prompt(agent_name, sys_prompt, task)
+    estimate = EstimateTokenCounter().count_tokens(
+        list(run_context.messages) + [Message(role="user", content=fork_prompt)]
+    )
+
+    provider = mock_ctx.provider_manager.get_provider_by_id.return_value
+
+    # ~60% of the limit: below the 0.82 compression trigger (old line
+    # chose fork here) but above the 0.4 auto-fork line.
+    provider.provider_config["max_context_tokens"] = int(estimate / 0.6)
+    mode = await FunctionToolExecutor._resolve_auto_inherit_mode(
+        run_context, mock_ctx, "provider-1", agent_name, sys_prompt, task
+    )
+    assert mode == "normal"
+
+    # ~1/3 of the limit: comfortably below the 0.4 auto-fork line.
+    provider.provider_config["max_context_tokens"] = estimate * 3
+    mode = await FunctionToolExecutor._resolve_auto_inherit_mode(
+        run_context, mock_ctx, "provider-1", agent_name, sys_prompt, task
+    )
+    assert mode == "fork"
 
 
 @pytest.mark.asyncio

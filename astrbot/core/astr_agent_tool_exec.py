@@ -11,7 +11,6 @@ from collections.abc import Set as AbstractSet
 import mcp
 
 from astrbot import logger
-from astrbot.core.agent.context.compressor import TruncateByTurnsCompressor
 from astrbot.core.agent.context.token_counter import EstimateTokenCounter
 from astrbot.core.agent.handoff import HandoffTool
 from astrbot.core.agent.mcp_client import MCPTool
@@ -60,6 +59,16 @@ from astrbot.core.utils.astrbot_path import get_astrbot_temp_path
 from astrbot.core.utils.history_saver import persist_agent_history
 from astrbot.core.utils.image_ref_utils import is_supported_image_ref
 from astrbot.core.utils.string_utils import normalize_and_dedupe_strings
+
+# Auto-inherit decision line: fork only when the estimated inherited
+# prefix stays at or below this fraction of the subagent provider's
+# max_context_tokens. Deliberately well below the 0.82 compression
+# trigger — the estimate excludes per-request tool schemas, and the
+# subagent's own steps (tool calls / results) consume unbounded tokens
+# on top of the prefix. A prefix near the compression line would make
+# the runner compress after a step or two, which is strictly worse than
+# a clean normal start (cache lost, context truncated, full reprocess).
+_AUTO_FORK_MAX_USAGE_RATIO = 0.45
 
 
 class FunctionToolExecutor(BaseFunctionToolExecutor[AstrAgentContext]):
@@ -1349,10 +1358,14 @@ class FunctionToolExecutor(BaseFunctionToolExecutor[AstrAgentContext]):
         """Choose between fork and normal mode for one delegation.
 
         Forking only pays off while the subagent's ContextManager will not
-        immediately compress the inherited prefix, so this uses the same
-        estimator (EstimateTokenCounter) and threshold
-        (TruncateByTurnsCompressor.compression_threshold) that the subagent
-        runner will apply on its first step.
+        compress the inherited prefix early in its run, so this uses the
+        same estimator (EstimateTokenCounter) and the same
+        max_context_tokens the subagent runner will apply on its first
+        step, but a decision line well below the compression trigger
+        (``_AUTO_FORK_MAX_USAGE_RATIO``): the estimate does not include
+        per-request tool schemas, and the subagent's own steps consume
+        unbounded tokens on top of the prefix, so only a prefix that
+        leaves ample run headroom keeps the fork beneficial.
 
         Args:
             run_context: The main agent's run context.
@@ -1392,16 +1405,17 @@ class FunctionToolExecutor(BaseFunctionToolExecutor[AstrAgentContext]):
             Message(role="user", content=fork_prompt)
         ]
         estimated_tokens = EstimateTokenCounter().count_tokens(estimate_messages)
-        threshold = TruncateByTurnsCompressor().compression_threshold
         mode = (
-            "fork" if estimated_tokens <= max_context_tokens * threshold else "normal"
+            "fork"
+            if estimated_tokens <= max_context_tokens * _AUTO_FORK_MAX_USAGE_RATIO
+            else "normal"
         )
         logger.debug(
-            "[SubAgent:Fork] auto mode -> %s (estimated %d tokens, limit %d, threshold %.2f)",
+            "[SubAgent:Fork] auto mode -> %s (estimated %d tokens, limit %d, auto-fork line %.2f)",
             mode,
             estimated_tokens,
             max_context_tokens,
-            threshold,
+            _AUTO_FORK_MAX_USAGE_RATIO,
         )
         return mode
 

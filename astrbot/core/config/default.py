@@ -264,8 +264,11 @@ DEFAULT_CONFIG = {
         #   inherited prefix. Main-agent-only orchestration tools stay visible
         #   but are rejected with a guidance message when called.
         # - "auto": decide per delegation - use fork while the estimated
-        #   context usage stays below the compression threshold (82% of
-        #   max_context_tokens), otherwise fall back to normal mode.
+        #   context usage stays at or below 45% of max_context_tokens,
+        #   well below the 82% compression trigger: the subagent appends
+        #   its own instructions and runs unbounded steps on top of the
+        #   inherited prefix, so only a prefix with ample run headroom
+        #   keeps the fork beneficial; otherwise fall back to normal mode.
         "context_inherit_mode": "normal",
         "dag_enabled": False,
         "dag_max_nodes": 10,
