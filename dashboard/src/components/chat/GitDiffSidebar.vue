@@ -4346,13 +4346,13 @@ const currentRoot = computed<string | null>(() => {
 // "open on disk" action without threading props through every layer.
 provide("openOnDiskRoot", currentRoot);
 
-// 2026-07-20 recent-files-unify: the recent list is a single global
-// bucket shared across every worktree / project root, so the
-// composable no longer takes a worktree ref. Switching directories
-// (e.g. project root → /data) no longer resets the list, and the
-// 6th open drops the oldest survivor instead of filling a new
-// per-worktree bucket. See useRecentFiles for the storage contract.
-const recentFiles = useRecentFiles();
+// 2026-08-27 recent-files-split: per-worktree bucket scoped to the
+// Files view ("files"). The docs view (DocumentManager) keeps its own
+// "docs" bucket, so the two pages no longer share a list. Keyed on
+// currentRoot (the effective root this view browses) — worktree
+// switches change the ref and the composable re-loads that worktree's
+// own history. See useRecentFiles for the storage contract.
+const recentFiles = useRecentFiles(currentRoot, "files");
 
 // 2026-07-20 Recent Files §6.1: drive recordOpen off the canonical
 // preview-path writer so every entry point (search jumps, tree clicks,

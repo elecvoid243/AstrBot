@@ -186,16 +186,16 @@ const fileRename = useSpcodeFileRename(computed(() => props.worktree));
 const fileRemove = useSpcodeFileRemove(computed(() => props.worktree));
 const gitFile = useSpcodeGitFile(computed(() => props.worktree));
 
-// 2026-07-20 recent-docs: per-worktree recent-files bucket shared with
-// the workspace FileBrowserView. `useRecentFiles` keys on the string
-// we hand it (FNV-1a hash of the worktree path) so as long as both
-// pages see the SAME worktree-root string, their writes land in the
-// same bucket — which is what we want: opening `docs/foo.md` from
-// either view should update the same list. `projectRoot` in
-// DocumentManager is the active worktree's path (per the prop
-// contract above), so passing it through gives the same key the
-// FileBrowserView's `currentRoot` produces.
-const recentFiles = useRecentFiles();
+// 2026-08-27 recent-files-split: per-worktree bucket scoped to THIS
+// docs view ("docs" scope). The workspace Files view keeps its own
+// "files" bucket, so the two pages record separately. `projectRoot`
+// in DocumentManager is the active worktree's path (per the prop
+// contract above), so each worktree gets its own docs history, and
+// the composable re-loads it when the worktree prop changes.
+const recentFiles = useRecentFiles(
+  computed(() => props.projectRoot),
+  "docs",
+);
 
 // 2026-07-20 recent-docs: when the user picks a doc, append it to the
 // shared recent-files bucket. We compute the absolute path lazily
@@ -218,12 +218,11 @@ watch(previewAbsolutePath, (absPath) => {
   if (absPath) recentFiles.recordOpen(absPath);
 });
 
-// 2026-07-20 recent-files-unify: show the GLOBAL recent-files bucket
-// without any docsRoot / subdirectory filter so switching directories
-// does not change the count. Files outside the current docsRoot may
-// show up here (e.g. a .py opened in the workspace tab); clicking
-// them will attempt a docsRoot-relative lookup in onRecentSelect,
-// which guards with `if (!rel) return` for out-of-range paths.
+// 2026-08-27 recent-files-split: the "docs" bucket only ever receives
+// entries recorded by this view (docs opens), so the Recent block
+// needs no docsRoot filter — every row is openable here. The
+// docsRoot-relative lookup guard in onRecentSelect stays as a
+// belt-and-braces check for stale rows after a docsRoot change.
 
 // 2026-07-20 recent-docs: clear-confirm mirrors the FileBrowserView's
 // dialog so destructive actions on the per-worktree bucket stay

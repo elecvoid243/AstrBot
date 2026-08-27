@@ -181,15 +181,13 @@ export function absoluteFromSelectedDoc(
  * Decide whether `absPath` lives inside the docs subtree (i.e. under
  * `projectRoot + docsRoot`).
  *
- * Used by DocumentManager to filter the cross-cutting
- * `useRecentFiles` entries down to the files this view can actually
- * preview. `useRecentFiles` is a per-worktree bucket shared by every
- * page (workspace + document manager), so it accumulates .py / .ts /
- * .json too — a recent `.py` is valid in the workspace view but
- * cannot be opened from the document manager, where the editor only
- * accepts `.md` / `.txt`. Filtering by directory is the cheapest
- * way to drop non-doc files without forcing a per-page
- * `recordOpen` namespace.
+ * Used to filter recent-files entries down to the files the docs view
+ * can actually preview. Since 2026-08-27 recent-files-split the
+ * `useRecentFiles` buckets are per view AND per worktree, so the docs
+ * view's own bucket only accumulates docs opens — this predicate
+ * remains as a general "is this path in the docs subtree" helper (the
+ * current Recent-block display path does not call it, only its spec
+ * does).
  *
  * Edge cases mirror the surrounding helpers:
  * - empty `projectRoot` → false (no docs subtree to belong to).

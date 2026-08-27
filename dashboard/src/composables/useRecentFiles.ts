@@ -1,20 +1,19 @@
 // Author: elecvoid243, 2026-07-20
-// useRecentFiles: Recent files data layer for the Files view.
-//
-// 2026-07-20 recent-files-unify: the recent list is now a SINGLE GLOBAL
-// bucket shared across the whole project (no per-worktree splitting).
-// localStorage key is a fixed constant, MAX_ENTRIES is 5, and the
-// previous worktree-path validation has been removed because the list
-// is no longer scoped to any directory. Pure data — no knowledge of
-// the sidebar or FileBrowser — so this composable can be reused by
+// 2026-08-27 recent-files-split: buckets are keyed per worktree AND per
+// view scope ("files" / "docs"), so the workspace Files view and the
+// docs DocumentManager keep separate recent lists, and each list is
+// scoped to the worktree it was browsed in. Restores the pre-unify
+// per-worktree keying plus a view dimension. Pure data — no knowledge
+// of the sidebar or FileBrowser — so this composable can be reused by
 // future Quick-Open (A1) and any other feature that needs the list.
 
-import { ref, type Ref } from "vue";
+import { ref, watch, type Ref } from "vue";
 
 const MAX_ENTRIES = 5;
-/** Fixed localStorage key: one global recent-files bucket, shared by
- *  every view that mounts <RecentFilesBlock>. */
-const STORAGE_KEY = "spcode.recentFiles.global";
+
+/** Which page owns the bucket. Files view and docs view never share
+ *  entries, so each gets its own key namespace. */
+export type RecentFilesScope = "files" | "docs";
 
 /** One row in the Recent list. LIFO ordered by openedAt desc. */
 export interface RecentEntry {
@@ -32,6 +31,20 @@ export interface UseRecentFiles {
 
 interface RecentBucket {
   entries: RecentEntry[];
+}
+
+/** FNV-1a 32-bit hash, lowercase hex, zero-padded to 8 chars.
+ *  NOT cryptographic — only used to keep localStorage keys short and
+ *  free of filesystem separators / unicode quirks. ~10 lines, sync,
+ *  zero deps (mirrors the same function in useRecentFiles.spec.ts;
+ *  keep the two byte-identical). */
+export function fnv1aHex(input: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < input.length; i++) {
+    h ^= input.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(16).padStart(8, "0");
 }
 
 /** localStorage wrapper matching the safe-get/safe-set pattern used in
@@ -52,9 +65,22 @@ function safeSetItem(key: string, value: string): void {
   }
 }
 
-/** Read + JSON.parse the bucket; returns empty list on any error. */
-function loadBucket(): RecentEntry[] {
-  const raw = safeGetItem(STORAGE_KEY);
+/** Resolve current bucket key. Returns "" when no worktree is set so
+ *  callers can early-out uniformly. */
+function bucketKey(worktreeRoot: string | null, scope: RecentFilesScope): string {
+  if (!worktreeRoot) return "";
+  try {
+    return `spcode.recentFiles.${scope}.${fnv1aHex(worktreeRoot)}`;
+  } catch {
+    // Extreme fallback: pathological string inputs. Encode and slice.
+    const fallback = encodeURIComponent(worktreeRoot).slice(0, 32);
+    return `spcode.recentFiles.${scope}.rt-${fallback}`;
+  }
+}
+
+/** Read + JSON.parse a bucket; returns empty list on any error. */
+function loadBucket(key: string): RecentEntry[] {
+  const raw = safeGetItem(key);
   if (!raw) return [];
   try {
     const parsed = JSON.parse(raw) as RecentBucket;
@@ -65,36 +91,85 @@ function loadBucket(): RecentEntry[] {
   }
 }
 
-/** Persist the bucket. */
-function saveBucket(entries: RecentEntry[]): void {
-  safeSetItem(STORAGE_KEY, JSON.stringify({ entries } satisfies RecentBucket));
+/** Persist a bucket. */
+function saveBucket(key: string, entries: RecentEntry[]): void {
+  safeSetItem(key, JSON.stringify({ entries } satisfies RecentBucket));
 }
 
-export function useRecentFiles(): UseRecentFiles {
-  const entries = ref<RecentEntry[]>(loadBucket());
+/** Worktree-separator detection: Windows root contains '\', others '/'.
+ *  Mirrors the spec §6.1 logic exactly. */
+function sepOf(root: string): string {
+  return root.includes("\\") ? "\\" : "/";
+}
+
+/**
+ * Per-worktree, per-view recent-files bucket.
+ *
+ * Args:
+ *   worktree: Ref to the effective root the calling view operates in
+ *     (Files view: `currentRoot`; docs view: the active worktree /
+ *     projectRoot prop). Switching the ref re-loads the bucket.
+ *   scope: Which page owns the list — "files" (workspace Files view)
+ *     or "docs" (DocumentManager). The two never share entries.
+ */
+export function useRecentFiles(
+  worktree: Ref<string | null>,
+  scope: RecentFilesScope,
+): UseRecentFiles {
+  const entries = ref<RecentEntry[]>([]);
+
+  function persist(): void {
+    const key = bucketKey(worktree.value, scope);
+    if (!key) return;
+    saveBucket(key, entries.value);
+  }
+
+  /** Load + replace entries from localStorage for the current bucket.
+   *  Called on mount and on every worktree-ref change. */
+  function loadForCurrent(): void {
+    const key = bucketKey(worktree.value, scope);
+    if (!key) {
+      entries.value = [];
+      return;
+    }
+    entries.value = loadBucket(key);
+  }
 
   function recordOpen(path: string): void {
-    // Reject empty / whitespace-only paths to keep the list clean.
-    if (!path || !path.trim()) return;
+    const root = worktree.value;
+    if (!root) return;
+    // Path validation: the file must live strictly inside the worktree
+    // (or be the root itself). Prevents arbitrary filesystem paths
+    // from polluting the bucket from search jumps or external triggers.
+    const sep = sepOf(root);
+    if (path !== root && !path.startsWith(root + sep)) return;
+
     // Dedupe: strip any prior entry pointing at this exact path so
     // the repeat-open re-lands it at the head.
     const filtered = entries.value.filter((e) => e.path !== path);
     filtered.unshift({ path, openedAt: Date.now() });
     // Cap to MAX_ENTRIES. Old entries beyond the cap are discarded
-    // (LIFO retention); the 6th recordOpen drops the oldest survivor.
+    // (LIFO retention).
     entries.value = filtered.slice(0, MAX_ENTRIES);
-    saveBucket(entries.value);
+    persist();
   }
-
   function remove(path: string): void {
     entries.value = entries.value.filter((e) => e.path !== path);
-    saveBucket(entries.value);
+    persist();
   }
 
   function clear(): void {
     entries.value = [];
-    saveBucket(entries.value);
+    persist();
   }
+
+  // Initial load.
+  loadForCurrent();
+
+  // Re-load whenever the worktree ref changes. `flush: "sync"` keeps
+  // the load deterministic — loadBucket is a single JSON.parse
+  // bounded by MAX_ENTRIES, no observable cost.
+  watch(worktree, () => loadForCurrent(), { flush: "sync" });
 
   return { entries, recordOpen, remove, clear };
 }

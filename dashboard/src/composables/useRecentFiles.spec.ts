@@ -1,15 +1,22 @@
 // Author: elecvoid243, 2026-07-20
-// 2026-07-20 recent-files-unify: the recent list is now a single
-// global bucket (no per-worktree splitting), MAX_ENTRIES is 5, and
-// the composable takes no parameters. These tests cover the new
-// contract: shared bucket across instances, dedupe + LIFO, 5-row cap
-// with the oldest dropped on overflow, persistence, remove, clear,
-// and the empty-path guard.
+// 2026-08-27 recent-files-split: buckets are keyed per worktree AND per
+// view scope ("files" / "docs"). These tests cover the new contract:
+// scope + worktree key isolation, worktree-switch reload, dedupe +
+// LIFO, 5-row cap with the oldest dropped on overflow, inside-worktree
+// path validation, persistence, remove, clear, and the empty-path /
+// null-worktree guards.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { useRecentFiles } from "@/composables/useRecentFiles";
+import { ref } from "vue";
+import {
+  useRecentFiles,
+  fnv1aHex,
+  type RecentEntry,
+} from "@/composables/useRecentFiles";
 
-const STORAGE_KEY = "spcode.recentFiles.global";
+function storageKey(scope: "files" | "docs", worktreeRoot: string): string {
+  return `spcode.recentFiles.${scope}.${fnv1aHex(worktreeRoot)}`;
+}
 
 beforeEach(() => {
   localStorage.clear();
@@ -18,34 +25,50 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function seeded(entries: { path: string; openedAt: number }[]): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify({ entries }));
+function seeded(
+  scope: "files" | "docs",
+  worktreeRoot: string,
+  entries: RecentEntry[],
+): void {
+  localStorage.setItem(storageKey(scope, worktreeRoot), JSON.stringify({ entries }));
 }
 
 describe("initial load", () => {
   it("returns an empty list when localStorage has no bucket", () => {
-    const { entries } = useRecentFiles();
+    const worktree = ref<string | null>("/repo");
+    const { entries } = useRecentFiles(worktree, "files");
     expect(entries.value).toEqual([]);
   });
 
   it("returns prior entries when the bucket exists and parses correctly", () => {
-    seeded([{ path: "/repo/src/main.py", openedAt: 1700000000000 }]);
-    const { entries } = useRecentFiles();
+    seeded("files", "/repo", [
+      { path: "/repo/src/main.py", openedAt: 1700000000000 },
+    ]);
+    const worktree = ref<string | null>("/repo");
+    const { entries } = useRecentFiles(worktree, "files");
     expect(entries.value).toEqual([
       { path: "/repo/src/main.py", openedAt: 1700000000000 },
     ]);
   });
 
   it("falls back to empty list when the stored JSON is malformed", () => {
-    localStorage.setItem(STORAGE_KEY, "{not json");
-    const { entries } = useRecentFiles();
+    localStorage.setItem(storageKey("files", "/repo"), "{not json");
+    const worktree = ref<string | null>("/repo");
+    const { entries } = useRecentFiles(worktree, "files");
+    expect(entries.value).toEqual([]);
+  });
+
+  it("starts empty when the worktree ref is null", () => {
+    const worktree = ref<string | null>(null);
+    const { entries } = useRecentFiles(worktree, "files");
     expect(entries.value).toEqual([]);
   });
 });
 
 describe("recordOpen", () => {
   it("appends a new entry to the head", () => {
-    const { entries, recordOpen } = useRecentFiles();
+    const worktree = ref<string | null>("/repo");
+    const { entries, recordOpen } = useRecentFiles(worktree, "files");
     recordOpen("/repo/src/main.py");
     expect(entries.value).toHaveLength(1);
     expect(entries.value[0].path).toBe("/repo/src/main.py");
@@ -53,7 +76,8 @@ describe("recordOpen", () => {
   });
 
   it("treats a repeat open of the same path as no new row, refreshed to head", () => {
-    const { entries, recordOpen } = useRecentFiles();
+    const worktree = ref<string | null>("/repo");
+    const { entries, recordOpen } = useRecentFiles(worktree, "files");
     recordOpen("/repo/a.py");
     recordOpen("/repo/b.py");
     recordOpen("/repo/a.py"); // duplicate
@@ -65,7 +89,8 @@ describe("recordOpen", () => {
   });
 
   it("orders latest-open first across three distinct paths", () => {
-    const { entries, recordOpen } = useRecentFiles();
+    const worktree = ref<string | null>("/repo");
+    const { entries, recordOpen } = useRecentFiles(worktree, "files");
     recordOpen("/repo/a.py");
     recordOpen("/repo/b.py");
     recordOpen("/repo/c.py");
@@ -77,14 +102,36 @@ describe("recordOpen", () => {
   });
 
   it("rejects empty / whitespace-only paths", () => {
-    const { entries, recordOpen } = useRecentFiles();
+    const worktree = ref<string | null>("/repo");
+    const { entries, recordOpen } = useRecentFiles(worktree, "files");
     recordOpen("");
     recordOpen("   ");
     expect(entries.value).toEqual([]);
   });
 
+  it("rejects paths outside the worktree root", () => {
+    const worktree = ref<string | null>("/repo");
+    const { entries, recordOpen } = useRecentFiles(worktree, "files");
+    recordOpen("/other/repo/a.py");
+    // Prefix-adjacent sibling directory must not sneak in either.
+    recordOpen("/repository/a.py");
+    expect(entries.value).toEqual([]);
+  });
+
+  it("accepts the root itself and Windows-separator paths under a Windows root", () => {
+    const worktree = ref<string | null>("C:\\work\\repo");
+    const { entries, recordOpen } = useRecentFiles(worktree, "files");
+    recordOpen("C:\\work\\repo");
+    recordOpen("C:\\work\\repo\\src\\main.py");
+    expect(entries.value.map((e) => e.path)).toEqual([
+      "C:\\work\\repo\\src\\main.py",
+      "C:\\work\\repo",
+    ]);
+  });
+
   it("trims to MAX_ENTRIES (5), dropping the oldest entry on the 6th open", () => {
-    const { entries, recordOpen } = useRecentFiles();
+    const worktree = ref<string | null>("/repo");
+    const { entries, recordOpen } = useRecentFiles(worktree, "files");
     for (let i = 0; i < 6; i++) {
       recordOpen(`/repo/file-${i}.py`);
     }
@@ -100,80 +147,79 @@ describe("recordOpen", () => {
     ]);
   });
 
-  it("persists to localStorage on every recordOpen", () => {
-    const { recordOpen } = useRecentFiles();
+  it("persists to the scoped localStorage key on every recordOpen", () => {
+    const worktree = ref<string | null>("/repo");
+    const { recordOpen } = useRecentFiles(worktree, "files");
     recordOpen("/repo/main.py");
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(storageKey("files", "/repo"));
     expect(raw).not.toBeNull();
     const parsed = JSON.parse(raw!);
     expect(parsed.entries).toHaveLength(1);
     expect(parsed.entries[0].path).toBe("/repo/main.py");
   });
+
+  it("is a no-op when the worktree ref is null", () => {
+    const worktree = ref<string | null>(null);
+    const { entries, recordOpen } = useRecentFiles(worktree, "files");
+    recordOpen("/repo/a.py");
+    expect(entries.value).toEqual([]);
+  });
 });
 
-describe("shared bucket across composable instances", () => {
-  it("two instances read the same storage key on mount", () => {
-    // Simulate the user-visible "切换目录后列表不丢" regression: a
-    // first instance writes to storage, then we throw it away and
-    // mount a fresh instance (the analogue of switching worktrees /
-    // project roots and re-rendering the sidebar). The new mount
-    // must read the prior entries back.
-    const first = useRecentFiles();
-    first.recordOpen("/worktrees/A/a.py");
-    first.recordOpen("/worktrees/B/b.py");
-
-    // Discard the first instance and mount fresh. The new instance
-    // must see the persisted entries from `first`.
-    const second = useRecentFiles();
-    expect(second.entries.value.map((e) => e.path)).toEqual([
-      "/worktrees/B/b.py",
-      "/worktrees/A/a.py",
-    ]);
-  });
-
-  it("does not split buckets by path (regression: per-worktree splitting)", () => {
-    // The user-visible bug: switching the active worktree / project
-    // root used to remount the composable with a different bucket
-    // key, leaving the old list behind. Under the new global-bucket
-    // contract, paths from "different directories" coexist in the
-    // same list.
-    const { entries, recordOpen } = useRecentFiles();
+describe("per-worktree + per-scope buckets", () => {
+  it("keeps separate lists per worktree and reloads on worktree switch", () => {
+    const worktree = ref<string | null>("/worktrees/A");
+    const { entries, recordOpen } = useRecentFiles(worktree, "files");
     recordOpen("/worktrees/A/a.py");
+
+    worktree.value = "/worktrees/B";
+    // The bucket for B starts empty; its writes don't touch A's.
+    expect(entries.value).toEqual([]);
     recordOpen("/worktrees/B/b.py");
-    recordOpen("/repo/c.py");
-    expect(entries.value.map((e) => e.path)).toEqual([
-      "/repo/c.py",
-      "/worktrees/B/b.py",
-      "/worktrees/A/a.py",
-    ]);
+    expect(entries.value.map((e) => e.path)).toEqual(["/worktrees/B/b.py"]);
+
+    // Switching back re-loads A's persisted history.
+    worktree.value = "/worktrees/A";
+    expect(entries.value.map((e) => e.path)).toEqual(["/worktrees/A/a.py"]);
   });
 
-  it("persists the 5-cap across remounts (regression: per-worktree re-accumulation)", () => {
-    // The user-visible bug: switching from root → /data → root used
-    // to land in two separate buckets, so each "side" accumulated
-    // its own 50 entries instead of sharing a single 5-cap list.
-    // After unifying, recording 6 paths (regardless of their roots)
-    // and remounting must yield exactly 5 entries with the oldest
-    // dropped.
-    const first = useRecentFiles();
-    for (let i = 0; i < 6; i++) {
-      first.recordOpen(`/some/dir/file-${i}.py`);
-    }
-    const second = useRecentFiles();
-    expect(second.entries.value).toHaveLength(5);
+  it("keeps 'files' and 'docs' separate for the same worktree", () => {
+    const worktree = ref<string | null>("/repo");
+    const files = useRecentFiles(worktree, "files");
+    const docs = useRecentFiles(worktree, "docs");
+
+    files.recordOpen("/repo/src/main.py");
+    docs.recordOpen("/repo/docs/spec.md");
+
+    expect(files.entries.value.map((e) => e.path)).toEqual([
+      "/repo/src/main.py",
+    ]);
+    expect(docs.entries.value.map((e) => e.path)).toEqual(["/repo/docs/spec.md"]);
+    expect(localStorage.getItem(storageKey("files", "/repo"))).not.toBeNull();
+    expect(localStorage.getItem(storageKey("docs", "/repo"))).not.toBeNull();
+    expect(localStorage.getItem("spcode.recentFiles.global")).toBeNull();
+  });
+
+  it("two instances with the same scope + worktree share one bucket across remounts", () => {
+    const worktree = ref<string | null>("/repo");
+    const first = useRecentFiles(worktree, "files");
+    first.recordOpen("/repo/a.py");
+    first.recordOpen("/repo/b.py");
+
+    // Fresh instance (the analogue of a view remount) reads the same
+    // persisted bucket back.
+    const second = useRecentFiles(worktree, "files");
     expect(second.entries.value.map((e) => e.path)).toEqual([
-      "/some/dir/file-5.py",
-      "/some/dir/file-4.py",
-      "/some/dir/file-3.py",
-      "/some/dir/file-2.py",
-      "/some/dir/file-1.py",
+      "/repo/b.py",
+      "/repo/a.py",
     ]);
   });
 });
 
 describe("remove", () => {
   it("drops the row whose path matches exactly", () => {
-    const { entries, recordOpen, remove } = useRecentFiles();
+    const worktree = ref<string | null>("/repo");
+    const { entries, recordOpen, remove } = useRecentFiles(worktree, "files");
     recordOpen("/repo/a.py");
     recordOpen("/repo/b.py");
     remove("/repo/a.py");
@@ -181,18 +227,20 @@ describe("remove", () => {
   });
 
   it("is a no-op when the path is not present", () => {
-    const { entries, recordOpen, remove } = useRecentFiles();
+    const worktree = ref<string | null>("/repo");
+    const { entries, recordOpen, remove } = useRecentFiles(worktree, "files");
     recordOpen("/repo/a.py");
     remove("/repo/nope.py");
     expect(entries.value.map((e) => e.path)).toEqual(["/repo/a.py"]);
   });
 
   it("persists the trimmed list", () => {
-    const { recordOpen, remove } = useRecentFiles();
+    const worktree = ref<string | null>("/repo");
+    const { recordOpen, remove } = useRecentFiles(worktree, "files");
     recordOpen("/repo/a.py");
     recordOpen("/repo/b.py");
     remove("/repo/a.py");
-    const raw = JSON.parse(localStorage.getItem(STORAGE_KEY)!);
+    const raw = JSON.parse(localStorage.getItem(storageKey("files", "/repo"))!);
     expect(raw.entries.map((e: { path: string }) => e.path)).toEqual([
       "/repo/b.py",
     ]);
@@ -201,7 +249,8 @@ describe("remove", () => {
 
 describe("clear", () => {
   it("empties the list", () => {
-    const { entries, recordOpen, clear } = useRecentFiles();
+    const worktree = ref<string | null>("/repo");
+    const { entries, recordOpen, clear } = useRecentFiles(worktree, "files");
     recordOpen("/repo/a.py");
     recordOpen("/repo/b.py");
     clear();
@@ -209,18 +258,23 @@ describe("clear", () => {
   });
 
   it("persists the empty list", () => {
-    const { recordOpen, clear } = useRecentFiles();
+    const worktree = ref<string | null>("/repo");
+    const { recordOpen, clear } = useRecentFiles(worktree, "files");
     recordOpen("/repo/a.py");
     clear();
-    const raw = JSON.parse(localStorage.getItem(STORAGE_KEY)!);
+    const raw = JSON.parse(localStorage.getItem(storageKey("files", "/repo"))!);
     expect(raw.entries).toEqual([]);
   });
 
-  it("clear on one instance empties the bucket for the next mount", () => {
-    const a = useRecentFiles();
-    a.recordOpen("/repo/a.py");
-    a.clear();
-    const b = useRecentFiles();
-    expect(b.entries.value).toEqual([]);
+  it("only clears its own scope + worktree bucket", () => {
+    const worktree = ref<string | null>("/repo");
+    const files = useRecentFiles(worktree, "files");
+    const docs = useRecentFiles(worktree, "docs");
+    files.recordOpen("/repo/a.py");
+    docs.recordOpen("/repo/docs/a.md");
+
+    files.clear();
+    expect(files.entries.value).toEqual([]);
+    expect(docs.entries.value.map((e) => e.path)).toEqual(["/repo/docs/a.md"]);
   });
 });
