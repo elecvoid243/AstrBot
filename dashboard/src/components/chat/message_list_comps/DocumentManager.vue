@@ -500,24 +500,6 @@ function exitFullscreen(): void {
   isFullscreen.value = false;
 }
 
-// 2026-07-20 search-trigger: detect Mac so the kbd hint on
-// the idle search bar can show "⌘ F" instead of the
-// Windows/Linux "Ctrl F". Mirrors the same IIFE in
-// FileBrowserView.vue. Kept inline rather than extracted into
-// a shared composable because (a) this is the second use, and
-// the rule of thumb is 3+ before extracting, and (b) the result
-// is constant for the page's lifetime, so the value is captured
-// at module init and never re-evaluated.
-const isMacPlatform: boolean = (() => {
-  if (typeof navigator === "undefined") return false;
-  const uaDataPlatform = (
-    navigator as Navigator & { userAgentData?: { platform?: string } }
-  ).userAgentData?.platform;
-  const platform = uaDataPlatform ?? navigator.platform ?? "";
-  return /mac|iphone|ipad|ipod/i.test(platform);
-})();
-const searchShortcutLabel: string = isMacPlatform ? "⌘ F" : "Ctrl F";
-
 // ── Docs search (2026-07-17 docs-search) ──────────────────────────
 // Mirrors the workspace Files-view search (GitDiffSidebar toolbar +
 // SearchPanel) but scoped to docsRoot via the backend's path_filter.
@@ -653,10 +635,10 @@ async function onSearchOpenFile(p: {
  *  makes Esc peel back only this inner overlay.
  *
  *  2026-07-17 docs-search: the same listener also owns the search
- *  shortcuts — Cmd/Ctrl+F toggles the panel, Esc closes it when
- *  focus is outside the toolbar input / panel (the input's own
- *  keydown.escape.stop handler wins there). Registered here rather
- *  than in GitDiffSidebar because this component only exists while
+ *  panel's Esc — it closes the panel when focus is outside the
+ *  toolbar input / panel (the input's own keydown.escape.stop
+ *  handler wins there). Registered here rather than in
+ *  GitDiffSidebar because this component only exists while
  *  viewMode === "docs", so the two never race. */
 function onKeyDown(e: KeyboardEvent): void {
   if (e.key === "Escape" && isFullscreen.value) {
@@ -664,11 +646,7 @@ function onKeyDown(e: KeyboardEvent): void {
     exitFullscreen();
     return;
   }
-  const isMod = e.metaKey || e.ctrlKey;
-  if (isMod && (e.key === "f" || e.key === "F")) {
-    e.preventDefault();
-    searchOpen.value = !searchOpen.value;
-  } else if (e.key === "Escape" && searchOpen.value) {
+  if (e.key === "Escape" && searchOpen.value) {
     const target = e.target as HTMLElement | null;
     if (
       target &&
@@ -1638,11 +1616,6 @@ onBeforeUnmount(() => {
             <span class="document-manager__search-trigger__placeholder">
               {{ tm("spcodeProjectLoad.diffSidebar.search.placeholder") }}
             </span>
-            <kbd
-              class="document-manager__search-trigger__hint"
-              aria-hidden="true"
-              >{{ searchShortcutLabel }}</kbd
-            >
           </button>
           <input
             v-else
@@ -2506,20 +2479,6 @@ onBeforeUnmount(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--chat-section-label, rgba(var(--v-theme-on-surface), 0.48));
-}
-.document-manager__search-trigger__hint {
-  pointer-events: none;
-  flex-shrink: 0;
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  font-size: 10.5px;
-  line-height: 1;
-  padding: 3px 6px;
-  border: 1px solid var(--chat-border, rgba(var(--v-theme-on-surface), 0.2));
-  border-radius: 4px;
-  color: var(--chat-section-label, rgba(var(--v-theme-on-surface), 0.56));
-  background: rgba(var(--v-theme-on-surface), 0.03);
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
 }
 .document-manager__search-input::placeholder {
   color: var(--chat-section-label, rgba(var(--v-theme-on-surface), 0.48));

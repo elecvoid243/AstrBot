@@ -525,26 +525,6 @@ function onPreviewDeleted(): void {
 // reloads. (DocumentManager deliberately does NOT persist its panel
 // state; the workspace view has persisted since 2026-07-02 and we
 // keep that behavior rather than regressing it.)
-// 2026-07-20 search-trigger: detect Mac so the kbd hint on
-// the idle search bar can show "⌘ F" instead of the
-// Windows/Linux "Ctrl F". userAgentData is the modern API
-// (Chromium only, but covers the dashboard's deployment
-// surface); navigator.platform is the fallback for the
-// remaining browsers. Wrapped in an IIFE so the value is
-// computed once at module-init instead of on every render
-// — the result is constant for the page's lifetime.
-const isMacPlatform: boolean = (() => {
-  if (typeof navigator === "undefined") return false;
-  const uaDataPlatform = (
-    navigator as Navigator & { userAgentData?: { platform?: string } }
-  ).userAgentData?.platform;
-  const platform = uaDataPlatform ?? navigator.platform ?? "";
-  return /mac|iphone|ipad|ipod/i.test(platform);
-})();
-/** Keyboard-shortcut label rendered inside the idle search
- *  bar's right-side kbd chip. Pure platform detection — no
- *  locale dependency — so it lives in code rather than i18n. */
-const searchShortcutLabel: string = isMacPlatform ? "⌘ F" : "Ctrl F";
 
 const SEARCH_OPEN_STORAGE_KEY = "astrbot.spcode.gitDiffSidebar.searchOpen";
 
@@ -612,12 +592,11 @@ function onSearchClose(e: KeyboardEvent): void {
 
 /** 2026-07-20 search-toggle-button: the explicit magnifier button
  *  on the right of the toolbar. Toggles the panel — opens when
- *  closed, closes when open. Same role as the Cmd/Ctrl+F shortcut
- *  (which also toggles via the onKeyDown handler) and the fake
- *  search bar's click (which is hard-coded to `searchOpen = true`
- *  because the fake bar is only mounted when the panel is closed).
- *  The watcher above already handles focus + query reset on every
- *  transition, so this just flips the ref. */
+ *  closed, closes when open. Same role as the fake search bar's
+ *  click (which is hard-coded to `searchOpen = true` because the
+ *  fake bar is only mounted when the panel is closed). The watcher
+ *  above already handles focus + query reset on every transition,
+ *  so this just flips the ref. */
 function toggleSearch(): void {
   searchOpen.value = !searchOpen.value;
 }
@@ -637,19 +616,14 @@ function toggleFullscreen(): void {
 }
 
 /** Capture-phase document keydown handler (registered on mount).
- *  Owns three shortcuts, mirroring DocumentManager's onKeyDown:
+ *  Owns two Esc behaviors, mirroring DocumentManager's onKeyDown:
  *
  *  1. Esc exits the file-area fullscreen. Registered in the CAPTURE
  *     phase so it runs before GitDiffSidebar's global-fullscreen
  *     Escape handler (bubble phase) — when both fullscreen modes are
  *     active, Esc only exits this inner overlay. stopPropagation()
  *     keeps the sidebar's handler from also firing.
- *  2. Cmd/Ctrl+F toggles the search panel (preventDefault beats the
- *     browser's native find-in-page). Registered here rather than in
- *     GitDiffSidebar because this component only exists while
- *     viewMode === "files", so the shortcut can never race the
- *     diff/history/docs views (DocumentManager owns its own).
- *  3. Esc closes the search panel as a FALLBACK when focus is
+ *  2. Esc closes the search panel as a FALLBACK when focus is
  *     outside the panel and the toolbar input — SearchPanel and the
  *     input each have their own Esc handlers that run first (the
  *     input's uses .stop), so this branch only fires when focus has
@@ -660,11 +634,7 @@ function onKeyDown(e: KeyboardEvent): void {
     isFullscreen.value = false;
     return;
   }
-  const isMod = e.metaKey || e.ctrlKey;
-  if (isMod && (e.key === "f" || e.key === "F")) {
-    e.preventDefault();
-    searchOpen.value = !searchOpen.value;
-  } else if (e.key === "Escape" && searchOpen.value) {
+  if (e.key === "Escape" && searchOpen.value) {
     const target = e.target as HTMLElement | null;
     if (
       target &&
@@ -741,9 +711,8 @@ onBeforeUnmount(() => {
            2026-07-20 search-trigger: the idle state is a
            full-width "fake" search bar: same border, radius,
            padding, and font as the active input, with a placeholder
-           string in the middle and a kbd shortcut hint on the
-           right. Clicking it swaps in the real <input> and the
-           existing watcher auto-focuses it. The two elements
+           string in the middle. Clicking it swaps in the real <input>
+           and the existing watcher auto-focuses it. The two elements
            share every visual property that matters, so the
            transition is a no-op for layout — no jump, no
            reflow flicker, no width recompute.
@@ -751,7 +720,7 @@ onBeforeUnmount(() => {
            2026-07-20 search-toggle-button: re-added the explicit
            magnifier button (right of the input) so users have a
            way to close the panel from the toolbar — previously the
-           only way out was Esc or Cmd/Ctrl+F, both keyboard-only.
+           only way out was Esc, which is keyboard-only.
            The button toggles searchOpen, same as the trigger
            button on the left: it opens the panel when closed and
            closes it when open. Stays mounted in both states so the
@@ -774,7 +743,6 @@ onBeforeUnmount(() => {
           <span class="file-browser-search-trigger__placeholder">
             {{ tm('spcodeProjectLoad.diffSidebar.search.placeholder') }}
           </span>
-          <kbd class="file-browser-search-trigger__hint" aria-hidden="true">{{ searchShortcutLabel }}</kbd>
         </button>
         <input
           v-else
@@ -1183,14 +1151,13 @@ onBeforeUnmount(() => {
     box-shadow 0.14s ease,
     background 0.14s ease;
 }
-/* Trigger-only flex layout for the icon + placeholder + kbd
-   row, plus button resets so the browser's default button
+/* Trigger-only flex layout for the icon + placeholder row,
+   plus button resets so the browser's default button
    styles (font, line-height, padding) don't leak in and
    offset the alignment relative to the active <input>. The
-   text-align: left + appearance: none are required to get the
-   iOS Safari / Firefox default-button reset; otherwise the
-   placeholder text starts centered and the kbd hint moves
-   away from the right edge. */
+   text-align: left + appearance: none are required to get
+   the iOS Safari / Firefox default-button reset; otherwise the
+   placeholder text starts centered. */
 .file-browser-search-trigger {
   display: flex;
   align-items: center;
@@ -1222,35 +1189,13 @@ onBeforeUnmount(() => {
      so the search bar still has visible content (pure CSS
      placeholders disappear on focus, and there's no focus
      state here). The flex:1 + overflow:ellipsis combo lets the
-     placeholder shrink gracefully on narrow viewports without
-     pushing the kbd hint off the right edge. */
+     placeholder shrink gracefully on narrow viewports. */
   flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--chat-section-label, rgba(var(--v-theme-on-surface), 0.48));
-}
-.file-browser-search-trigger__hint {
-  /* Small monospace pill on the right. Looks like a key
-     cap — the standard "this has a shortcut" hint. The
-     uppercase + small font size keeps it from competing
-     with the placeholder text. Pointer-events:none so
-     the whole button is still a single click target — if
-     the user happens to click on the kbd, it should
-     activate the search bar, not select the kbd text. */
-  pointer-events: none;
-  flex-shrink: 0;
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  font-size: 10.5px;
-  line-height: 1;
-  padding: 3px 6px;
-  border: 1px solid var(--chat-border, rgba(var(--v-theme-on-surface), 0.2));
-  border-radius: 4px;
-  color: var(--chat-section-label, rgba(var(--v-theme-on-surface), 0.56));
-  background: rgba(var(--v-theme-on-surface), 0.03);
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
 }
 /* Inline search input. The shared block above handles flex /
    border / padding; this rule adds the focus ring on top so
