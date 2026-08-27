@@ -24,67 +24,9 @@ export interface ProjectLoadSubmitPayload {
 import { computed, ref, watch } from "vue";
 import { useModuleI18n } from "@/i18n/composables";
 import { useSpcodeProjectStatus } from "@/composables/useSpcodeProjectStatus";
+import { useProjectPathHistory } from "@/composables/useProjectPathHistory";
 import { useConfirmDialog } from "@/utils/confirmDialog";
 import ProjectDirectoryBrowser from "./ProjectDirectoryBrowser.vue";
-
-// ── Inline helpers (private, no exports) ────────────────────────────────
-const HISTORY_KEY = "chatui.spcode.projectPathHistory";
-const HISTORY_CAP = 10;
-const RECENT_DROPDOWN_COUNT = 5;
-
-/**
- * Read the recent-project-path history from `localStorage`.
- *
- * Defensive against malformed entries (non-strings, non-arrays, JSON
- * parse errors) — returns an empty list on any failure rather than
- * throwing into the dialog render path.
- */
-function getPathHistory(): string[] {
-  try {
-    const raw = localStorage.getItem(HISTORY_KEY);
-    if (!raw) return [];
-    const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter((p): p is string => typeof p === "string");
-  } catch {
-    return [];
-  }
-}
-
-/**
- * Push `path` to the front of the history, deduping by exact match and
- * capping total length at `HISTORY_CAP`. Updates both the reactive ref
- * (in-memory source of truth) and the localStorage mirror.
- */
-function addToPathHistory(path: string): void {
-  const trimmed = path.trim();
-  if (!trimmed) return;
-  const deduped = [
-    trimmed,
-    ...pathHistory.value.filter((p) => p !== trimmed),
-  ].slice(0, HISTORY_CAP);
-  pathHistory.value = deduped;
-  try {
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(deduped));
-  } catch {
-    // localStorage write failure (quota, private mode, etc.); silent.
-  }
-}
-
-/**
- * Remove `path` from the history. Updates both the reactive ref and
- * the localStorage mirror. No-op if `path` is not currently in history.
- */
-function removeFromPathHistory(path: string): void {
-  const filtered = pathHistory.value.filter((p) => p !== path);
-  if (filtered.length === pathHistory.value.length) return; // no-op
-  pathHistory.value = filtered;
-  try {
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(filtered));
-  } catch {
-    // localStorage write failure; silent.
-  }
-}
 
 /**
  * Compose the final chat input text for the load/set command.
@@ -180,12 +122,10 @@ const loadCodegraph = ref(true);
 // Only meaningful when loadMode === "create".
 const autoInitGit = ref(true);
 
-// In-memory reactive source of truth for history; mirrors localStorage.
-const pathHistory = ref<string[]>(getPathHistory());
-
-const recentPaths = computed<string[]>(() =>
-  pathHistory.value.slice(0, RECENT_DROPDOWN_COUNT),
-);
+// Shared recent-path history (localStorage-backed singleton); also fed
+// by ProjectDialog so both entry points see the same recents.
+const { recentPaths, addToPathHistory, removeFromPathHistory } =
+  useProjectPathHistory();
 const canSubmit = computed(() => path.value.trim().length > 0);
 
 // Switching the project kind re-applies the spec's default selection
