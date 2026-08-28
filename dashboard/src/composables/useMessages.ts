@@ -38,6 +38,13 @@ import {
 import { normalizeMessageParts as normalizeMessagePartsFromLeaf } from "./normalizeMessageParts";
 // Live reducer for structured subagent progress stream payloads.
 import { applySubAgentEvent } from "./subagentRunReducer";
+// spcode todo_* tool protocol: shared tool-name set + the history
+// replay fold that rebuilds the todo snapshot on refresh / session
+// switch (leaf module — see todoHistoryReplay.ts header).
+import {
+  TODO_TOOL_NAMES,
+  replayTodoSnapshotFromHistory,
+} from "./todoHistoryReplay";
 
 export type TransportMode = "sse" | "websocket";
 
@@ -488,6 +495,11 @@ export function useMessages(options: UseMessagesOptions) {
   ) {
     if (!sessionId) return;
     if (showLoading) loadingMessages.value = true;
+    // Todo snapshot freshness cutoff: any snapshot written by a live
+    // tool_call_result event AFTER this moment is fresher than the
+    // history snapshot in flight and must not be overwritten by the
+    // replay below.
+    const todoReplayCutoff = Date.now();
     try {
       const response = await chatApi.getSession(sessionId);
       const payload = response.data?.data || {};
@@ -530,6 +542,27 @@ export function useMessages(options: UseMessagesOptions) {
       sessionProjects[sessionId] = normalizeSessionProject(payload.project);
       sessionArchivedFlags[sessionId] = Boolean(payload.archived);
       loadedSessions[sessionId] = true;
+      // 2026-08-28 todo summary bar persistence: rebuild the session's
+      // todo snapshot from the persisted history so the summary bar (and
+      // with it the only TodoSidebar entry point) survives a page
+      // refresh or a session switch. The fold mirrors the live
+      // tool_call_result path exactly (same parser, last successful
+      // call wins, todo_clear clears). A snapshot written by a live
+      // event while the fetch was in flight is newer than the cutoff
+      // and is kept as-is.
+      const existingTodoSnapshot = latestTodoSnapshotBySession.value[sessionId];
+      if (
+        !existingTodoSnapshot ||
+        existingTodoSnapshot.updatedAt < todoReplayCutoff
+      ) {
+        const replayedTodoSnapshot = replayTodoSnapshotFromHistory(
+          records,
+          parseTodoToolResult,
+        );
+        if (replayedTodoSnapshot !== undefined) {
+          writeTodoSnapshot(sessionId, replayedTodoSnapshot);
+        }
+      }
       if (resumeRuns && Array.isArray(payload.active_runs)) {
         await restoreNextActiveRun(sessionId, payload.active_runs);
       }
@@ -1241,30 +1274,6 @@ export function useMessages(options: UseMessagesOptions) {
       ws.close();
     }
   }
-
-  /**
-   * spcode 插件 todo_* 工具的统一识别集合。
-   *
-   * v2.2.0 拆出 4 个独立工具(todo_create / todo_query / todo_modify /
-   *   todo_clear);v2.12 进一步把 `todo_modify` 拆为 `todo_add` /
-   *   `todo_update` / `todo_delete` 3 个独立工具。
-   *   - create / query / add / update / delete:返回的 data 都含
-   *     `list` / `stats` / `attention_items` 三件套,前端实时刷新
-   *     todo summary bar 与 TodoSidebar。
-   *   - clear:返回 null,显式置空(bar 立即消失)。
-   * - `todo_list` / `todo_modify` 是 v2.2.0 / v2.12 之前的合并工具,这里
-   *   保留以便兼容老会话历史中可能出现的 tool_call 事件。
-   */
-  const TODO_TOOL_NAMES: ReadonlySet<string> = new Set([
-    "todo_create",
-    "todo_query",
-    "todo_add",
-    "todo_update",
-    "todo_delete",
-    "todo_clear",
-    "todo_modify", // legacy (v2.12 之前)
-    "todo_list", // legacy (v2.2.0 之前)
-  ]);
 
   /**
    * 按 sessionId 隔离的最新 todo 快照。
