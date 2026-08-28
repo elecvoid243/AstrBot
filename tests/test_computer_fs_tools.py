@@ -867,6 +867,45 @@ async def test_file_write_tool_workspace_mode_honors_dynamic_roots(
 
 
 @pytest.mark.asyncio
+async def test_file_write_tool_bom_flag_selects_utf8_sig_encoding(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+):
+    booter = SimpleNamespace(
+        fs=SimpleNamespace(write_file=AsyncMock(return_value={"success": True}))
+    )
+    monkeypatch.setattr(fs_tools, "get_booter", AsyncMock(return_value=booter))
+    context = _make_context()
+
+    result = await fs_tools.FileWriteTool().call(
+        context, path=str(tmp_path / "a.txt"), content="x"
+    )
+    assert result.startswith("File written successfully")
+    assert booter.fs.write_file.await_args.kwargs["encoding"] == "utf-8"
+
+    bom_result = await fs_tools.FileWriteTool().call(
+        context, path=str(tmp_path / "b.txt"), content="x", bom=True
+    )
+    assert bom_result.startswith("File written successfully")
+    assert booter.fs.write_file.await_args.kwargs["encoding"] == "utf-8-sig"
+
+
+@pytest.mark.asyncio
+async def test_local_file_write_with_bom_emits_utf8_bom(tmp_path):
+    from astrbot.core.computer.booters.local import LocalFileSystemComponent
+
+    fs = LocalFileSystemComponent()
+    target = tmp_path / "bom.txt"
+
+    result = await fs.write_file(
+        path=str(target), content="hello", mode="w", encoding="utf-8-sig"
+    )
+
+    assert result["success"] is True
+    assert target.read_bytes() == b"\xef\xbb\xbfhello"
+
+
+@pytest.mark.asyncio
 async def test_file_read_tool_unaffected_by_readonly_mode(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,

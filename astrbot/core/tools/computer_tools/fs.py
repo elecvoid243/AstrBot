@@ -477,6 +477,13 @@ class FileWriteTool(FunctionTool):
                     "type": "string",
                     "description": "The content to write to the file",
                 },
+                "bom": {
+                    "type": "boolean",
+                    "description": (
+                        "When true, write the file as UTF-8 with BOM "
+                        "(utf-8-sig). Defaults to false (plain UTF-8)."
+                    ),
+                },
             },
             "required": ["path", "content"],
         }
@@ -487,6 +494,7 @@ class FileWriteTool(FunctionTool):
         context: ContextWrapper[AstrAgentContext],
         path: str,
         content: str,
+        bom: bool = False,
     ) -> ToolExecResult:
         if fs_access.get_mode(context) is fs_access.FileAccessMode.READONLY:
             return _READONLY_WRITE_ERROR
@@ -515,11 +523,13 @@ class FileWriteTool(FunctionTool):
                 context.context.context,
                 context.context.event.unified_msg_origin,
             )
+            # "utf-8-sig" is the Python codec that emits a BOM on write;
+            # plain "utf-8" must stay the default when `bom` is unset.
             result = await sb.fs.write_file(
                 path=normalized_path,
                 content=content,
                 mode="w",
-                encoding="utf-8",
+                encoding="utf-8-sig" if bom else "utf-8",
             )
             if not result.get("success", False):
                 error_detail = str(result.get("error", "") or "").strip()
