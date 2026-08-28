@@ -9,6 +9,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
+from astrbot import logger
 from astrbot.core.tools import fs_access
 from astrbot.core.utils.astrbot_path import (
     get_astrbot_system_tmp_path,
@@ -323,10 +324,31 @@ async def update_chat_session(
 @router.delete("/chat/sessions/{session_id}")
 async def delete_chat_session(
     session_id: str,
+    request: Request,
     auth: AuthContext = Depends(require_chat_scope),
     service: ChatService = Depends(get_service),
 ):
-    return await _run(lambda: service.delete_webchat_session(auth.username, session_id))
+    result = await _run(
+        lambda: service.delete_webchat_session(auth.username, session_id)
+    )
+    # A deleted session can no longer take part in a discussion: dissolve
+    # every collab group that references it (active discussions are stopped).
+    if isinstance(result, dict) and result.get("status") == "ok":
+        collab = getattr(request.app.state.services, "agent_collab", None)
+        if collab is not None:
+            try:
+                dissolved = await collab.dissolve_groups_for_session(session_id)
+                if dissolved:
+                    data = result.setdefault("data", {})
+                    if isinstance(data, dict):
+                        data["dissolved_groups"] = dissolved
+            except Exception:
+                logger.warning(
+                    "Failed to dissolve collab groups for deleted session %s",
+                    session_id,
+                    exc_info=True,
+                )
+    return result
 
 
 @router.post("/chat/sessions/{session_id}/stop")

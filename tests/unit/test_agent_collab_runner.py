@@ -284,3 +284,61 @@ async def test_stop_during_collect_timeout_does_not_hang():
     r.stop()  # collect will time out afterwards (reply_timeout=0.2)
     await asyncio.wait_for(task, timeout=2)
     assert r.state["status"] == "stopped"
+
+
+@pytest.mark.asyncio
+async def test_stop_interrupts_in_flight_collect_immediately():
+    """Regression: clicking 停止 while a reply is being collected used to
+    wait out the full reply_timeout (180s in production) before the runner
+    noticed. The stop event must race the collection and end the hop at
+    once."""
+    g = _group(2)
+    world = FakeWorld(
+        {g["members"][0]["session_id"]: [], g["members"][1]["session_id"]: []}
+    )
+    ports = world.ports()
+
+    async def never_collect(session_id: str, message_id: str) -> tuple[str, list]:
+        await asyncio.sleep(30)  # far longer than the test timeout
+        return "late", []
+
+    ports.collect = never_collect
+    ports.reply_timeout = 20.0
+    r = DiscussionRunner(g, "topic", "alice", ports)
+    task = asyncio.create_task(r.run())
+    await asyncio.sleep(0.05)
+    r.stop()  # must interrupt the hanging collect immediately
+    await asyncio.wait_for(task, timeout=2)
+    assert r.state["status"] == "stopped"
+    assert any(e.get("type") == "stopped" for e in world.events)
+    # No further turns were injected after the stop.
+    assert len(world.delivered) == 1
+
+
+@pytest.mark.asyncio
+async def test_resume_clears_stop_request():
+    """A paused-then-resumed discussion must collect replies again — the
+    stop event from the earlier stop() call must not abort every future
+    hop."""
+    g = _group(2)
+    world = FakeWorld(
+        {g["members"][0]["session_id"]: [], g["members"][1]["session_id"]: ["B1"]}
+    )
+    ports = world.ports()
+
+    async def hanging_collect(session_id: str, message_id: str) -> tuple[str, list]:
+        await asyncio.sleep(30)
+        return "late", []
+
+    ports.collect = hanging_collect
+    ports.reply_timeout = 0.2
+    r = DiscussionRunner(g, "topic", "alice", ports)
+    task = asyncio.create_task(r.run())
+    await asyncio.sleep(0.05)
+    r.stop()  # interrupt the first (hanging) collect
+    await asyncio.wait_for(task, timeout=2)
+    assert r.state["status"] == "stopped"
+
+    # Resume: the discussion runs again and now collects normally.
+    r.resume()
+    assert r._stop_requested.is_set() is False

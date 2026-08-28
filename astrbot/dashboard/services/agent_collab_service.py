@@ -7,6 +7,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+from astrbot import logger
 from astrbot.core import sp
 from astrbot.core.platform.sources.webchat.request_flags import (
     resolve_webchat_request_flags,
@@ -178,6 +179,45 @@ class AgentCollabService:
         del groups[group_id]
         await self._save(groups)
         return {"message": "分组已解散"}
+
+    async def dissolve_groups_for_session(self, session_id: str) -> list[str]:
+        """Dissolve every group that contains the given chat session.
+
+        Called when a chat session is deleted: a group missing one of its
+        members can no longer hold a discussion, so it is dissolved instead
+        of lingering as a broken entry. Active discussions of the dissolved
+        groups are stopped and their runner tasks cancelled.
+
+        Args:
+            session_id: The deleted chat session's raw conversation id
+              (the same identifier stored in `group.members[].session_id`).
+
+        Returns:
+            The dissolved group ids (empty when no group referenced the
+            session).
+        """
+        groups = await self._load()
+        dissolved: list[str] = []
+        for group_id, group in list(groups.items()):
+            members = group.get("members", [])
+            # Member ids are stored in full `webchat!user!conv` form while the
+            # deleted session arrives as the bare conversation id — compare
+            # through the same normalizer the queue layer uses.
+            if any(_conversation_id(m.get("session_id", "")) == session_id for m in members):
+                dissolved.append(group_id)
+                del groups[group_id]
+        if not dissolved:
+            return []
+        await self._save(groups)
+        for d in self.discussions.values():
+            if d.get("group_id") not in dissolved:
+                continue
+            runner = d["runner"]
+            runner.stop()
+            task = runner.state.get("task")
+            if task and not task.done():
+                task.cancel()
+        return dissolved
 
     # ---------- discussions ----------
 
@@ -429,12 +469,17 @@ class DiscussionRunner:
             None,
         )
         self._wake = asyncio.Event()
+        # Set by stop(); races the in-flight reply collection so clicking
+        # 停止 interrupts the current hop promptly instead of waiting out
+        # the full reply_timeout. Cleared by resume().
+        self._stop_requested = asyncio.Event()
         self._user_route: tuple[str, str] | None = None
 
     # ---------- user controls ----------
 
     def stop(self) -> None:
         self.state["status"] = "stopping"
+        self._stop_requested.set()
         self._wake.set()
 
     def resume(self, reset_hops: bool = False) -> None:
@@ -442,6 +487,8 @@ class DiscussionRunner:
             self.state["hop_count"] = 0
         if self.state["status"] == "paused":
             self.state["status"] = "running"
+        # A resumed discussion must be able to collect replies again.
+        self._stop_requested.clear()
         self._wake.set()
 
     def manual_route(self, target_session_id: str, message: str) -> None:
@@ -521,10 +568,28 @@ class DiscussionRunner:
             "message_id": message_id,
         }
         try:
-            reply, reply_parts = await asyncio.wait_for(
-                self.ports.collect(session_id, message_id),
-                timeout=self.ports.reply_timeout,
+            collect_task = asyncio.ensure_future(
+                self.ports.collect(session_id, message_id)
             )
+            stop_task = asyncio.ensure_future(self._stop_requested.wait())
+            try:
+                done, _ = await asyncio.wait(
+                    {collect_task, stop_task},
+                    timeout=self.ports.reply_timeout,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if stop_task in done:
+                    # 停止 clicked mid-hop: abandon the collection right away
+                    # instead of waiting out the remaining reply_timeout.
+                    return None
+                if not done:
+                    raise TimeoutError("reply collection timed out")
+                reply, reply_parts = collect_task.result()
+            finally:
+                for task in (collect_task, stop_task):
+                    if not task.done():
+                        task.cancel()
+                await asyncio.gather(collect_task, stop_task, return_exceptions=True)
         except Exception as e:  # noqa: BLE001
             self.state["current_turn"] = None
             await self._pause_until_resumed({"type": "error", "reason": str(e)})
@@ -548,6 +613,24 @@ class DiscussionRunner:
     # ---------- main loop ----------
 
     async def run(self) -> None:
+        try:
+            await self._run_loop()
+        except asyncio.CancelledError:
+            # Task cancellation (e.g. the group was dissolved): re-raise so
+            # cancellation semantics stay intact.
+            raise
+        except Exception as exc:  # noqa: BLE001
+            # A dead runner task would leave the UI stuck on 停止中/进行中
+            # forever — no further events would ever fire. Always land on a
+            # terminal state and tell the subscribers.
+            logger.exception("collab discussion %s crashed", self.state["id"])
+            self.state["status"] = "stopped"
+            self.ports.emit({"type": "stopped", "reason": f"runner error: {exc}"})
+            return
+        self.state["status"] = "stopped"
+        self.ports.emit({"type": "stopped", "reason": "done"})
+
+    async def _run_loop(self) -> None:
         next_target = self._moderator
         next_body = build_member_body(self._username, self.state["topic"])
         next_context = self._moderator_context()

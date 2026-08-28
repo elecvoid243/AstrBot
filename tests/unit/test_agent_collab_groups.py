@@ -207,3 +207,44 @@ def test_list_active_discussions_filters_by_status_and_owner():
     assert ids == {"d1", "d2"}
     d1 = next(d for d in active if d["id"] == "d1")
     assert d1["status"] == "running" and d1["hop_count"] == 3
+
+
+@pytest.mark.asyncio
+async def test_dissolve_groups_for_session(service):
+    g = await service.create_group("alice", _payload())
+    g2 = await service.create_group(
+        "alice",
+        _payload(name="g2", moderator_session_id="webchat!u!bbbbbbbb22"),
+    )
+    # Unrelated group must survive.
+    await service.create_group(
+        "alice",
+        _payload(
+            name="g3",
+            members=[
+                {"session_id": "webchat!u!cccccccc33", "alias": "x"},
+                {"session_id": "webchat!u!dddddddd44", "alias": "y"},
+            ],
+            moderator_session_id="webchat!u!cccccccc33",
+        ),
+    )
+
+    dissolved = await service.dissolve_groups_for_session("aaaaaaaa11")
+
+    assert sorted(dissolved) == sorted([g["id"], g2["id"]])
+    groups = (await service.list_groups("alice"))["groups"]
+    assert [item["id"] for item in groups] == [
+        item["id"] for item in groups if item["id"] not in dissolved
+    ]
+    assert all(
+        "aaaaaaaa11" not in m["session_id"] for item in groups for m in item["members"]
+    )
+
+
+@pytest.mark.asyncio
+async def test_dissolve_groups_for_unknown_session_is_noop(service):
+    await service.create_group("alice", _payload())
+    dissolved = await service.dissolve_groups_for_session("no-such-session")
+    assert dissolved == []
+    groups = (await service.list_groups("alice"))["groups"]
+    assert len(groups) == 1
