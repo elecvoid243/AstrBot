@@ -3138,15 +3138,13 @@ async function selectSession(sessionId: string, pushRoute = true) {
   if (pushRoute && route.path !== `${basePath()}/${sessionId}`) {
     await router.push(`${basePath()}/${sessionId}`);
   }
-  if (!loadedSessions[sessionId]) {
-    await loadSessionMessages(sessionId);
-  } else {
-    // Already-loaded sessions still refresh quietly on switch: turns from
-    // the goal loop / agent collab may have run (or finished) while another
-    // session was open, and the frozen system-stream bubbles need to be
-    // reconciled against the persisted history + active-run recovery.
-    await loadSessionMessages(sessionId, true, false);
-  }
+  // 2026-08-27: always refresh, even for already-loaded sessions. The
+  // loadedSessions skip left stale content when background turns (goal-loop /
+  // collab orphans, primary runs from another device) advanced or finished
+  // while the user was in another session — switching back showed a frozen
+  // bubble plus everything from the switch moment onward. The merge inside
+  // loadSessionMessages reconciles live records with the persisted snapshot.
+  await loadSessionMessages(sessionId, true, false);
   // Timing-safe backstop for spcode auto-load: the currSessionId watcher can
   // fire before loadSessionMessages populates the session→project reverse-map,
   // so resolveProjectForAutoLoad would miss on that tick. Re-evaluate now that
