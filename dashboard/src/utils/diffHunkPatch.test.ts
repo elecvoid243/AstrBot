@@ -153,6 +153,29 @@ test("extractDiffContent unwraps ```diff fences", () => {
   assert.ok(out.includes("-x"), "expected -x inside extracted body");
 });
 
+// Regression (2026-08-28): a .md edit puts fence lines (```python, etc.)
+// inside the diff body, always behind a +/-/space prefix. The bare ```
+// close match used to stop at the first embedded fence and truncate the
+// diff; the close is now anchored to column 0.
+test("extractDiffContent keeps fences embedded in the diff body", () => {
+  const fenced = [
+    "Edited NOTES.md.",
+    "```diff",
+    "@@ -1,5 +1,5 @@",
+    " ```python",
+    "-print('old')",
+    "+print('new')",
+    " ```",
+    " trailing ctx",
+    "```",
+  ].join("\n");
+  const out = extractDiffContent(fenced);
+  assert.ok(out.startsWith("@@"), `expected @@ start, got: ${out.slice(0, 30)}`);
+  assert.ok(out.includes("+print('new')"), "embedded fence truncated the diff");
+  assert.ok(out.includes("trailing ctx"), "content after the embedded fence was lost");
+  assert.ok(!/\n```/.test(out), "real closing fence leaked into the body");
+});
+
 test("extractDiffContent strips leading preamble when @@ is present", () => {
   const out = extractDiffContent("Edited file foo.py:\n@@ -1 +1 @@\n-x\n+y");
   assert.ok(out.startsWith("@@"));

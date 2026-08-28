@@ -39,8 +39,13 @@ export interface DiffHunk {
 }
 
 export function extractDiffContent(raw: string): string {
-  // If the text contains a ```diff ... ``` block, extract its content
-  const blockMatch = raw.match(/```diff\s*\n?([\s\S]*?)```/);
+  // If the text contains a ```diff ... ``` block, extract its content.
+  // The closing fence is anchored to column 0 (`^```/m`): diff body
+  // lines always carry a `+`/`-`/space prefix, so a code fence embedded
+  // in an edited .md file (e.g. `+```python`) never sits at column 0.
+  // A bare ``` match would stop at the first embedded fence and
+  // truncate the rest of the diff.
+  const blockMatch = raw.match(/```diff[ \t]*\r?\n([\s\S]*?)^```[ \t]*\r?$/m);
   if (blockMatch) return blockMatch[1];
 
   // Otherwise, try to strip leading "Diff:" / "Edited ..." lines

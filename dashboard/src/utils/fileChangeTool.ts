@@ -60,7 +60,14 @@ export function parseFileEditResult(raw: string): FileEditResultParts {
     const cleanResult = idx < 0 ? text : text.slice(0, idx).trim();
     const notice = idx < 0 ? null : text.slice(idx).trim();
 
-    const diffMatch = cleanResult.match(/```diff\s*\n?([\s\S]*?)```/);
+    // The closing fence is anchored to column 0 (`^```/m`) instead of
+    // matched bare: every unified-diff body line carries a `+`/`-`/space
+    // prefix, so a code fence inside an edited .md file can never sit at
+    // column 0. A bare ``` match would stop at the first embedded fence
+    // (e.g. `+```python`) and silently truncate the diff.
+    const diffMatch = cleanResult.match(
+        /```diff[ \t]*\r?\n([\s\S]*?)^```[ \t]*\r?$/m,
+    );
     const diff = diffMatch ? diffMatch[1] : cleanResult;
 
     // Success: "Edited {path}." followed by "Replaced {N} occurrence(s)...".

@@ -29,6 +29,30 @@ const EDIT_RESULT_OK = [
   "```",
 ].join("\n");
 
+// Regression (2026-08-28): editing a .md file puts code-fence lines
+// (e.g. `+```python`) inside the diff body. The old bare ``` extraction
+// regex stopped at the first embedded fence and truncated everything
+// after it.
+const EDIT_RESULT_MD = [
+  "Edited F:\\proj\\README.md. Replaced 1 occurrence(s) of the target text.",
+  "",
+  "Diff:",
+  "```diff",
+  "--- F:\\proj\\README.md",
+  "+++ F:\\proj\\README.md",
+  "@@ -2,8 +2,9 @@",
+  " Intro paragraph.",
+  "-Example:",
+  "+Example with python:",
+  "+",
+  " ```python",
+  ' print("hello")',
+  " ```",
+  " ",
+  " Footer text.",
+  "```",
+].join("\n");
+
 const WRITE_TOOL = {
   id: "call-write-1",
   name: "astrbot_file_write_tool",
@@ -62,6 +86,38 @@ describe("parseFileEditResult", () => {
     expect(parsed.diff).not.toContain("```");
     expect(parsed.summary).toContain("Replaced 1 occurrence(s)");
     expect(parsed.notice).toBeNull();
+  });
+
+  it("keeps the full diff for a .md file whose body contains code fences", () => {
+    const parsed = parseFileEditResult(EDIT_RESULT_MD);
+    expect(parsed.filePath).toBe("F:\\proj\\README.md");
+    // Embedded fences (prefixed with +/-/space) must not truncate the
+    // extraction — the trailing lines after the first fence survive.
+    expect(parsed.diff).toContain("```python");
+    expect(parsed.diff).toContain('print("hello")');
+    expect(parsed.diff).toContain("Footer text.");
+    // The real closing fence is consumed; no fence leaks into the diff.
+    expect(parsed.diff.endsWith("Footer text.\n")).toBe(true);
+    expect(parsed.summary).toContain("Replaced 1 occurrence(s)");
+  });
+
+  it("counts the full +/- stat for a fenced .md diff", () => {
+    const changes = collectFileChanges([
+      {
+        type: "tool_call",
+        tool_calls: [
+          {
+            id: "md1",
+            name: "astrbot_file_edit_tool",
+            args: { path: "F:\\proj\\README.md" },
+            result: EDIT_RESULT_MD,
+            finished_ts: 2,
+          },
+        ],
+      },
+    ]);
+    // adds: +Example with python:, +; dels: -Example:
+    expect(changes[0].diffStat).toEqual({ adds: 2, dels: 1 });
   });
 
   it("splits a [SYSTEM NOTICE] suffix into notice", () => {
