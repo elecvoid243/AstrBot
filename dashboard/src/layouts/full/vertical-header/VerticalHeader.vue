@@ -1148,6 +1148,45 @@ onMounted(async () => {
     </div>
 
     <div class="header-actions" :class="{ 'chat-header-actions': isChatPath }">
+      <!-- 2026-08-28: persistent TodoSidebar entry. The floating todo
+           summary bar is not always on screen (it disappears on refresh
+           until the history replay lands, and vanishes after todo_clear),
+           and it was the sidebar's only entry point. This app-bar button
+           stays reachable whenever the session has a todo snapshot; the
+           badge mirrors the bar's done/total + attention indicator.
+           Badge content is pushed from Chat.vue (which owns the
+           useMessages snapshot) via the chatHeader store. -->
+      <v-btn
+        v-if="isChatPath && chatHeader.todoBadge"
+        class="chat-action-btn todo-sidebar-trigger"
+        :class="{
+          'todo-sidebar-trigger--active': chatHeader.todoSidebarOpen,
+        }"
+        variant="text"
+        size="small"
+        rounded="sm"
+        :title="tm('todo.summary')"
+        :aria-label="tm('todo.summary')"
+        @click="chatHeader.TOGGLE_TODO_SIDEBAR"
+      >
+        <v-icon size="18">mdi-format-list-checks</v-icon>
+        <span class="todo-trigger-count">
+          {{ chatHeader.todoBadge.done }}/{{ chatHeader.todoBadge.total }}
+        </span>
+        <v-icon
+          v-if="chatHeader.todoBadge.attention > 0"
+          size="10"
+          color="warning"
+          class="todo-trigger-attention"
+          :title="
+            tm('todo.attentionHint', {
+              count: chatHeader.todoBadge.attention,
+            })
+          "
+          >mdi-circle-medium</v-icon
+        >
+      </v-btn>
+
       <!--
         Workspace files panel toggle button - HIDDEN on this branch.
         Reason: GitDiffSidebar (spcode-backed workspace preview) supersedes
@@ -2167,6 +2206,27 @@ onMounted(async () => {
 
 .workspace-files-trigger--active {
   background: rgba(var(--v-theme-on-surface), 0.08) !important;
+}
+
+/* 2026-08-28: persistent TodoSidebar entry (see template comment). */
+.todo-sidebar-trigger {
+  color: rgb(var(--v-theme-on-surface));
+}
+
+.todo-sidebar-trigger--active {
+  background: rgba(var(--v-theme-on-surface), 0.08) !important;
+}
+
+.todo-trigger-count {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  margin-left: 2px;
+  letter-spacing: 0;
+}
+
+.todo-trigger-attention {
+  margin-left: 2px;
 }
 
 .mode-switch-btn {

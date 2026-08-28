@@ -1396,7 +1396,17 @@ const activeReasoningTarget = ref<{
 } | null>(null);
 const deletingThread = ref(false);
 const refsSidebarOpen = ref(false);
-const todoSidebarOpen = ref(false);
+// 2026-08-28: TodoSidebar open state moved into the chatHeader store so
+// the app-bar entry button (VerticalHeader) toggles the same state as
+// the floating summary bar. The writable computed keeps every existing
+// `todoSidebarOpen.value = ...` write site and the TodoSidebar v-model
+// working unchanged.
+const todoSidebarOpen = computed({
+  get: () => chatHeader.todoSidebarOpen,
+  set: (open: boolean) => {
+    chatHeader.SET_TODO_SIDEBAR_OPEN(open);
+  },
+});
 const gitDiffSidebarOpen = ref(false);
 const gitDiffFullscreen = ref(false);
 
@@ -3800,6 +3810,24 @@ watch(todoSidebarOpen, (open) => {
 watch(refsSidebarOpen, (open) => {
   if (open) todoSidebarOpen.value = false;
 });
+
+// Push the current session's todo progress into the header store so the
+// app-bar entry button shows a live badge even while the sidebar is
+// closed. When the snapshot disappears (session switch to a todo-less
+// session, or a live todo_clear), the badge goes away and an open
+// sidebar is closed — it would only show an empty panel.
+watch(currentTodoSnapshot, (snapshot) => {
+  chatHeader.SET_TODO_BADGE(
+    snapshot
+      ? {
+          done: snapshot.stats?.done || 0,
+          total: snapshot.stats?.effective_total || 0,
+          attention: snapshot.attentionItems?.length || 0,
+        }
+      : null,
+  );
+  if (!snapshot) chatHeader.SET_TODO_SIDEBAR_OPEN(false);
+}, { immediate: true });
 
 function toggleTodoSidebar() {
   todoSidebarOpen.value = !todoSidebarOpen.value;
