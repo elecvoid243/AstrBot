@@ -501,6 +501,27 @@ watch(
 </script>
 
 <style scoped>
+/* 2026-08-28: the dialog previously grew with its content and could
+   overflow the viewport (pushing the pagination row off-screen), while
+   inside the list the cards' overflow:hidden zeroed their flex minimum
+   size — so the clamped max-height SQUASHED the cards to fit instead of
+   scrolling (card height visually depended on the page size). Now the
+   card is a viewport-capped flex column, .v-card-text may shrink, and
+   the list is the single scroll container; cards keep their natural
+   height no matter how many items a page holds. */
+.archived-dialog {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 96px);
+}
+
+.archived-dialog > :deep(.v-card-text) {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
 .archived-dialog-status {
   display: flex;
   justify-content: center;
@@ -508,14 +529,22 @@ watch(
 }
 
 .archived-dialog-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  /* Raised from the old 50vh — the dialog itself is taller now; the
+     card-level cap below still keeps everything on short viewports. */
+  max-height: 62vh;
   display: flex;
   flex-direction: column;
   gap: 4px;
-  max-height: 50vh;
   overflow-y: auto;
 }
 
 .archived-card {
+  /* Natural height, immune to flex squeeze — the list scrolls instead
+     (its overflow-y above only kicks in because items no longer shrink
+     to fit). */
+  flex: 0 0 auto;
   border: 1px solid rgba(var(--v-theme-on-surface), 0.08);
   border-radius: 10px;
   overflow: hidden;
