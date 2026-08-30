@@ -344,3 +344,63 @@ def test_active_discussion_endpoint():
     stub.list_active_discussions = fake_none
     r = client.get("/api/agent_collab/discussions/active")
     assert r.json()["data"]["discussion"] is None
+
+
+def test_stream_replays_history_and_queue_is_unbounded():
+    """Replay + queue-capacity regression, pinned via source assertions.
+
+    The discussion stream replays the retained history to late subscribers
+    into a per-subscriber queue. That queue used to be capped at 512 while
+    the runner emits one event per streamed reply token — a discussion
+    outgrowing 512 events crashed every (re)subscribe with QueueFull,
+    killing the whole SSE request: the panel lost all history and never
+    received the stopped event (the UI stuck on 停止中). The subscriber
+    queue is now unbounded and emit() coalesces consecutive stream deltas
+    to bound the retained history. Asserted via source inspection because
+    an over-capacity replay cannot be wire-tested under TestClient without
+    deadlocking on its buffered transport.
+    """
+    import inspect
+
+    from astrbot.dashboard.api import agent_collab as agent_collab_module
+
+    stream_source = inspect.getsource(agent_collab_module.stream_discussion)
+    assert "asyncio.Queue(maxsize" not in stream_source
+    assert "queue.put_nowait(event)" in stream_source
+
+    start_source = inspect.getsource(agent_collab_module.start_discussion)
+    assert (
+        'last["text"] = last.get("text", "") + str(event.get("text", ""))'
+        in start_source
+    )
+
+
+def test_stream_subscriber_queue_is_unbounded():
+    """Regression: the discussion stream replayed the retained history with
+    put_nowait into a 512-cap subscriber queue. A discussion outgrows 512
+    events quickly (one event per streamed reply token), so every
+    (re)subscribe crashed the whole SSE request with QueueFull — the panel
+    then showed no history and never received the stopped event. The
+    subscriber queue is now unbounded and emit() coalesces consecutive
+    stream deltas to bound the retained history. Pinned via source
+    assertions because a >512-event replay cannot be wire-tested under
+    TestClient without deadlocking on its buffered transport."""
+    import inspect
+
+    from astrbot.dashboard.api import agent_collab as agent_collab_module
+
+    source = inspect.getsource(agent_collab_module.stream_discussion)
+    assert "asyncio.Queue(maxsize" not in source
+    assert "queue.put_nowait(event)" in source
+
+
+def test_emit_coalesces_consecutive_stream_deltas():
+    """emit() must merge consecutive stream deltas of the same session so a
+    long reply does not accumulate one event per token (which would blow up
+    the retained history and every replay)."""
+    import inspect
+
+    from astrbot.dashboard.api import agent_collab as agent_collab_module
+
+    source = inspect.getsource(agent_collab_module.start_discussion)
+    assert 'last["text"] = last.get("text", "") + str(event.get("text", ""))' in source

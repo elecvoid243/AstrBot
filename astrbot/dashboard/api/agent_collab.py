@@ -102,12 +102,30 @@ async def start_discussion(
     events: list[dict] = []
 
     def emit(event: dict) -> None:
-        events.append(event)
+        # Live fan-out first — verbatim per-token deltas.
         for sub in subscribers:
             try:
                 sub.put_nowait(event)
             except asyncio.QueueFull:
                 logger.debug("collab event subscriber queue full, dropping event")
+        # Retained history: coalesce consecutive stream deltas for the same
+        # session. A long reply otherwise accumulates thousands of
+        # per-character events, blowing both memory and the 512-event
+        # subscriber queue on replay (the replay used to crash the whole SSE
+        # request with QueueFull). The frontend appends consecutive stream
+        # deltas identically, so the rendered transcript is unchanged.
+        if event.get("type") == "message" and event.get("direction") == "stream":
+            last = events[-1] if events else None
+            if (
+                isinstance(last, dict)
+                and last.get("type") == "message"
+                and last.get("direction") == "stream"
+                and last.get("session_id") == event.get("session_id")
+            ):
+                last["text"] = last.get("text", "") + str(event.get("text", ""))
+                last["ts"] = event.get("ts", last.get("ts"))
+                return
+        events.append(event)
 
     try:
         state = await service.start_discussion(
@@ -201,7 +219,11 @@ async def stream_discussion(
     if subscribers is None:
         return error("该讨论无事件流")
 
-    queue: asyncio.Queue = asyncio.Queue(maxsize=512)
+    # Unbounded on purpose: emit() coalesces consecutive stream deltas (so
+    # the retained history — and therefore the replay — stays small), and a
+    # replay into a bounded queue used to crash the whole SSE request with
+    # QueueFull once a discussion outgrew 512 events.
+    queue: asyncio.Queue = asyncio.Queue()
     # Replay the full history first so late subscribers (e.g. the group
     # transcript panel opened mid-discussion) still see every turn.
     for event in entry.get("events", []):
