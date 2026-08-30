@@ -18,6 +18,7 @@ from astrbot.core.db.po import CronJob
 from astrbot.core.platform.message_session import MessageSession
 from astrbot.core.platform.message_type import MessageType
 from astrbot.core.provider.entites import ProviderRequest
+from astrbot.core.utils.config_number import coerce_int_config
 from astrbot.core.utils.history_saver import persist_agent_history
 
 if TYPE_CHECKING:
@@ -441,13 +442,24 @@ class CronJobManager:
             cron_event.role = "admin"
 
         provider_settings = cfg.get("provider_settings", {}) or {}
-        tool_call_timeout = provider_settings.get("tool_call_timeout", 120)
-        tool_call_timeout_exclude = provider_settings.get(
-            "tool_call_timeout_exclude", ["wait_for_subagent", "orchestrate_tasks"]
+        misc_config = cfg.get("agent_runner", {}).get("config", {}).get("misc", {})
+        tool_call_timeout = misc_config.get("tool_call_timeout", 120)
+        tool_call_timeout_exclude = misc_config.get(
+            "tool_call_timeout_exclude",
+            ["wait_for_subagent", "orchestrate_tasks", "ask_user_choice"],
+        )
+        notice_cfg = misc_config.get("repeated_tool_call_notice", {})
+        agent_max_step = coerce_int_config(
+            misc_config.get("max_steps", 30),
+            default=30,
+            min_value=1,
+            field_name="agent_runner.config.misc.max_steps",
         )
         config = MainAgentBuildConfig(
             tool_call_timeout=tool_call_timeout,
             tool_call_timeout_exclude=tool_call_timeout_exclude,
+            repeated_tool_notice_enabled=notice_cfg.get("enable", True),
+            repeated_tool_notice_threshold=notice_cfg.get("threshold", 3),
             llm_safety_mode=False,
             streaming_response=False,
             provider_settings=provider_settings,
@@ -455,18 +467,7 @@ class CronJobManager:
         req = ProviderRequest()
         conv = await _get_session_conv(event=cron_event, plugin_context=self.ctx)
         req.conversation = conv
-        # finetine the messages
-        context = json.loads(conv.history)
-        if context:
-            req.contexts = context
-            context_dump = req._print_friendly_context()
-            req.contexts = []
-            req.system_prompt += (
-                "\n\nBellow is you and user previous conversation history:\n"
-                f"---\n"
-                f"{context_dump}\n"
-                f"---\n"
-            )
+        req.contexts = json.loads(conv.history)
         cron_job_str = json.dumps(extras.get("cron_job", {}), ensure_ascii=False)
         req.system_prompt += PROACTIVE_AGENT_CRON_WOKE_SYSTEM_PROMPT.format(
             cron_job=cron_job_str
@@ -492,7 +493,7 @@ class CronJobManager:
             return
 
         runner = result.agent_runner
-        async for _ in runner.step_until_done(30):
+        async for _ in runner.step_until_done(agent_max_step):
             # agent will send message to user via using tools
             pass
         llm_resp = runner.get_final_llm_resp()

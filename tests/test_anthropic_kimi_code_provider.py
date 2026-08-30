@@ -19,6 +19,38 @@ class _FakeAsyncAnthropic:
         return None
 
 
+@pytest.mark.parametrize(
+    ("api_base", "expected_base_url"),
+    [
+        ("https://api.anthropic.com", "https://api.anthropic.com"),
+        ("https://api.anthropic.com/", "https://api.anthropic.com"),
+        ("https://api.anthropic.com/v1", "https://api.anthropic.com"),
+        ("https://api.anthropic.com/v1/", "https://api.anthropic.com"),
+        ("https://gateway.example.com/anthropic", "https://gateway.example.com/anthropic"),
+    ],
+)
+def test_anthropic_provider_normalizes_api_base(
+    monkeypatch,
+    api_base,
+    expected_base_url,
+):
+    monkeypatch.setattr(anthropic_source, "AsyncAnthropic", _FakeAsyncAnthropic)
+
+    provider = anthropic_source.ProviderAnthropic(
+        provider_config={
+            "id": "anthropic-test",
+            "type": "anthropic_chat_completion",
+            "model": "claude-test",
+            "key": ["test-key"],
+            "api_base": api_base,
+        },
+        provider_settings={},
+    )
+
+    assert provider.base_url == expected_base_url
+    assert provider.client.kwargs["base_url"] == expected_base_url
+
+
 def test_anthropic_provider_passes_custom_headers_via_default_headers(monkeypatch):
     monkeypatch.setattr(anthropic_source, "AsyncAnthropic", _FakeAsyncAnthropic)
 
@@ -229,7 +261,7 @@ async def test_text_chat_wraps_string_system_prompt_as_list(monkeypatch):
 
     captured_payloads: dict[str, object] = {}
 
-    async def fake_query(payloads, tools, *, request_max_retries=None):
+    async def fake_query(payloads, tools, *, request_max_retries=None, llm_params=None):
         captured_payloads.update(payloads)
         return LLMResponse(role="assistant", completion_text="ok")
 
@@ -256,7 +288,7 @@ async def test_text_chat_passes_through_list_system_prompt(monkeypatch):
 
     captured_payloads: dict[str, object] = {}
 
-    async def fake_query(payloads, tools, *, request_max_retries=None):
+    async def fake_query(payloads, tools, *, request_max_retries=None, llm_params=None):
         captured_payloads.update(payloads)
         return LLMResponse(role="assistant", completion_text="ok")
 

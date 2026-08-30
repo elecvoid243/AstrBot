@@ -25,6 +25,14 @@ const isCurrentChatRoute = computed(
 const isPluginPageRoute = computed(
   () => route.path.startsWith("/plugin-page/"),
 );
+const isProviderPageRoute = computed(() => route.path === "/providers");
+const isPlatformPageRoute = computed(() => route.path === "/platforms");
+const isViewportLockedRoute = computed(
+  () =>
+    isCurrentChatRoute.value ||
+    isProviderPageRoute.value ||
+    isPlatformPageRoute.value,
+);
 const isFullScreenRoute = computed(
   () => isCurrentChatRoute.value || isPluginPageRoute.value,
 );
@@ -112,8 +120,8 @@ onMounted(() => {
       <v-main
         :class="{ 'chat-main': isCurrentChatRoute }"
         :style="{
-          height: isCurrentChatRoute ? '100vh' : undefined,
-          overflow: isCurrentChatRoute ? 'hidden' : undefined,
+          height: isViewportLockedRoute ? '100vh' : undefined,
+          overflow: isViewportLockedRoute ? 'hidden' : undefined,
         }"
       >
         <!-- 顶部滚动公告条: 放在 v-main 内最顶部, 由 v-main 的 padding 让出
@@ -124,18 +132,28 @@ onMounted(() => {
         <v-container
           fluid
           class="page-wrapper"
-          :class="{ 'chat-mode-container': isCurrentChatRoute }"
+          :class="{
+            'chat-mode-container': isCurrentChatRoute,
+            'viewport-locked-container':
+              isProviderPageRoute || isPlatformPageRoute,
+          }"
           :style="{
-            height: isFullScreenRoute ? '100%' : 'calc(100% - 8px)',
+            height:
+              isFullScreenRoute || isProviderPageRoute || isPlatformPageRoute
+                ? '100%'
+                : 'calc(100% - 8px)',
             padding: isFullScreenRoute ? '0' : undefined,
-            minHeight: isFullScreenRoute ? 'unset' : undefined,
+            minHeight:
+              isFullScreenRoute || isProviderPageRoute || isPlatformPageRoute
+                ? 'unset'
+                : undefined,
           }"
         >
           <div
             :style="{
               height: '100%',
               width: '100%',
-              overflow: isCurrentChatRoute ? 'hidden' : undefined,
+              overflow: isViewportLockedRoute ? 'hidden' : undefined,
               position: isPluginPageRoute ? 'relative' : undefined,
             }"
           >
@@ -162,6 +180,12 @@ onMounted(() => {
 
 <style scoped>
 .chat-mode-container {
+  min-height: unset !important;
+  height: 100% !important;
+  overflow: hidden !important;
+}
+
+.viewport-locked-container {
   min-height: unset !important;
   height: 100% !important;
   overflow: hidden !important;

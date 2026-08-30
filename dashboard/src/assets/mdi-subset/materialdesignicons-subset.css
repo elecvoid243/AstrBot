@@ -388,10 +388,6 @@
   content: "\F08BB";
 }
 
-.mdi-cogs::before {
-  content: "\F08D6";
-}
-
 .mdi-comment-question::before {
   content: "\F0817";
 }
@@ -920,6 +916,10 @@
   content: "\F0339";
 }
 
+.mdi-link-variant-plus::before {
+  content: "\F1100";
+}
+
 .mdi-loading::before {
   content: "\F0772";
 }
@@ -954,6 +954,10 @@
 
 .mdi-lock-plus-outline::before {
   content: "\F16B2";
+}
+
+.mdi-logout::before {
+  content: "\F0343";
 }
 
 .mdi-magnify::before {
@@ -1228,6 +1232,10 @@
   content: "\F14DF";
 }
 
+.mdi-routes::before {
+  content: "\F046A";
+}
+
 .mdi-send-outline::before {
   content: "\F1165";
 }
@@ -1384,10 +1392,6 @@
   content: "\F050E";
 }
 
-.mdi-timeline-text-outline::before {
-  content: "\F0BD4";
-}
-
 .mdi-timer-off-outline::before {
   content: "\F051E";
 }
@@ -1462,10 +1466,6 @@
 
 .mdi-vector-point::before {
   content: "\F01C4";
-}
-
-.mdi-view-dashboard::before {
-  content: "\F056E";
 }
 
 .mdi-view-split-vertical::before {

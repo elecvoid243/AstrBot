@@ -272,8 +272,8 @@ async def _download_package(
                 "Hosted Dashboard package failed: %s. Falling back to GitHub.",
                 exc,
             )
-            fallback_url = (
-                update_config.get_dashboard_github_release_download_url(version)
+            fallback_url = update_config.get_dashboard_github_release_download_url(
+                version
             )
             if proxy:
                 fallback_url = f"{proxy.rstrip('/')}/{fallback_url}"

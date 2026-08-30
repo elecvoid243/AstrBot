@@ -27,6 +27,7 @@ enableMermaid();
 
 const customizer = useCustomizerStore();
 const commonStore = useCommonStore();
+const authStore = useAuthStore();
 const chatHeader = useChatHeaderStore();
 const theme = useTheme();
 const { lgAndUp } = useDisplay();
@@ -427,7 +428,6 @@ function accountEdit() {
       accountEditStatus.value.message = res.data.message || "";
       setTimeout(() => {
         dialog.value = !dialog.value;
-        const authStore = useAuthStore();
         authStore.logout();
       }, 2000);
     })
@@ -537,7 +537,6 @@ function checkUpdate() {
       }
       if (err.response && err.response.status == 401) {
         console.log("401");
-        const authStore = useAuthStore();
         authStore.logout();
         return;
       }
@@ -1430,6 +1429,19 @@ onMounted(async () => {
         <v-list-item-title>{{
           t("core.header.accountDialog.title")
         }}</v-list-item-title>
+      </v-list-item>
+
+      <v-divider class="my-1" />
+
+      <v-list-item
+        @click="authStore.logout()"
+        class="styled-menu-item text-error"
+        prepend-icon="mdi-logout"
+        rounded="md"
+      >
+        <v-list-item-title>
+          {{ t("core.header.buttons.logout") }}
+        </v-list-item-title>
       </v-list-item>
       </StyledMenu>
     </div>
