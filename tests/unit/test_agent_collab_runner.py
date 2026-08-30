@@ -342,3 +342,54 @@ async def test_resume_clears_stop_request():
     # Resume: the discussion runs again and now collects normally.
     r.resume()
     assert r._stop_requested.is_set() is False
+
+
+@pytest.mark.asyncio
+async def test_build_ports_registers_run_before_injecting(monkeypatch):
+    """Production ports wire deliver() to ChatService's synthetic-run
+    registration, and the registration happens BEFORE the input item is
+    queued (mirrors build_chat_stream's register-then-inject ordering) so
+    the pipeline's first chunk already has a back_queue to land in."""
+    from astrbot.core.platform.sources.webchat import webchat_queue_mgr as mgr_module
+    from astrbot.dashboard.services.agent_collab_service import AgentCollabService
+
+    registered: list[tuple[str, str, str]] = []
+    queued: list[tuple] = []
+
+    class _Queue:
+        async def put(self, item):
+            # Registration must have happened before the input is queued.
+            assert len(registered) == 1
+            queued.append(item)
+
+    class _Mgr:
+        def get_or_create_queue(self, cid):
+            return _Queue()
+
+        def subscribe_system(self, cid):
+            return asyncio.Queue()
+
+    class _ChatService:
+        chat_runs_by_session = {}
+
+        async def register_synthetic_chat_run(self, cid, message_id, checkpoint):
+            registered.append((cid, message_id, checkpoint))
+
+    monkeypatch.setattr(mgr_module, "webchat_queue_mgr", _Mgr(), raising=False)
+    # agent_collab_service holds its own `from`-imported binding — patch it.
+    monkeypatch.setattr(
+        "astrbot.dashboard.services.agent_collab_service.webchat_queue_mgr",
+        _Mgr(),
+    )
+
+    service = AgentCollabService()
+    ports = service.build_ports(_ChatService(), "alice", lambda e: None)
+
+    message_id = await ports.deliver("webchat!u!cid777", "hello", "ctx")
+
+    assert len(registered) == 1
+    cid, mid, checkpoint = registered[0]
+    assert cid == "cid777"
+    assert mid == message_id
+    assert checkpoint
+    assert len(queued) == 1

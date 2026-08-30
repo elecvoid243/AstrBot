@@ -1315,11 +1315,31 @@ class ChatService:
             try:
                 subscriber.put_nowait(item)
             except asyncio.QueueFull:
-                # End slow streams so they can reconnect from a fresh snapshot.
-                run.subscribers.discard(subscriber)
-                while not subscriber.empty():
-                    subscriber.get_nowait()
-                subscriber.put_nowait(None)
+                # Slow consumer (the SSE socket drains slower than the LLM
+                # produces per-character chunks, and the frontend re-renders
+                # markdown per chunk). Drop the OLDEST buffered events to fit
+                # the new one and KEEP the subscriber attached — evicting it
+                # (the old behavior) killed the SSE connection permanently,
+                # freezing the bubble on 思考中 with no way to recover short
+                # of a manual refresh.
+                dropped = 0
+                while True:
+                    try:
+                        subscriber.put_nowait(item)
+                        break
+                    except asyncio.QueueFull:
+                        try:
+                            subscriber.get_nowait()
+                            dropped += 1
+                        except asyncio.QueueEmpty:
+                            subscriber.put_nowait(item)
+                            break
+                if dropped:
+                    logger.debug(
+                        "chat run %s: dropped %d oldest events for a slow subscriber",
+                        run.run_id,
+                        dropped,
+                    )
 
     def _subscribe_chat_run(
         self,
@@ -1430,7 +1450,22 @@ class ChatService:
                 raise ChatServiceError(f"Chat run {run_id} not found")
             return self._subscribe_orphan_run(orphan_run_registry, orphan)
         if run.username != username:
-            raise ChatServiceError("Permission denied")
+            # 2026-08-30: identity representations can drift between auth
+            # dependencies — run.username is recorded from
+            # require_dashboard_user (dashboard-state username first) while
+            # this endpoint authenticates via require_chat_scope (JWT
+            # username). Fall back to the canonical session-ownership check
+            # (the same convention get_session uses) before rejecting, so a
+            # same-user attach is not broken by the representation drift.
+            session = await self.db.get_platform_session_by_id(run.session_id)
+            if session is None or session.creator != username:
+                logger.warning(
+                    "chat run %s owner mismatch: run.username=%r requester=%r",
+                    run_id,
+                    run.username,
+                    username,
+                )
+                raise ChatServiceError("Permission denied")
         return self._subscribe_chat_run(run, include_snapshot=True)
 
     def _subscribe_orphan_run(self, registry, orphan) -> AsyncIterator[str]:
@@ -1765,9 +1800,23 @@ class ChatService:
                     if not isinstance(payload, dict):
                         continue
                     message_id = payload.get("message_id")
-                    if not message_id or message_id in self.chat_runs:
-                        # Primary run stream owns this message_id.
+                    if not message_id:
                         continue
+                    if message_id in self.chat_runs:
+                        # Primary run stream owns this message_id — its
+                        # payloads are served by the run stream. The only
+                        # exception is the synthetic-run registration
+                        # announcement (flagged by the sender): a page that
+                        # did not initiate the run needs it in order to
+                        # attach to the run stream. The adapter's own
+                        # run_started mirror for user-initiated runs stays
+                        # filtered — that page renders via its
+                        # request-scoped stream.
+                        if not (
+                            payload.get("type") == "run_started"
+                            and payload.get("synthetic")
+                        ):
+                            continue
                     yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
                     msg_type = payload.get("type")
@@ -1798,6 +1847,67 @@ class ChatService:
                 webchat_queue_mgr.unsubscribe_system(session_id, queue)
 
         return stream()
+
+    async def register_synthetic_chat_run(
+        self,
+        session_id: str,
+        message_id: str,
+        username: str,
+        llm_checkpoint_id: str | None = None,
+    ) -> None:
+        """Register a first-class chat run for a synthetic (non-POST /chat) turn.
+
+        Agent-collab injections do not originate from a dashboard request, so
+        nothing would own their back_queue: the webchat adapter would treat
+        the turn as an orphan and it would render through the lossy
+        system-mirror channel instead of the primary pipeline. Registering
+        the run here puts it on the exact primary path — the standard
+        consumer accumulates and persists the reply, `active_runs` exposes it
+        for switch-back recovery, and the run stream serves snapshot + live
+        chunks like any user-initiated turn.
+
+        Args:
+            session_id: Raw webchat conversation id.
+            message_id: The injected turn's message id (becomes the run id).
+              MUST be registered before the input item is queued so the
+              pipeline's first chunk already has a back_queue to land in.
+            username: Run owner (the discussion's dashboard user).
+            llm_checkpoint_id: Checkpoint carried by the injected payload;
+              a fresh one is generated when omitted.
+        """
+        back_queue = webchat_queue_mgr.get_or_create_back_queue(message_id, session_id)
+        run = ChatRunState(
+            run_id=message_id,
+            username=username,
+            session_id=session_id,
+            llm_checkpoint_id=llm_checkpoint_id or str(uuid.uuid4()),
+            platform_history_id="webchat",
+            back_queue=back_queue,
+        )
+        self.chat_runs[message_id] = run
+        self.chat_runs_by_session.setdefault(session_id, set()).add(message_id)
+        run.task = asyncio.create_task(
+            self._consume_chat_run(run),
+            name=f"webchat_run_{message_id}",
+        )
+        # Announce to system-stream subscribers so a page with the session
+        # open attaches to the run stream. The payload is flagged
+        # `synthetic`: build_system_stream passes ONLY flagged announcements
+        # through its run-ownership filter — the adapter's send_typing also
+        # mirrors a run_started for this message id, and that copy must stay
+        # filtered (the initiating page of a user-owned run already renders
+        # via its request-scoped stream; attaching again would duplicate the
+        # reply).
+        await webchat_queue_mgr.put_system_event(
+            session_id,
+            {
+                "type": "run_started",
+                "data": {"run_id": message_id},
+                "streaming": False,
+                "message_id": message_id,
+                "synthetic": True,
+            },
+        )
 
     async def build_chat_stream(
         self,

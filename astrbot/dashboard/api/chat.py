@@ -436,7 +436,8 @@ async def resume_chat_run(
 ):
     try:
         stream = await service.build_chat_run_stream(auth.username, run_id)
-    except ChatServiceError:
+    except ChatServiceError as exc:
+        logger.warning("Resume stream for run %s unavailable: %s", run_id, exc)
         return JSONResponse(error("Chat run is unavailable"))
 
     return StreamingResponse(

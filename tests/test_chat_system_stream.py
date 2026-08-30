@@ -508,3 +508,292 @@ class TestOrphanTurnSystemStreamStatsE2E:
             pump.cancel()
             await asyncio.gather(pump, return_exceptions=True)
             await stream.aclose()
+
+
+class TestRegisterSyntheticChatRun:
+    @pytest.mark.asyncio
+    async def test_register_creates_run_and_announces_run_started(self):
+        """register_synthetic_chat_run puts the injected turn on the primary
+        pipeline: back_queue + ChatRunState exist, active_runs exposes it
+        with the injected checkpoint, and run_started is announced to the
+        conversation's system mirror so an open page attaches to the run
+        stream."""
+        service = _make_service()
+        session_id = f"conv-{id(service)}-reg"
+        await service.register_synthetic_chat_run(
+            session_id, "synth-run-1", "alice", "checkpoint-1"
+        )
+        try:
+            run = service.chat_runs["synth-run-1"]
+            assert run.session_id == session_id
+            assert run.llm_checkpoint_id == "checkpoint-1"
+            assert service.chat_runs_by_session[session_id] == {"synth-run-1"}
+            # Active-run recovery covers the turn (switch-back / refresh).
+            snapshots = service.get_active_chat_runs("alice", session_id)
+            assert snapshots[0]["run_id"] == "synth-run-1"
+            assert snapshots[0]["llm_checkpoint_id"] == "checkpoint-1"
+        finally:
+            await webchat_queue_mgr.put_back_queue(
+                "synth-run-1",
+                {
+                    "type": "end",
+                    "data": "",
+                    "streaming": False,
+                    "message_id": "synth-run-1",
+                },
+            )
+            await asyncio.wait_for(run.task, timeout=2)
+
+        # Consumed: the run is cleaned up like any primary run.
+        assert "synth-run-1" not in service.chat_runs
+        assert session_id not in service.chat_runs_by_session
+
+    @pytest.mark.asyncio
+    async def test_run_owned_payloads_are_hidden_from_system_stream(self):
+        """Registered-run payloads must not leak into the system stream —
+        the run stream owns their rendering — while the run_started
+        announcement passes through so pages can attach."""
+        service = _make_service()
+        session_id = f"conv-{id(service)}-hide"
+        await service.register_synthetic_chat_run(
+            session_id, "synth-run-2", "alice", "checkpoint-2"
+        )
+        stream = await service.build_system_stream("alice", session_id)
+        sink: list = []
+        pump = asyncio.create_task(_pump(stream, sink))
+        try:
+            await _wait_until(
+                lambda: webchat_queue_mgr.has_system_subscribers(session_id)
+            )
+            await webchat_queue_mgr.put_system_event(
+                session_id,
+                {
+                    "type": "plain",
+                    "data": "owned chunk",
+                    "streaming": True,
+                    "message_id": "synth-run-2",
+                },
+            )
+            # The adapter's run_started mirror (no synthetic flag) stays
+            # filtered for run-owned message ids — the initiating page
+            # renders the turn via its own request-scoped stream.
+            await webchat_queue_mgr.put_system_event(
+                session_id,
+                {
+                    "type": "run_started",
+                    "data": {"run_id": "synth-run-2"},
+                    "streaming": False,
+                    "message_id": "synth-run-2",
+                },
+            )
+            # ...while the synthetic registration announcement passes so
+            # other pages can attach to the run stream.
+            await webchat_queue_mgr.put_system_event(
+                session_id,
+                {
+                    "type": "run_started",
+                    "data": {"run_id": "synth-run-2"},
+                    "streaming": False,
+                    "message_id": "synth-run-2",
+                    "synthetic": True,
+                },
+            )
+            await _wait_until(lambda: any(p.get("type") == "run_started" for p in sink))
+            passed = [p for p in sink if p.get("type") == "run_started"]
+            assert all(p.get("synthetic") for p in passed)
+            assert not any(p.get("type") == "plain" for p in sink)
+        finally:
+            pump.cancel()
+            await asyncio.gather(pump, return_exceptions=True)
+            await stream.aclose()
+            await webchat_queue_mgr.put_back_queue(
+                "synth-run-2",
+                {
+                    "type": "end",
+                    "data": "",
+                    "streaming": False,
+                    "message_id": "synth-run-2",
+                },
+            )
+            await asyncio.wait_for(service.chat_runs.pop("synth-run-2").task, timeout=2)
+
+
+class TestSyntheticRunResumeStream:
+    @pytest.mark.asyncio
+    async def test_resume_stream_delivers_snapshot_chunks_and_end(self):
+        """A synthetic run registered via register_synthetic_chat_run must be
+        fully served by the run stream: snapshot on attach, live chunks while
+        streaming, and a terminal end — exactly like a user-initiated run."""
+        service = _make_service()
+        session_id = f"conv-{id(service)}-resume"
+        await service.register_synthetic_chat_run(
+            session_id, "synth-run-3", "alice", "checkpoint-3"
+        )
+        run = service.chat_runs["synth-run-3"]
+
+        stream = await service.build_chat_run_stream("alice", "synth-run-3")
+        sink: list = []
+        pump = asyncio.create_task(_pump(stream, sink))
+
+        async def _feed():
+            await webchat_queue_mgr.put_back_queue(
+                "synth-run-3",
+                {
+                    "type": "plain",
+                    "data": "streamed reply",
+                    "streaming": True,
+                    "message_id": "synth-run-3",
+                },
+            )
+            await webchat_queue_mgr.put_back_queue(
+                "synth-run-3",
+                {
+                    "type": "end",
+                    "data": "",
+                    "streaming": False,
+                    "message_id": "synth-run-3",
+                },
+            )
+
+        try:
+            # Wait for the snapshot so we know the subscriber is attached
+            # before feeding chunks.
+            await _wait_until(
+                lambda: any(p.get("type") == "run_snapshot" for p in sink)
+            )
+            await _feed()
+            await asyncio.wait_for(run.task, timeout=2)
+            await _wait_until(lambda: any(p.get("type") == "end" for p in sink))
+
+            types = [p.get("type") for p in sink]
+            assert "run_snapshot" in types
+            assert "plain" in types
+            assert "end" in types
+            plain = next(p for p in sink if p.get("type") == "plain")
+            assert plain.get("data") == "streamed reply"
+        finally:
+            pump.cancel()
+            await asyncio.gather(pump, return_exceptions=True)
+            await stream.aclose()
+
+
+class TestPublishChatRun:
+    @pytest.mark.asyncio
+    async def test_slow_subscriber_keeps_receiving_after_overflow(self):
+        """Regression: a slow subscriber used to be EVICTED on queue overflow,
+        killing its SSE connection — the bubble froze on 思考中 with no text
+        until a manual refresh. Overflow now drops the oldest buffered events
+        and keeps the subscriber attached, always holding the newest event."""
+        import asyncio
+
+        from astrbot.core.platform.sources.webchat.webchat_queue_mgr import (
+            webchat_queue_mgr,
+        )
+
+        service = _make_service()
+        session_id = f"conv-{id(service)}-slow"
+        await service.register_synthetic_chat_run(
+            session_id, "slow-run-1", "alice", "checkpoint-slow"
+        )
+        run = service.chat_runs["slow-run-1"]
+        try:
+            slow = asyncio.Queue(maxsize=1)
+            run.subscribers.add(slow)
+            for text in ("one", "two", "three"):
+                ChatService._publish_chat_run(
+                    run,
+                    {
+                        "type": "plain",
+                        "data": text,
+                        "streaming": True,
+                        "message_id": "slow-run-1",
+                    },
+                )
+            # The subscriber was never evicted and holds the newest event.
+            assert slow in run.subscribers
+            assert slow.qsize() == 1
+            _, payload = slow.get_nowait()
+            assert payload["data"] == "three"
+            # The backlog drain does not touch the manager's back_queue.
+            assert webchat_queue_mgr.back_queues["slow-run-1"].qsize() == 0
+        finally:
+            await webchat_queue_mgr.put_back_queue(
+                "slow-run-1",
+                {
+                    "type": "end",
+                    "data": "",
+                    "streaming": False,
+                    "message_id": "slow-run-1",
+                },
+            )
+            await asyncio.wait_for(run.task, timeout=2)
+
+
+class TestRunStreamOwnershipFallback:
+    @pytest.mark.asyncio
+    async def test_owner_mismatch_falls_back_to_session_creator(self):
+        """Identity drift between auth dependencies: run.username is recorded
+        from require_dashboard_user (dashboard-state username first) while
+        the resume endpoint authenticates via require_chat_scope (JWT
+        username). When the two differ, the attach must still succeed if the
+        run's session belongs to the requester (get_session's ownership
+        convention)."""
+        from fastapi import FastAPI  # noqa: F401  (import guard parity)
+
+        service = _make_service()
+        session_id = f"conv-{id(service)}-own"
+        await service.register_synthetic_chat_run(
+            session_id, "own-run-1", "Alice", "cp-own"
+        )
+        # The chat-scope JWT resolves to "alice" while the run recorded the
+        # dashboard-state representation "Alice" — same person, drifted form.
+        session = MagicMock(creator="alice")
+        service.db.get_platform_session_by_id = AsyncMock(return_value=session)
+
+        stream = await service.build_chat_run_stream("alice", "own-run-1")
+        sink: list = []
+        pump = asyncio.create_task(_pump(stream, sink))
+        try:
+            await _wait_until(
+                lambda: any(p.get("type") == "run_snapshot" for p in sink)
+            )
+            await webchat_queue_mgr.put_back_queue(
+                "own-run-1",
+                {
+                    "type": "end",
+                    "data": "",
+                    "streaming": False,
+                    "message_id": "own-run-1",
+                },
+            )
+            await _wait_until(lambda: any(p.get("type") == "end" for p in sink))
+        finally:
+            pump.cancel()
+            await asyncio.gather(pump, return_exceptions=True)
+            await stream.aclose()
+
+    @pytest.mark.asyncio
+    async def test_owner_mismatch_rejected_when_session_owned_by_other(self):
+        service = _make_service()
+        session_id = f"conv-{id(service)}-deny"
+        await service.register_synthetic_chat_run(
+            session_id, "deny-run-1", "Alice", "cp-deny"
+        )
+        session = MagicMock(creator="carol")
+        service.db.get_platform_session_by_id = AsyncMock(return_value=session)
+
+        from astrbot.dashboard.services.chat_service import ChatServiceError
+
+        with pytest.raises(ChatServiceError, match="Permission denied"):
+            await service.build_chat_run_stream("bob", "deny-run-1")
+        # Cleanup the registered run so its consumer task ends quietly.
+        await webchat_queue_mgr.put_back_queue(
+            "deny-run-1",
+            {
+                "type": "end",
+                "data": "",
+                "streaming": False,
+                "message_id": "deny-run-1",
+            },
+        )
+        await asyncio.wait_for(service.chat_runs.pop("deny-run-1").task, timeout=2)

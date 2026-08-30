@@ -359,6 +359,22 @@ export function useMessages(options: UseMessagesOptions) {
             return;
           }
           await readSseStream(response.body, (payload) => {
+            // 2026-08-27: first-class run announcements — attach the page to
+            // the run's own stream (snapshot + live chunks through the exact
+            // primary processing path) instead of rendering the turn through
+            // the system leaf. Only synthetic-run registrations qualify: the
+            // adapter's run_started mirror for user-initiated runs stays
+            // filtered server-side, and goal-loop orphans keep rendering via
+            // the system leaf below.
+            if (
+              payload?.type === "run_started" &&
+              payload.synthetic &&
+              payload.message_id != null
+            ) {
+              attachLiveRun(sessionId, String(payload.message_id));
+              options.onStreamUpdate?.(sessionId);
+              return;
+            }
             messagesBySession[sessionId] = messagesBySession[sessionId] || [];
             const consumed = processSystemPayload(
               systemStreamState,
@@ -574,15 +590,59 @@ export function useMessages(options: UseMessagesOptions) {
     }
   }
 
+  /**
+   * Attach the page to a live run announced via the system stream
+   * (`run_started`). The run stream serves a snapshot plus live chunks
+   * through the exact primary processing path — the same transport a
+   * user-initiated turn uses — so synthetic (agent-collab) turns render
+   * identically to normal replies.
+   */
+  function attachLiveRun(sessionId: string, runId: string) {
+    if (!sessionId || !runId || activeConnections[runId]) return;
+    const messages = (messagesBySession[sessionId] =
+      messagesBySession[sessionId] || []);
+    // Already restored (e.g. via active_runs moments ago) — reuse that
+    // record instead of pushing a duplicate bubble.
+    const existing = messages.find(
+      (r: ChatRecord) =>
+        String(r.id) === `active-run-${runId}` ||
+        String(r.id) === `local-bot-${runId}`,
+    );
+    if (existing) {
+      startResumeStream(sessionId, runId, existing);
+      return;
+    }
+    const botRecord = reactive<ChatRecord>({
+      id: `local-bot-${runId}`,
+      created_at: new Date().toISOString(),
+      content: {
+        type: "bot",
+        message: [],
+        reasoning: "",
+        isLoading: true,
+      },
+    });
+    messages.push(botRecord);
+    startResumeStream(
+      sessionId,
+      runId,
+      messages[messages.length - 1],
+    );
+  }
+
   async function restoreNextActiveRun(
     sessionId: string,
     activeRuns: ActiveChatRun[],
   ) {
-    // 2026-08-27: orphan runs (goal-loop / collab synthetic turns,
-    // llm_checkpoint_id = null) are owned by the system event stream —
-    // its subscribe-time run_snapshot re-seeds the in-flight turn, so
-    // attaching a resume stream here would render the turn twice.
-    const run = activeRuns.find((candidate) => candidate.run_id && candidate.llm_checkpoint_id);
+    // 2026-08-27: goal-loop runs (llm_checkpoint_id = null) are still
+    // owned by the system event stream — its subscribe-time run_snapshot
+    // re-seeds the in-flight turn, so attaching a resume stream here
+    // would render the turn twice. Collab injections are first-class
+    // runs (registered via register_synthetic_chat_run) and carry a
+    // checkpoint id, so they attach through this primary path.
+    const run = activeRuns.find(
+      (candidate) => candidate.run_id && candidate.llm_checkpoint_id,
+    );
     if (!run || isSessionRunning(sessionId)) return;
 
     const checkpointId = run.llm_checkpoint_id || null;

@@ -203,7 +203,9 @@ class AgentCollabService:
             # Member ids are stored in full `webchat!user!conv` form while the
             # deleted session arrives as the bare conversation id — compare
             # through the same normalizer the queue layer uses.
-            if any(_conversation_id(m.get("session_id", "")) == session_id for m in members):
+            if any(
+                _conversation_id(m.get("session_id", "")) == session_id for m in members
+            ):
                 dissolved.append(group_id)
                 del groups[group_id]
         if not dissolved:
@@ -294,8 +296,17 @@ class AgentCollabService:
         reply_timeout: float = 180.0,
         busy_poll_interval: float = 2.0,
         is_busy_override: Callable[[str], bool] | None = None,
+        run_registrar: Callable[[str, str, str], Awaitable[None]] | None = None,
     ) -> "RunnerPorts":
-        """Build RunnerPorts over a given WebChatQueueMgr (test seam)."""
+        """Build RunnerPorts over a given WebChatQueueMgr (test seam).
+
+        Args:
+            run_registrar: Optional `async (cid, message_id, checkpoint_id)`
+              hook awaited BEFORE the injected input is queued. Production
+              wires it to `ChatService.register_synthetic_chat_run` so the
+              turn becomes a first-class chat run (back_queue + run state)
+              and flows through the exact primary pipeline.
+        """
 
         # One system-event subscription per conversation, created in deliver()
         # BEFORE the input item is queued. Subscribing after delivery would
@@ -307,8 +318,14 @@ class AgentCollabService:
         ) -> str:
             cid = _conversation_id(session_id)
             message_id = uuid.uuid4().hex
+            llm_checkpoint_id = uuid.uuid4().hex
             queue = mgr.get_or_create_queue(cid)
             subscriptions.setdefault(cid, mgr.subscribe_system(cid))
+            if run_registrar is not None:
+                # Register the run first (mirrors build_chat_stream's
+                # register-then-inject ordering) so the pipeline's very first
+                # chunk already has a back_queue to land in.
+                await run_registrar(cid, message_id, llm_checkpoint_id)
             await queue.put(
                 (
                     username,
@@ -319,7 +336,7 @@ class AgentCollabService:
                         "selected_model": None,
                         "flags": resolve_webchat_request_flags({}),
                         "message_id": message_id,
-                        "llm_checkpoint_id": uuid.uuid4().hex,
+                        "llm_checkpoint_id": llm_checkpoint_id,
                         "thread_selected_text": None,
                         "_api_key_allow_admin_role": None,
                         # Per-turn collab framing, injected by build_main_agent
@@ -406,15 +423,24 @@ class AgentCollabService:
         """Build production RunnerPorts bound to the real ChatService.
 
         Args:
-            chat_service: The dashboard ChatService (busy detection via
-                chat_runs_by_session, keyed by webchat conversation id).
+            chat_service: The dashboard ChatService. Injected turns are
+                registered through `register_synthetic_chat_run` so they
+                flow through the exact primary-run pipeline (back_queue →
+                standard consume/persist → run stream), and busy detection
+                reads `chat_runs_by_session` (keyed by webchat conversation
+                id).
             username: Discussion owner, used as the sender of injected turns.
             emit: Router event sink (SSE multiplexer).
 
         Returns:
             RunnerPorts wired to the global webchat queue manager.
         """
-        ports = self.build_ports_for_test(webchat_queue_mgr, username, emit)
+        ports = self.build_ports_for_test(
+            webchat_queue_mgr,
+            username,
+            emit,
+            run_registrar=chat_service.register_synthetic_chat_run,
+        )
         ports.is_busy = lambda sid: bool(
             chat_service.chat_runs_by_session.get(_conversation_id(sid))
         )
