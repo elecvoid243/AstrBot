@@ -101,7 +101,7 @@ def test_injection_builders():
     m = build_moderator_context(MEMBERS, "webchat!alice!aaaaaaaa1111")
     assert "编程agent" in m and "collab-route" in m and "主持人" in m
     p = build_moderator_pair_context("编程agent")
-    # pair groups only teach the end action; the route action must not appear
+    # pair prompt: default is a plain reply; the only protocolized action is end
     assert '"action": "end"' in p and '"action": "route"' not in p
     assert "编程agent" in p  # counterpart is named, not anonymous "对方"
     assert build_member_body("编程agent", "内容") == "[来自 编程agent]: 内容"

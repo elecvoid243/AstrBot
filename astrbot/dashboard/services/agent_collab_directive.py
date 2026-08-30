@@ -195,7 +195,10 @@ def build_moderator_context(members: list[dict], moderator_session_id: str) -> s
 def build_moderator_pair_context(other_alias: str) -> str:
     """Build the per-turn context header for the moderator in a 2-member group."""
     return (
-        f"[协作讨论] 你在与 {other_alias} 进行连续讨论，需要结束时在回复末尾输出一个指令块：\n"
+        f"[协作讨论] 你正在与 {other_alias} 进行连续讨论，你的回复会由系统转达给对方。\n"
+        "[协作讨论] 默认直接输出你想与对方交流的内容，不要输出任何指令块；"
+        f"在 {other_alias} 尚未回应之前，不要结束讨论。\n"
+        "[协作讨论] 仅当讨论目标已经达成、可以给出结论时，才在回复末尾追加结束指令块：\n"
         "```collab-route\n"
         '{"action": "end", "summary": "<总结>"}\n'
         "```"
