@@ -24,6 +24,11 @@
   /skill-guide/load for a ONE-SHOT nudge — the plugin injects a guidance
   prompt into the NEXT LLM request of the session and drains the queue.
   Persona and the skill's global active state are never touched.
+
+  Show-all mode (toggle row, default off): additionally list EVERY skill
+  in data/skills (core GET /skills); skills the persona does not mount
+  render gray but queue the same way (the nudge only needs the SKILL.md
+  path). The preference is persisted in localStorage.
 -->
 <template>
   <v-menu
@@ -73,16 +78,42 @@
         >
       </div>
 
+      <!--
+        Show-all toggle (persisted): on = list EVERY skill in data/skills
+        (core GET /skills). Skills the persona does NOT mount render gray
+        but stay clickable — a manual load only carries the SKILL.md path
+        hint, so unmounted skills work the same.
+      -->
+      <div class="skill-guide-menu-card__showall">
+        <span
+          class="skill-guide-menu-card__showall-label"
+          :title="tm('input.skillGuide.showAllTitle')"
+          >{{ tm("input.skillGuide.showAll") }}</span
+        >
+        <v-switch
+          :model-value="showAll"
+          :aria-label="tm('input.skillGuide.showAllTitle')"
+          :title="tm('input.skillGuide.showAllTitle')"
+          class="skill-guide-menu-card__switch"
+          color="primary"
+          density="compact"
+          hide-details
+          inset
+          data-test="skill-guide-show-all"
+          @update:model-value="guide.setShowAll"
+        />
+      </div>
+
       <div class="skill-guide-menu-card__list">
         <div
-          v-if="loading"
+          v-if="listLoading"
           class="skill-guide-menu-card__hint"
           data-test="skill-guide-loading"
         >
           {{ tm("input.skillGuide.loading") }}
         </div>
         <div
-          v-else-if="loadFailed"
+          v-else-if="listFailed"
           class="skill-guide-menu-card__hint"
           data-test="skill-guide-load-failed"
         >
@@ -90,7 +121,7 @@
           {{ tm("input.skillGuide.loadFailed") }}
         </div>
         <div
-          v-else-if="skills.length === 0"
+          v-else-if="displaySkills.length === 0"
           class="skill-guide-menu-card__hint"
           data-test="skill-guide-empty"
         >
@@ -98,13 +129,14 @@
         </div>
 
         <button
-          v-for="skill in skills"
-          v-show="!loading && !loadFailed"
+          v-for="skill in displaySkills"
+          v-show="!listLoading && !listFailed"
           :key="skill.name"
           type="button"
           class="skill-guide-menu-card__item"
           :class="{
             'skill-guide-menu-card__item--queued': isQueued(skill.name),
+            'skill-guide-menu-card__item--unmounted': !skill.mounted,
           }"
           :data-test="`skill-guide-item-${skill.name}`"
           :title="skill.description || skill.name"
@@ -154,7 +186,7 @@
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, ref } from "vue";
+import { computed, onBeforeUnmount, ref } from "vue";
 import { useModuleI18n } from "@/i18n/composables";
 import {
   useSkillGuide,
@@ -179,7 +211,27 @@ const { tm } = useModuleI18n("features/chat");
 // Singleton state shared with ChatInput's pending-badge row — reading the
 // same refs means the skill menu's ✓ marks and the badges can never diverge.
 const guide = useSkillGuide();
-const { skills, queued, loading, loadFailed } = guide;
+const {
+  displaySkills,
+  queued,
+  loading,
+  loadFailed,
+  showAll,
+  allSkillsLoading,
+  allSkillsFailed,
+} = guide;
+
+// The list renders only when BOTH sources are ready: the plugin's active
+// list (loading/loadFailed) and, in show-all mode, the core /skills list.
+// The plugin states take precedence — without them the whole entry is gone.
+const listLoading = computed(
+  () => loading.value || (showAll.value && allSkillsLoading.value),
+);
+const listFailed = computed(
+  () =>
+    !loading.value &&
+    (loadFailed.value || (showAll.value && allSkillsFailed.value)),
+);
 
 // Open/close is fully self-managed (v-model on the v-menu): hovering the
 // item opens it; the menu closes whenever the pointer leaves the item OR
@@ -284,6 +336,39 @@ async function handleClearAll(): Promise<void> {
   text-align: center;
 }
 
+/* Show-all toggle row: slim, sits between the header and the list. */
+.skill-guide-menu-card__showall {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 12px 4px;
+  border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.08);
+}
+
+.skill-guide-menu-card__showall-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10.5px;
+  color: rgba(var(--v-theme-on-surface), 0.55);
+  cursor: default;
+}
+
+/* Compact switch: shrink Vuetify's default track/handle margins so the
+   row stays within the header's visual weight. */
+/* One size smaller than the stock inset switch (32px track): shrink the
+   layout box via Vuetify's own CSS vars (avoids specificity fights) and
+   scale the pill itself — the thumb's absolute-position slide geometry
+   must stay untouched, so uniform scaling is the safe way down. */
+.skill-guide-menu-card__switch {
+  flex: none;
+  --v-input-control-height: 26px;
+  --v-input-padding-top: 0px;
+  transform: scale(0.75);
+  transform-origin: center;
+}
+
 /* Scroll past max-height when the session exposes many skills. */
 .skill-guide-menu-card__list {
   max-height: min(48vh, 320px);
@@ -376,6 +461,17 @@ async function handleClearAll(): Promise<void> {
   font-size: 10.5px;
   line-height: 1.4;
   color: rgba(var(--v-theme-on-surface), 0.5);
+}
+
+/* Unmounted skills: gray but still clickable (queued state keeps its
+   highlight so a loaded unmounted skill stays recognizable). */
+.skill-guide-menu-card__item--unmounted .skill-guide-menu-card__item-name,
+.skill-guide-menu-card__item--unmounted .skill-guide-menu-card__item-desc {
+  color: rgba(var(--v-theme-on-surface), 0.38);
+}
+
+.skill-guide-menu-card__item--unmounted .skill-guide-menu-card__item-icon {
+  color: rgba(var(--v-theme-on-surface), 0.3);
 }
 
 .skill-guide-menu-card__clear {

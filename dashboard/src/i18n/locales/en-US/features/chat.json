@@ -48,7 +48,9 @@
       "queued": "Queued",
       "pendingLabel": "Skill guidance",
       "removeTitle": "Undo {name}: not injected into the next message",
-      "clearAll": "Undo all"
+      "clearAll": "Undo all",
+      "showAll": "Show all skills",
+      "showAllTitle": "Also list skills not mounted by the persona (gray, still loadable)"
     }
   },
   "message": {

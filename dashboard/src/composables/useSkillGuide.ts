@@ -23,12 +23,17 @@
 //     injection happens server-side on the next request, so the
 //     pending badges are cleared optimistically when the message is
 //     sent (see `consumeQueued`).
+//   - "Show all skills" (default off) widens the menu list to EVERY
+//     skill in data/skills (core GET /skills). Skills not mounted by
+//     the persona render gray but remain loadable — the plugin accepts
+//     any skill that exists on disk (the nudge only carries the
+//     SKILL.md path).
 //
 // Author: elecvoid243
 // Last-Modified: 2026-08-16
 
-import { ref } from 'vue'
-import { pluginExtensionApi } from '@/api/v1'
+import { computed, ref } from 'vue'
+import { pluginExtensionApi, skillApi } from '@/api/v1'
 
 /** One entry of GET /skill-guide/active -> data.skills[]. */
 export interface SkillGuideSkill {
@@ -36,6 +41,12 @@ export interface SkillGuideSkill {
   description: string
   path: string
   source_type: string
+}
+
+/** One rendered row of the skill menu: a skill plus its persona state. */
+export interface SkillGuideDisplaySkill extends SkillGuideSkill {
+  /** False = present in data/skills but NOT mounted by the persona (gray). */
+  mounted: boolean
 }
 
 /** GET /skill-guide/active -> data. */
@@ -59,6 +70,10 @@ const ACTIVE_PATH = 'skill-guide/active'
 const LOAD_PATH = 'skill-guide/load'
 const CLEAR_PATH = 'skill-guide/clear'
 
+// localStorage key for the "show every skill in data/skills" preference
+// (chat.* prefix, same family as chat.transportMode in Chat.vue).
+const SHOW_ALL_KEY = 'chat.skillGuide.showAll'
+
 // --- module-level singleton state -------------------------------------------
 
 /** Current session's unified_msg_origin (null = no session). */
@@ -80,6 +95,39 @@ const skills = ref<SkillGuideSkill[]>([])
 
 /** Skill names queued for the NEXT LLM request of this session. */
 const queued = ref<string[]>([])
+
+/**
+ * "Show all skills" toggle (default off = persona-mounted only). When on,
+ * the menu additionally lists every skill scanned from data/skills via the
+ * core GET /skills API — skills not mounted by the persona render gray but
+ * stay clickable (a manual load only needs the SKILL.md path hint).
+ */
+const showAll = ref(false)
+try {
+  showAll.value = localStorage.getItem(SHOW_ALL_KEY) === '1'
+} catch {
+  showAll.value = false
+}
+
+/** Every skill in data/skills (session-independent, cached after fetch). */
+const allSkills = ref<SkillGuideSkill[]>([])
+const allSkillsLoading = ref(false)
+const allSkillsFailed = ref(false)
+let allSkillsFetched = false
+
+/** Rows actually rendered by the menu (all rows mounted when showAll off). */
+const displaySkills = computed<SkillGuideDisplaySkill[]>(() => {
+  if (!showAll.value) {
+    return skills.value.map((skill) => ({ ...skill, mounted: true }))
+  }
+  const mountedNames = new Set(skills.value.map((skill) => skill.name))
+  return allSkills.value
+    .map((skill) => ({ ...skill, mounted: mountedNames.has(skill.name) }))
+    .sort(
+      (a, b) =>
+        Number(b.mounted) - Number(a.mounted) || a.name.localeCompare(b.name),
+    )
+})
 
 /**
  * Composable returning the Skill Guide singleton.
@@ -140,6 +188,62 @@ export function useSkillGuide() {
   }
 
   /**
+   * Toggle "show all skills" and lazily fetch the full data/skills list
+   * (core GET /skills) on first enable. The preference is persisted in
+   * localStorage; the cached list survives across sessions.
+   */
+  async function setShowAll(value: boolean): Promise<void> {
+    showAll.value = value
+    try {
+      localStorage.setItem(SHOW_ALL_KEY, value ? '1' : '0')
+    } catch {
+      // Ignore localStorage failures (private mode etc.).
+    }
+    if (value && !allSkillsFetched && !allSkillsLoading.value) {
+      await refreshAllSkills()
+    }
+  }
+
+  /**
+   * Soft-fail fetch of every skill in data/skills via the core GET /skills
+   * API (same source the Skills management page uses). Accepts both the
+   * legacy array and the {skills: []} envelope shapes.
+   */
+  async function refreshAllSkills(): Promise<void> {
+    allSkillsLoading.value = true
+    allSkillsFailed.value = false
+    try {
+      const res = await skillApi.list()
+      const payload = res?.data?.data
+      const list = Array.isArray(payload) ? payload : payload?.skills
+      if (!Array.isArray(list)) {
+        throw new Error('malformed /skills payload')
+      }
+      allSkills.value = list
+        .map(
+          (skill: {
+            name?: unknown
+            description?: unknown
+            path?: unknown
+            source_type?: unknown
+          }) => ({
+            name: String(skill?.name ?? ''),
+            description: String(skill?.description ?? ''),
+            path: String(skill?.path ?? ''),
+            source_type: String(skill?.source_type ?? ''),
+          }),
+        )
+        .filter((skill) => skill.name !== '')
+      allSkillsFetched = true
+    } catch {
+      // Soft-fail: the menu keeps showing the persona-mounted list state.
+      allSkillsFailed.value = true
+    } finally {
+      allSkillsLoading.value = false
+    }
+  }
+
+  /**
    * Toggle a skill on/off the one-shot queue.
    *
    * Queuing POSTs /skill-guide/load. Un-queuing a SINGLE skill works
@@ -149,7 +253,10 @@ export function useSkillGuide() {
    */
   async function toggleSkill(name: string): Promise<boolean> {
     const umo = sessionUmo.value
-    if (!umo || !skills.value.some((s) => s.name === name)) return false
+    const known =
+      skills.value.some((s) => s.name === name) ||
+      allSkills.value.some((s) => s.name === name)
+    if (!umo || !known) return false
     if (queued.value.includes(name)) {
       const remaining = queued.value.filter((n) => n !== name)
       await clearAll()
@@ -208,7 +315,11 @@ export function useSkillGuide() {
     queued.value = []
   }
 
-  /** Wipe everything (e.g. logout / ChatInput unmount). */
+  /**
+   * Wipe the SESSION state (e.g. logout / ChatInput unmount). The showAll
+   * preference and its cached data/skills list are deliberately kept —
+   * they are session-independent and persist across sessions.
+   */
   function reset(): void {
     sessionUmo.value = null
     available.value = false
@@ -228,9 +339,16 @@ export function useSkillGuide() {
     persona,
     skills,
     queued,
+    showAll,
+    allSkills,
+    allSkillsLoading,
+    allSkillsFailed,
+    displaySkills,
     // methods
     setSession,
     refresh,
+    setShowAll,
+    refreshAllSkills,
     toggleSkill,
     clearAll,
     consumeQueued,

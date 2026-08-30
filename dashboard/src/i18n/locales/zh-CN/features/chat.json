@@ -48,7 +48,9 @@
       "queued": "已加载",
       "pendingLabel": "Skill 引导",
       "removeTitle": "撤销 {name}：下一条消息不再注入",
-      "clearAll": "撤销全部"
+      "clearAll": "撤销全部",
+      "showAll": "显示全部 Skill",
+      "showAllTitle": "同时显示未被人格挂载的 Skill（灰色，仍可点击加载）"
     }
   },
   "message": {

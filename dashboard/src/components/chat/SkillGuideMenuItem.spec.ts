@@ -10,6 +10,10 @@
 // hover close binds directly to it. Open/close is self-managed: the menu
 // ALWAYS closes when the pointer leaves, even after a skill was selected.
 // Un-selecting one skill keeps the others.
+//
+// Show-all mode (toggle off by default): flipping the switch lists every
+// skill from the core GET /skills API (skillApi.list); skills the persona
+// does not mount render gray (--unmounted) but queue the same way.
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { flushPromises, mount } from "@vue/test-utils";
@@ -18,6 +22,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/api/v1", () => ({
   pluginExtensionApi: { get: vi.fn(), post: vi.fn() },
+  skillApi: { list: vi.fn() },
 }));
 
 // Self-contained i18n mock (returns the key + k=v params), same shape
@@ -35,12 +40,13 @@ vi.mock("@/i18n/composables", () => ({
   useModuleI18n: () => ({ tm: tmMock, getRaw: vi.fn() }),
 }));
 
-import { pluginExtensionApi } from "@/api/v1";
+import { pluginExtensionApi, skillApi } from "@/api/v1";
 import { useSkillGuide } from "@/composables/useSkillGuide";
 import SkillGuideMenuItem from "./SkillGuideMenuItem.vue";
 
 const getMock = pluginExtensionApi.get as ReturnType<typeof vi.fn>;
 const postMock = pluginExtensionApi.post as ReturnType<typeof vi.fn>;
+const listMock = skillApi.list as ReturnType<typeof vi.fn>;
 
 const UMO = "webchat:FriendMessage:webchat!alice!sess-1";
 
@@ -72,6 +78,40 @@ const okClear = (cleared: string[]) => ({
   data: { status: "ok", data: { cleared } },
 });
 
+// Core GET /skills payload: every skill in data/skills. "grilling" is on
+// disk but NOT persona-mounted (missing from ACTIVE_PAYLOAD above).
+const ALL_SKILLS_PAYLOAD = {
+  status: "ok",
+  data: {
+    data: {
+      runtime: "local",
+      skills: [
+        {
+          name: "brainstorming",
+          description: "Explore intent before implementation",
+          path: "skills/brainstorming/SKILL.md",
+          source_type: "local",
+          active: true,
+        },
+        {
+          name: "pdf",
+          description: "Work with PDF files",
+          path: "skills/pdf/SKILL.md",
+          source_type: "local",
+          active: true,
+        },
+        {
+          name: "grilling",
+          description: "Deep-dive questioning",
+          path: "skills/grilling/SKILL.md",
+          source_type: "local",
+          active: true,
+        },
+      ],
+    },
+  },
+};
+
 // v-menu stub: driven by v-model (the component owns `open`), content
 // renders only while open. The activator forwards clicks so "open on
 // click" keeps working (hover is handled by the component itself).
@@ -86,7 +126,7 @@ const menuStub = defineComponent({
 });
 
 // The card and skill rows are plain elements (not Vuetify components), so
-// only the activator v-list-item needs a stub.
+// only the activator v-list-item and the show-all v-switch need stubs.
 const stubs = {
   "v-menu": menuStub,
   "v-icon": { template: "<i><slot /></i>" },
@@ -96,6 +136,11 @@ const stubs = {
     template: `<div v-bind="$attrs" class="v-list-item-stub" :disabled="disabled" @click="$emit('click')"><slot name="prepend" /><slot /></div>`,
   },
   "v-list-item-title": { template: "<span><slot /></span>" },
+  "v-switch": {
+    props: ["modelValue"],
+    emits: ["update:modelValue"],
+    template: `<div v-bind="$attrs" class="v-switch-stub" @click="$emit('update:modelValue', !modelValue)"></div>`,
+  },
 };
 
 function mountItem(props: Record<string, unknown> = {}) {
@@ -116,10 +161,14 @@ async function openByHover(wrapper: ReturnType<typeof mountItem>) {
   await flushPromises();
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   getMock.mockReset();
   postMock.mockReset();
+  listMock.mockReset();
   useSkillGuide().reset();
+  // showAll is a persisted preference living outside reset() — force it
+  // back off so each test starts from the default rendering.
+  await useSkillGuide().setShowAll(false);
 });
 
 afterEach(() => {
@@ -327,5 +376,70 @@ describe("SkillGuideMenuItem — list states & queueing", () => {
     expect(wrapper.find('[data-test="skill-guide-pop-count"]').exists()).toBe(
       false,
     );
+  });
+});
+
+describe("SkillGuideMenuItem — show-all mode", () => {
+  it("defaults to persona-mounted skills only (no /skills fetch)", async () => {
+    await primeSession();
+    listMock.mockResolvedValue(ALL_SKILLS_PAYLOAD);
+    const wrapper = mountItem();
+    await openByHover(wrapper);
+
+    expect(wrapper.text()).toContain("brainstorming");
+    expect(wrapper.text()).not.toContain("grilling");
+    expect(listMock).not.toHaveBeenCalled();
+  });
+
+  it("lists every data/skills skill on toggle, graying unmounted ones after the mounted ones", async () => {
+    await primeSession();
+    listMock.mockResolvedValue(ALL_SKILLS_PAYLOAD);
+    const wrapper = mountItem();
+    await openByHover(wrapper);
+
+    await wrapper.find('[data-test="skill-guide-show-all"]').trigger("click");
+    await flushPromises();
+
+    expect(listMock).toHaveBeenCalled();
+    expect(wrapper.text()).toContain("grilling");
+    const grilling = wrapper.find('[data-test="skill-guide-item-grilling"]');
+    expect(grilling.classes()).toContain(
+      "skill-guide-menu-card__item--unmounted",
+    );
+    expect(
+      wrapper.find('[data-test="skill-guide-item-brainstorming"]').classes(),
+    ).not.toContain("skill-guide-menu-card__item--unmounted");
+    // Mounted rows first, gray rows after.
+    const rows = wrapper.findAll(".skill-guide-menu-card__item");
+    const dataTests = rows.map((row) => row.attributes("data-test"));
+    expect(
+      dataTests.indexOf("skill-guide-item-grilling"),
+    ).toBeGreaterThan(dataTests.indexOf("skill-guide-item-brainstorming"));
+    // Preference is persisted.
+    expect(localStorage.getItem("chat.skillGuide.showAll")).toBe("1");
+  });
+
+  it("queues an unmounted (gray) skill via POST /skill-guide/load", async () => {
+    await primeSession();
+    listMock.mockResolvedValue(ALL_SKILLS_PAYLOAD);
+    postMock.mockResolvedValue(okLoad("grilling"));
+    const wrapper = mountItem();
+    await openByHover(wrapper);
+
+    await wrapper.find('[data-test="skill-guide-show-all"]').trigger("click");
+    await flushPromises();
+    await wrapper
+      .find('[data-test="skill-guide-item-grilling"]')
+      .trigger("click");
+    await flushPromises();
+
+    expect(postMock).toHaveBeenCalledWith("skill-guide/load", {
+      umo: UMO,
+      skill_name: "grilling",
+    });
+    expect(useSkillGuide().queued.value).toEqual(["grilling"]);
+    expect(
+      wrapper.find('[data-test="skill-guide-item-grilling"]').classes(),
+    ).toContain("skill-guide-menu-card__item--queued");
   });
 });
