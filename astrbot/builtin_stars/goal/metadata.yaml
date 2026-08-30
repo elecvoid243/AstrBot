@@ -1,0 +1,4 @@
+name: builtin_goal
+desc: AstrBot 内置常驻目标循环（/goal 设定目标，judge 驱动 Agent 持续工作直到完成）。
+author: elecvoid243
+version: 1.0.0

@@ -151,6 +151,29 @@ def create_dashboard_asgi_app(
         ),
     )
 
+    # Kernel goal loop: injected goal turns on webchat sessions register as
+    # first-class chat runs so they render and recover through the exact
+    # primary-run pipeline (same as agent-collab injections).
+    from astrbot.core.goal.goal_service import goal_service as _goal_service
+
+    async def _goal_run_registrar(
+        umo: str, message_id: str, llm_checkpoint_id: str
+    ) -> None:
+        if not umo.startswith("webchat:"):
+            # Non-webchat platforms have no dashboard run stream.
+            return
+        cid = umo.rsplit("!", 1)[-1]
+        session = await db.get_platform_session_by_id(cid)
+        username = session.creator if session else "astrbot"
+        await app.state.services.chat.register_synthetic_chat_run(
+            session_id=cid,
+            message_id=message_id,
+            username=username,
+            llm_checkpoint_id=llm_checkpoint_id,
+        )
+
+    _goal_service.set_run_registrar(_goal_run_registrar)
+
     @app.exception_handler(ApiError)
     async def api_error_handler(_request: Request, exc: ApiError):
         return JSONResponse(
