@@ -676,6 +676,7 @@
             @send="sendCurrentMessage"
             @send-command="sendSystemCommand"
             @stop="stopCurrentSession"
+            @flush-pending="flushPendingFromInput"
             @toggle-streaming="toggleStreaming"
             @remove-image="removeImage"
             @remove-audio="removeAudio"
@@ -897,6 +898,7 @@
             @send="sendCurrentMessage"
             @send-command="sendSystemCommand"
             @stop="stopCurrentSession"
+            @flush-pending="flushPendingFromInput"
             @toggle-streaming="toggleStreaming"
             @remove-image="removeImage"
             @remove-audio="removeAudio"
@@ -1135,6 +1137,7 @@ import {
 import { useFileComments } from "@/composables/useFileComments";
 import { useFileReferences } from "@/composables/useFileReferences";
 import { useInlineAnnotations } from "@/composables/useInlineAnnotations";
+import { usePendingFollowUps } from "@/composables/usePendingFollowUps";
 import { resolveSessionUmo } from "@/utils/resolveSessionUmo";
 import {
   messageBlocks as buildMessageBlocks,
@@ -1745,6 +1748,12 @@ const {
       scrollToBottom();
     }
   },
+  // Tool-call boundary of the active run: flush queued follow-ups now
+  // so the backend captures them and injects them into THIS tool's
+  // result — the same timing the old send-while-running path produced.
+  onToolCallActivity: (sessionId) => {
+    void flushPendingFollowUps(sessionId);
+  },
   // Refresh the spcode "currently loaded project" chip every time a
   // bot response finishes, so commands like `/project load <dir>` or
   // `/project unload` show their effect on the chip immediately
@@ -1760,6 +1769,12 @@ const {
   // a stream is in flight, the new session's state is already covered
   // by the `currSessionId` watcher above.
   onStreamEnd: (sessionId) => {
+    // Run finished (or was stopped) without consuming the follow-up
+    // queue — dispatch queued items as normal messages so they start
+    // new runs, mirroring how the backend activates unconsumed
+    // follow-up tickets. Runs for any session, not just the visible
+    // one.
+    void flushPendingFollowUps(sessionId);
     if (sessionId === currSessionId.value) {
       // Bug fix (2026-06-23, elecvoid243): spcodeStatus.refresh()
       // must receive the full umo (not be called bare). Without it,
@@ -3227,6 +3242,30 @@ async function sendCurrentMessage() {
     const text = [userText, commentText, referenceText]
       .filter(Boolean)
       .join("\n\n");
+
+    // ZCode-style follow-up queue (2026-09-01): while an agent run is
+    // active, hold text-only messages in the pending list above the
+    // input instead of dispatching them. Flush triggers (tool-call
+    // boundary / stream end / the "send now" button) dispatch them
+    // later; see flushPendingFollowUps below. Messages with staged
+    // attachments keep the legacy immediate-send path so media keeps
+    // flowing through the backend's own capture pipeline.
+    if (
+      isSessionRunning(sessionId) &&
+      !stagedImagesUrl.value.length &&
+      !stagedAudioUrl.value &&
+      !stagedNonImageFiles.value.length
+    ) {
+      pendingFollowUps.enqueue(sessionId, text);
+      draft.value = "";
+      replyTarget.value = null;
+      // References were baked into the queued text — consume them like
+      // a normal send would. Comments persist by design (standing
+      // block), so they are left alone.
+      fileReferences.clearAll();
+      return;
+    }
+
     const messageId = crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`;
     const outgoingParts = buildOutgoingParts(text);
     const selection = getSelectedProviderSelection();
@@ -4037,6 +4076,96 @@ async function stopCurrentSession() {
   } catch (error) {
     console.error("Failed to stop session:", error);
   }
+}
+
+// ── Pending follow-up queue (ZCode-style, 2026-09-01) ──────────────
+// While an agent run is active, text messages are held locally above
+// the input (usePendingFollowUps) instead of being dispatched. They are
+// dispatched by three triggers:
+// 1. onToolCallActivity — flushed at the tool-call boundary, so the
+//    backend captures them and injects them into that tool's result
+//    (the exact timing the old send-while-running path produced).
+// 2. onStreamEnd — the run ended without consuming the queue; items
+//    start new runs as normal messages (mirrors how the backend
+//    activates unconsumed follow-up tickets).
+// 3. The "send now" button on a pending card — stop the active run,
+//    then dispatch; the queued text rides on top of full history as a
+//    fresh request.
+const pendingFollowUps = usePendingFollowUps();
+const flushingFollowUps = new Set<string>();
+
+async function flushPendingFollowUps(sessionId: string) {
+  if (!sessionId || flushingFollowUps.has(sessionId)) return;
+  const items = pendingFollowUps.takeAll(sessionId);
+  if (!items.length) return;
+  flushingFollowUps.add(sessionId);
+  try {
+    for (const item of items) {
+      await sendQueuedFollowUp(sessionId, item.text);
+    }
+  } finally {
+    flushingFollowUps.delete(sessionId);
+  }
+}
+
+/** Interrupt the active run and immediately dispatch the queued
+    follow-ups as fresh requests (equivalent to /stop + resend). */
+async function flushPendingFollowUpsNow(sessionId: string | null) {
+  if (!sessionId) return;
+  const items = pendingFollowUps.takeAll(sessionId);
+  if (!items.length) return;
+  flushingFollowUps.add(sessionId);
+  try {
+    if (isSessionRunning(sessionId)) {
+      try {
+        await stopSession(sessionId);
+      } catch (error) {
+        console.error("Failed to stop session:", error);
+      }
+      // Wait briefly for the aborted stream to tear down so the queued
+      // messages start a clean new run instead of racing the dying
+      // runner's capture window.
+      const deadline = Date.now() + 3000;
+      while (isSessionRunning(sessionId) && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+    }
+    for (const item of items) {
+      await sendQueuedFollowUp(sessionId, item.text);
+    }
+  } finally {
+    flushingFollowUps.delete(sessionId);
+  }
+}
+
+async function sendQueuedFollowUp(sessionId: string, text: string) {
+  const trimmed = text.trim();
+  if (!trimmed) return;
+  const messageId = crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`;
+  const outgoingParts = buildOutgoingParts(text);
+  const selection = getSelectedProviderSelection();
+  const { userRecord, botRecord } = createLocalExchange({
+    sessionId,
+    messageId,
+    parts: outgoingParts,
+  });
+  updateTitleFromText(sessionId, text);
+  sendMessageStream({
+    sessionId,
+    messageId,
+    parts: outgoingParts,
+    transport: transportMode.value,
+    enableStreaming: enableStreaming.value,
+    selectedProvider: selection?.providerId || "",
+    selectedModel: selection?.modelName || "",
+    thinkingEffort: getCurrentThinkingEffort(),
+    userRecord,
+    botRecord,
+  });
+}
+
+function flushPendingFromInput() {
+  void flushPendingFollowUpsNow(currSessionId.value);
 }
 
 function toggleTheme() {

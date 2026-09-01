@@ -88,6 +88,76 @@
         </div>
       </div>
     </div>
+    <!--
+      ZCode-style pending follow-up queue (2026-09-01): messages sent
+      while an agent run is active are held here instead of being
+      dispatched. "Send now" interrupts the run and dispatches the
+      queue as fresh requests; without it, Chat.vue flushes the queue
+      at the next tool-call boundary (the backend injects it into that
+      tool's result — the legacy follow-up timing) or on stream end.
+    -->
+    <div
+      v-if="props.sessionId && pendingFollowUpItems.length"
+      class="pending-follow-ups"
+    >
+      <div
+        v-for="item in pendingFollowUpItems"
+        :key="item.id"
+        class="pending-follow-up-card"
+      >
+        <template v-if="editingFollowUpId === item.id">
+          <v-textarea
+            v-model="editingFollowUpText"
+            density="compact"
+            variant="outlined"
+            hide-details
+            auto-grow
+            rows="1"
+            class="pending-follow-up-card__editor"
+            @keydown.enter.prevent="saveFollowUpEdit(item.id)"
+            @keydown.esc="editingFollowUpId = null"
+          />
+          <div class="pending-follow-up-card__actions">
+            <v-btn size="small" variant="text" @click="editingFollowUpId = null">
+              {{ tm("input.cancel") }}
+            </v-btn>
+            <v-btn size="small" variant="tonal" @click="saveFollowUpEdit(item.id)">
+              {{ tm("input.save") }}
+            </v-btn>
+          </div>
+        </template>
+        <template v-else>
+          <span class="pending-follow-up-card__text" :title="item.text">
+            {{ item.text }}
+          </span>
+          <div class="pending-follow-up-card__actions">
+            <v-btn
+              size="small"
+              variant="tonal"
+              class="pending-follow-up-card__now"
+              @click="emit('flushPending')"
+            >
+              <v-icon icon="mdi-arrow-up" size="small" start />
+              {{ tm("input.followUpSendNow") }}
+            </v-btn>
+            <v-btn
+              icon="mdi-pencil-outline"
+              size="small"
+              variant="text"
+              :aria-label="tm('input.followUpEdit')"
+              @click="startFollowUpEdit(item)"
+            />
+            <v-btn
+              icon="mdi-trash-can-outline"
+              size="small"
+              variant="text"
+              :aria-label="tm('input.followUpDelete')"
+              @click="removeFollowUp(item.id)"
+            />
+          </div>
+        </template>
+      </div>
+    </div>
     <div
       class="input-container"
       :class="{
@@ -552,6 +622,8 @@ import { useDisplay } from "vuetify";
 import { useModuleI18n } from "@/i18n/composables";
 import type { ThinkingEffort } from "@/composables/useMessages";
 import { useCustomizerStore } from "@/stores/customizer";
+import { usePendingFollowUps } from "@/composables/usePendingFollowUps";
+import type { PendingFollowUp } from "@/composables/usePendingFollowUps";
 import { isComposingEnter } from "@/utils/imeInput.mjs";
 import { buildWebchatUmoDetails } from "@/utils/chatConfigBinding";
 import { commandApi } from "@/api/v1";
@@ -663,9 +735,41 @@ const emit = defineEmits<{
   clearReply: [];
   openLiveMode: [];
   "open-diff-sidebar": [];
+  // ZCode-style follow-up queue: interrupt the active run and dispatch
+  // the pending messages above the input as fresh requests.
+  flushPending: [];
 }>();
 
 const { tm } = useModuleI18n("features/chat");
+
+// ZCode-style pending follow-up queue (singleton store shared with
+// Chat.vue, which owns the flush triggers and dispatch path).
+const pendingFollowUps = usePendingFollowUps();
+const pendingFollowUpItems = computed(() =>
+  pendingFollowUps.itemsFor(props.sessionId),
+);
+const editingFollowUpId = ref<string | null>(null);
+const editingFollowUpText = ref("");
+
+function startFollowUpEdit(item: PendingFollowUp) {
+  editingFollowUpId.value = item.id;
+  editingFollowUpText.value = item.text;
+}
+
+function saveFollowUpEdit(id: string) {
+  if (props.sessionId) {
+    pendingFollowUps.updateText(
+      props.sessionId,
+      id,
+      editingFollowUpText.value,
+    );
+  }
+  editingFollowUpId.value = null;
+}
+
+function removeFollowUp(id: string) {
+  if (props.sessionId) pendingFollowUps.remove(props.sessionId, id);
+}
 const isDark = computed(
   () => useCustomizerStore().uiTheme === "PurpleThemeDark",
 );
@@ -2804,5 +2908,54 @@ defineExpose({
 }
 .skill-guide-chip__remove:hover {
   color: rgb(var(--v-theme-error));
+}
+
+/* ── Pending follow-up queue (ZCode-style) ── */
+.pending-follow-ups {
+  width: var(--chat-content-width, 76%);
+  max-width: var(--chat-content-max-width, 760px);
+  margin: 0 auto 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pending-follow-up-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 6px 12px;
+  border: 1px solid var(--sp-chip-border);
+  border-radius: 14px;
+  background: var(--sp-chip-bg);
+}
+
+.pending-follow-up-card__text {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--sp-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+
+.pending-follow-up-card__actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+/* Long custom text keeps the card compact; the full text is one edit
+   away and shown via title tooltip. */
+.pending-follow-up-card__editor {
+  flex: 1;
+  min-width: 0;
+}
+
+.pending-follow-up-card__editor :deep(.v-field__field) {
+  font-size: 13px;
 }
 </style>

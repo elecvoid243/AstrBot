@@ -13,6 +13,9 @@
     "dropToUpload": "松开鼠标上传文件",
     "dropToReference": "松开鼠标引用该文件",
     "stopGenerating": "停止生成",
+    "followUpSendNow": "立即",
+    "followUpEdit": "编辑追加消息",
+    "followUpDelete": "删除追加消息",
     "thinkingEffort": "思考强度",
     "thinkingEffortOptions": {
       "low": "低",

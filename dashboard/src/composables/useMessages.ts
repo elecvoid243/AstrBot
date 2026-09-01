@@ -271,6 +271,17 @@ interface UseMessagesOptions {
    *     just received the choice.
    */
   onInteractiveChoice?: (sessionId: string) => void;
+  /**
+   * Fired each time the active run's stream reports a real tool call
+   * (`ask_user_choice` prompts excluded). Marks a tool-call boundary for
+   * the pending follow-up queue: messages flushed here are captured by
+   * the backend and injected into this tool's result, mirroring the
+   * send-while-running timing before the queue existed.
+   *
+   * Args:
+   *   sessionId: The session whose active run just called a tool.
+   */
+  onToolCallActivity?: (sessionId: string) => void;
 }
 
 export function useMessages(options: UseMessagesOptions) {
@@ -1696,6 +1707,7 @@ export function useMessages(options: UseMessagesOptions) {
           return;
         }
         upsertToolCall(botRecord, parsed);
+        if (sessionId) options.onToolCallActivity?.(sessionId);
         return;
       }
       // Author: elecvoid243
