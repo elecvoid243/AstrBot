@@ -1,13 +1,13 @@
 <!-- Author: elecvoid243 @ 2026-09-01
-     Terminal sub-page: persistent shell (PowerShell/cmd) rendered with
-     xterm.js (output only), input via a native browser text field.
-     No PTY: PowerShell/cmd echo input themselves in pipe mode (verified
-     2026-09-01: 'pwd' -> echo '> pwd'; DEL char is NOT handled by the
-     shell, so character-level echo/backspace inside xterm double-prints
-     and never erases). The native input field gives correct editing.
-     UI: Vuetify controls (v-btn-toggle / v-btn / v-chip), command lines
-     are highlighted by the frontend and the shell's own echo line is
-     filtered out in the SSE stream (pattern: `<prompt>> <command>`). -->
+     Terminal sub-page: persistent shell (PowerShell/cmd), xterm.js
+     rendering, keyboard input INSIDE the terminal (no external input
+     field). No PTY: the shell echoes received lines itself and does NOT
+     handle DEL, so the frontend runs a local line editor:
+       - printable chars are echoed locally only (never sent);
+       - backspace / history edit the local buffer only;
+       - Enter erases the local preview, sends ONE complete line, and
+         the shell's own echo (highlighted cyan) takes over display.
+     This keeps single display + correct backspace for both shells. -->
 <template>
   <div class="terminal-view">
     <div class="terminal-toolbar">
@@ -48,7 +48,7 @@
         {{ tm("spcodeProjectLoad.gitDiffSidebar.terminal.connect") }}
       </v-btn>
       <template v-else>
-        <v-btn variant="text" size="small" @click="onInterrupt">
+        <v-btn variant="text" size="small" @click="doInterrupt">
           {{ tm("spcodeProjectLoad.gitDiffSidebar.terminal.interrupt") }}
         </v-btn>
         <v-btn
@@ -64,31 +64,7 @@
         {{ tm("spcodeProjectLoad.gitDiffSidebar.terminal.clear") }}
       </v-btn>
     </div>
-    <div
-      ref="hostRef"
-      class="terminal-host"
-      @click="focusInput"
-    />
-    <div class="terminal-input-row">
-      <span class="terminal-input-prompt">&#10095;</span>
-      <input
-        ref="inputRef"
-        v-model="lineInput"
-        class="terminal-input"
-        :disabled="busy"
-        :placeholder="
-          running
-            ? tm('spcodeProjectLoad.gitDiffSidebar.terminal.inputPlaceholder')
-            : tm('spcodeProjectLoad.gitDiffSidebar.terminal.inputPlaceholderIdle')
-        "
-        autocomplete="off"
-        autocapitalize="off"
-        spellcheck="false"
-        @keydown.enter.prevent="onEnter"
-        @keydown.up.prevent="historyPrev"
-        @keydown.down.prevent="historyNext"
-      />
-    </div>
+    <div ref="hostRef" class="terminal-host" />
   </div>
 </template>
 
@@ -148,17 +124,18 @@ const shell = ref<"powershell" | "cmd">(loadShell());
 const status = ref<"idle" | "running" | "exited" | "error">("idle");
 const busy = ref(false);
 const sessionId = ref<string | null>(null);
-const lineInput = ref("");
 const hostRef = ref<HTMLDivElement | null>(null);
-const inputRef = ref<HTMLInputElement | null>(null);
 let term: Terminal | null = null;
 let fit: FitAddon | null = null;
 let abortController: AbortController | null = null;
 let resizeObserver: ResizeObserver | null = null;
-// Local command history for the native input field (ArrowUp/Down).
+// Local line editor state (frontend-only; the shell never sees partial
+// input, only complete lines on Enter).
+let pendingLine = "";
+let pendingCols = 0;
 const history: string[] = [];
 let historyIndex = -1;
-// Last command submitted; used to filter the shell's own echo line.
+// Last complete line sent; used to highlight the shell's echo line.
 let lastSubmittedLine = "";
 
 const running = computed(() => status.value === "running");
@@ -180,6 +157,180 @@ const statusLabel = computed(() => {
 /** ANSI color helper: wrap text in a foreground color without resets. */
 function ansi(color: string, text: string): string {
   return `\x1b[${color}m${text}\x1b[0m`;
+}
+
+/** Approximate display column width (East Asian wide chars count as 2). */
+function strWidth(s: string): number {
+  let w = 0;
+  for (const ch of s) {
+    const code = ch.codePointAt(0) ?? 0;
+    w +=
+      (code >= 0x1100 &&
+        (code <= 0x115f ||
+          code === 0x2329 ||
+          code === 0x232a ||
+          (code >= 0x2e80 && code <= 0xa4cf && code !== 0x303f) ||
+          (code >= 0xac00 && code <= 0xd7a3) ||
+          (code >= 0xf900 && code <= 0xfaff) ||
+          (code >= 0xfe10 && code <= 0xfe19) ||
+          (code >= 0xfe30 && code <= 0xfe6f) ||
+          (code >= 0xff00 && code <= 0xff60) ||
+          (code >= 0xffe0 && code <= 0xffe6) ||
+          (code >= 0x20000 && code <= 0x2fffd) ||
+          (code >= 0x30000 && code <= 0x3fffd)))
+        ? 2
+        : 1;
+  }
+  return w;
+}
+
+/** Erase the locally echoed input preview (cursor back + clear tail). */
+function clearLocalInput(): void {
+  if (pendingCols > 0) {
+    term?.write(`\x1b[${pendingCols}D\x1b[0K`);
+  }
+  pendingCols = 0;
+}
+
+/** Redraw the local input preview from scratch on the current line. */
+function redrawLocalInput(): void {
+  term?.write(pendingLine);
+  pendingCols = strWidth(pendingLine);
+}
+
+/** Highlight the shell's own echo line (``<prompt>> <command>``). */
+function highlightEchoLine(text: string): string {
+  if (!lastSubmittedLine) return text;
+  const esc = escapeRegExp(lastSubmittedLine);
+  const re = new RegExp(
+    `^([^\\r\\n]*>[ \\t]*)(${esc})([ \\t]*\\r?\\n?)$`,
+    "gm",
+  );
+  return text.replace(
+    re,
+    (_m, pre: string, cmd: string, rest: string) =>
+      `${pre}${ansi("1;36", cmd)}${rest}`,
+  );
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function writeNotice(text: string): void {
+  term?.write(`${ansi("90", text)}\r\n`);
+}
+
+// ------------------------------------------------------------------
+// Local line editor (raw terminal input)
+// ------------------------------------------------------------------
+function onTerminalData(data: string): void {
+  if (!sessionId.value) return;
+  // Ctrl+C -> interrupt, clear the preview.
+  if (data === "\x03") {
+    pendingLine = "";
+    clearLocalInput();
+    term?.write("^C\r\n");
+    void doInterrupt();
+    return;
+  }
+  // Arrow keys: local command history (no send).
+  if (data === "\x1b[A") {
+    historyPrev();
+    return;
+  }
+  if (data === "\x1b[B") {
+    historyNext();
+    return;
+  }
+  // Ignore other escape sequences / control chars (Tab, Alt-combos…).
+  if (data === "\x1b" || data.startsWith("\x1b") || /[\x00-\x1f]/.test(data)) {
+    return;
+  }
+  // Enter: erase preview, newline, send the COMPLETE line.
+  if (data === "\r" || data === "\n") {
+    submitPendingLine();
+    return;
+  }
+  // Backspace: local edit only (DEL never reaches the shell).
+  if (data === "\x7f" || data === "\x08") {
+    if (pendingLine.length > 0) {
+      pendingLine = pendingLine.slice(0, -1);
+      term?.write("\b \b");
+      pendingCols = Math.max(0, pendingCols - 1);
+    }
+    return;
+  }
+  // Printable chars: local echo only.
+  pendingLine += data;
+  pendingCols += strWidth(data);
+  term?.write(data);
+}
+
+function submitPendingLine(): void {
+  const line = pendingLine;
+  pendingLine = "";
+  // Remove the local preview, then advance to a new line; the shell's
+  // own echo of the line (highlighted) takes over the display.
+  clearLocalInput();
+  term?.write("\r\n");
+  if (line.trim()) {
+    history.push(line);
+    lastSubmittedLine = line.trim();
+  }
+  void sendInput(`${line}\n`);
+}
+
+function historyPrev(): void {
+  if (history.length === 0) return;
+  if (historyIndex === -1) {
+    historyIndex = history.length - 1;
+  } else if (historyIndex > 0) {
+    historyIndex -= 1;
+  }
+  applyHistoryLine(history[historyIndex] ?? "");
+}
+
+function historyNext(): void {
+  if (history.length === 0 || historyIndex === -1) return;
+  historyIndex += 1;
+  if (historyIndex >= history.length) {
+    historyIndex = -1;
+    applyHistoryLine("");
+    return;
+  }
+  applyHistoryLine(history[historyIndex] ?? "");
+}
+
+function applyHistoryLine(line: string): void {
+  clearLocalInput();
+  pendingLine = line;
+  redrawLocalInput();
+}
+
+function sendInput(chars: string): void {
+  if (!props.umo || !sessionId.value) return;
+  void pluginExtensionApi
+    .post("spcode/terminal/input", {
+      umo: props.umo,
+      session_id: sessionId.value,
+      chars,
+    })
+    .catch(() => {
+      /* transient input loss — SSE error handling covers the rest */
+    });
+}
+
+async function doInterrupt(): Promise<void> {
+  if (!props.umo || !sessionId.value) return;
+  try {
+    await pluginExtensionApi.post("spcode/terminal/interrupt", {
+      umo: props.umo,
+      session_id: sessionId.value,
+    });
+  } catch {
+    /* ignore */
+  }
 }
 
 /** Dark editor palette (GitHub Dark-like). */
@@ -245,114 +396,13 @@ function initTerm(): void {
   fit = new FitAddon();
   term.loadAddon(fit);
   term.open(host);
+  // Focus the terminal on click so keyboard input lands in xterm.
+  host.addEventListener("mousedown", () => term?.focus());
+  term.onData(onTerminalData);
   void nextTick(() => fit?.fit());
 
   resizeObserver = new ResizeObserver(() => fit?.fit());
   resizeObserver.observe(host);
-}
-
-function writeNotice(text: string): void {
-  term?.write(`${ansi("90", text)}\r\n`);
-}
-
-/** Escape a string for use inside a RegExp. */
-function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-/**
- * Filter the shell's echo line (e.g. `PS C:\repo> pwd` / `C:\repo>pwd`)
- * out of a received output block — the frontend already rendered the
- * submitted line itself with highlight. Non-matching output passes
- * through untouched.
- */
-function filterEchoLine(text: string): string {
-  if (!lastSubmittedLine) return text;
-  const esc = escapeRegExp(lastSubmittedLine);
-  const re = new RegExp(`^[^\\r\\n]*>[ \\t]*${esc}[ \\t]*\\r?\\n?$`, "gm");
-  return text.replace(re, "");
-}
-
-function focusInput(): void {
-  inputRef.value?.focus();
-}
-
-/**
- * Enter handler: submits the line when the session is running, or
- * auto-starts the session first when idle (the input field is never
- * hard-disabled outside of an in-flight start, so keyboard always
- * responds).
- */
-function onEnter(): void {
-  if (status.value !== "running" || !sessionId.value) {
-    toggleFocusAndStart();
-    return;
-  }
-  submitLine();
-}
-
-async function toggleFocusAndStart(): Promise<void> {
-  if (busy.value) return;
-  const line = lineInput.value;
-  lineInput.value = "";
-  await onStart();
-  if (line) {
-    // Restore the drafted line: after a successful start the user can
-    // press Enter again to submit it; after a failure they can retry.
-    lineInput.value = line;
-    void nextTick(() => inputRef.value?.focus());
-  }
-}
-
-/** Submit the current input line to the shell as one complete line. */
-function submitLine(): void {
-  if (!props.umo || !sessionId.value) return;
-  const line = lineInput.value;
-  lineInput.value = "";
-  historyIndex = -1;
-  if (line.trim()) {
-    history.push(line);
-    lastSubmittedLine = line.trim();
-    // Highlighted command line, rendered locally (the shell's echo of
-    // the same line is filtered out in openStream). Guaranteed to be
-    // visible for both PowerShell and cmd regardless of their pipe
-    // echo behaviour.
-    term?.write(
-      `${ansi("36", "\u276f")} ${ansi("1;36", line.trim())}\r\n`,
-    );
-    term?.scrollToBottom();
-  }
-  void pluginExtensionApi
-    .post("spcode/terminal/input", {
-      umo: props.umo,
-      session_id: sessionId.value,
-      chars: `${line}\n`,
-    })
-    .catch(() => {
-      /* transient input loss — SSE error handling covers the rest */
-    });
-  void nextTick(() => inputRef.value?.focus());
-}
-
-function historyPrev(): void {
-  if (history.length === 0) return;
-  if (historyIndex === -1) {
-    historyIndex = history.length - 1;
-  } else if (historyIndex > 0) {
-    historyIndex -= 1;
-  }
-  lineInput.value = history[historyIndex] ?? "";
-}
-
-function historyNext(): void {
-  if (history.length === 0 || historyIndex === -1) return;
-  historyIndex += 1;
-  if (historyIndex >= history.length) {
-    historyIndex = -1;
-    lineInput.value = "";
-    return;
-  }
-  lineInput.value = history[historyIndex] ?? "";
 }
 
 async function onStart(): Promise<void> {
@@ -378,7 +428,7 @@ async function onStart(): Promise<void> {
     status.value = "running";
     writeNotice(`[spcode] ${data.shell} @ ${data.cwd} (pid ${data.pid})`);
     await openStream(0);
-    void nextTick(() => inputRef.value?.focus());
+    term?.focus();
   } finally {
     busy.value = false;
   }
@@ -413,7 +463,7 @@ async function openStream(startCursor: number): Promise<void> {
         if (event.type === "output") {
           const text = String(event.data);
           if (lastSubmittedLine) {
-            term?.write(filterEchoLine(text));
+            term?.write(highlightEchoLine(text));
           } else {
             term?.write(text);
           }
@@ -425,10 +475,14 @@ async function openStream(startCursor: number): Promise<void> {
             })`,
           );
           sessionId.value = null;
+          pendingLine = "";
+          pendingCols = 0;
           return;
         } else if (event.type === "error") {
           status.value = "error";
           sessionId.value = null;
+          pendingLine = "";
+          pendingCols = 0;
           writeNotice(String(event.data));
           return;
         }
@@ -455,24 +509,12 @@ async function restoreSession(): Promise<void> {
     status.value = data.status === "running" ? "running" : "exited";
     if (data.status === "running") {
       await openStream(data.cursor ?? 0);
+      term?.focus();
     } else {
       sessionId.value = null;
     }
   } catch {
     /* offline status probe — stays idle */
-  }
-}
-
-async function onInterrupt(): Promise<void> {
-  if (!props.umo || !sessionId.value) return;
-  term?.write("\r\n");
-  try {
-    await pluginExtensionApi.post("spcode/terminal/interrupt", {
-      umo: props.umo,
-      session_id: sessionId.value,
-    });
-  } catch {
-    /* ignore */
   }
 }
 
@@ -492,6 +534,8 @@ async function onStop(): Promise<void> {
   term?.write("\r\n[spcode] session terminated\r\n");
   status.value = "idle";
   sessionId.value = null;
+  pendingLine = "";
+  pendingCols = 0;
 }
 
 function onClear(): void {
@@ -575,29 +619,5 @@ onBeforeUnmount(() => {
 .terminal-host :deep(.xterm) {
   height: 100%;
   padding: 6px 8px;
-}
-.terminal-input-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
-}
-.terminal-input-prompt {
-  font-family: Consolas, "Courier New", monospace;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--v-theme-success);
-}
-.terminal-input {
-  flex: 1;
-  font-family: Consolas, "Courier New", monospace;
-  font-size: 12px;
-  background: transparent;
-  color: inherit;
-  border: none;
-  outline: none;
-}
-.terminal-input::placeholder {
-  opacity: 0.45;
 }
 </style>
