@@ -1,6 +1,10 @@
 <!-- Author: elecvoid243 @ 2026-09-01
      Terminal sub-page: persistent shell (PowerShell/cmd) rendered with
-     xterm.js, output streamed over SSE, input echoed locally (no PTY). -->
+     xterm.js (output only), input via a native browser text field.
+     No PTY: PowerShell/cmd echo input themselves in pipe mode (verified
+     2026-09-01: 'pwd' -> echo '> pwd'; DEL char is NOT handled by the
+     shell, so character-level echo/backspace inside xterm double-prints
+     and never erases). The native input field gives correct editing. -->
 <template>
   <div class="terminal-view">
     <div class="terminal-toolbar">
@@ -41,6 +45,24 @@
       </button>
     </div>
     <div ref="hostRef" class="terminal-host" />
+    <div class="terminal-input-row">
+      <span class="terminal-input-prompt">&gt;</span>
+      <input
+        ref="inputRef"
+        v-model="lineInput"
+        class="terminal-input"
+        :disabled="!running || busy"
+        :placeholder="
+          tm('spcodeProjectLoad.gitDiffSidebar.terminal.inputPlaceholder')
+        "
+        autocomplete="off"
+        autocapitalize="off"
+        spellcheck="false"
+        @keydown.enter.prevent="submitLine"
+        @keydown.up.prevent="historyPrev"
+        @keydown.down.prevent="historyNext"
+      />
+    </div>
   </div>
 </template>
 
@@ -100,11 +122,16 @@ const shell = ref<"powershell" | "cmd">(loadShell());
 const status = ref<"idle" | "running" | "exited" | "error">("idle");
 const busy = ref(false);
 const sessionId = ref<string | null>(null);
+const lineInput = ref("");
 const hostRef = ref<HTMLDivElement | null>(null);
+const inputRef = ref<HTMLInputElement | null>(null);
 let term: Terminal | null = null;
 let fit: FitAddon | null = null;
 let abortController: AbortController | null = null;
 let resizeObserver: ResizeObserver | null = null;
+// Local command history for the native input field (ArrowUp/Down).
+const history: string[] = [];
+let historyIndex = -1;
 
 const running = computed(() => status.value === "running");
 
@@ -140,30 +167,54 @@ function initTerm(): void {
 
   resizeObserver = new ResizeObserver(() => fit?.fit());
   resizeObserver.observe(hostRef.value);
-
-  term.onData((data) => {
-    if (data === "\x03") {
-      void onInterrupt();
-      return;
-    }
-    if (!sessionId.value) return;
-    // Local echo (the backend pipe has no TTY, the shell will not echo).
-    term?.write(data === "\r" ? "\r\n" : data);
-    const chars = data === "\r" ? "\n" : data;
-    void pluginExtensionApi
-      .post("spcode/terminal/input", {
-        umo: props.umo,
-        session_id: sessionId.value,
-        chars,
-      })
-      .catch(() => {
-        /* transient input loss — SSE error handling covers the rest */
-      });
-  });
 }
 
 function writeNotice(text: string): void {
   term?.write(`\x1b[90m${text}\x1b[0m\r\n`);
+}
+
+/** Submit the current input line to the shell as one complete line. */
+function submitLine(): void {
+  if (!props.umo || !sessionId.value) return;
+  const line = lineInput.value;
+  lineInput.value = "";
+  historyIndex = -1;
+  if (line.trim()) {
+    history.push(line);
+  }
+  // The shell echoes the received line itself (verified pipe behaviour),
+  // so nothing is written locally — the echo arrives via SSE output.
+  void pluginExtensionApi
+    .post("spcode/terminal/input", {
+      umo: props.umo,
+      session_id: sessionId.value,
+      chars: `${line}\n`,
+    })
+    .catch(() => {
+      /* transient input loss — SSE error handling covers the rest */
+    });
+  void nextTick(() => inputRef.value?.focus());
+}
+
+function historyPrev(): void {
+  if (history.length === 0) return;
+  if (historyIndex === -1) {
+    historyIndex = history.length - 1;
+  } else if (historyIndex > 0) {
+    historyIndex -= 1;
+  }
+  lineInput.value = history[historyIndex] ?? "";
+}
+
+function historyNext(): void {
+  if (history.length === 0 || historyIndex === -1) return;
+  historyIndex += 1;
+  if (historyIndex >= history.length) {
+    historyIndex = -1;
+    lineInput.value = "";
+    return;
+  }
+  lineInput.value = history[historyIndex] ?? "";
 }
 
 async function onStart(): Promise<void> {
@@ -189,6 +240,7 @@ async function onStart(): Promise<void> {
     status.value = "running";
     writeNotice(`[spcode] ${data.shell} @ ${data.cwd} (pid ${data.pid})`);
     await openStream(0);
+    void nextTick(() => inputRef.value?.focus());
   } finally {
     busy.value = false;
   }
@@ -382,5 +434,26 @@ onBeforeUnmount(() => {
 }
 .terminal-host :deep(.xterm) {
   height: 100%;
+}
+.terminal-input-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-top: 1px solid rgba(127, 127, 127, 0.25);
+}
+.terminal-input-prompt {
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 12px;
+  opacity: 0.7;
+}
+.terminal-input {
+  flex: 1;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 12px;
+  background: transparent;
+  color: inherit;
+  border: none;
+  outline: none;
 }
 </style>

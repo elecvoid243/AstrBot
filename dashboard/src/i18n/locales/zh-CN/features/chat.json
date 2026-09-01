@@ -1635,7 +1635,8 @@
         "clear": "清屏",
         "startFailed": "终端启动失败",
         "shellLabel": "Shell",
-        "noSession": "点击「连接」启动终端"
+        "noSession": "点击「连接」启动终端",
+        "inputPlaceholder": "在此输入命令,按 Enter 执行…"
       }
     },
     "documentManager": {
