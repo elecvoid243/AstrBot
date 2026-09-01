@@ -1577,7 +1577,21 @@
     },
     "gitDiffSidebar": {
       "tabs": {
-        "docs": "Документы"
+        "docs": "Документы",
+        "terminal": "Терминал"
+      },
+      "terminal": {
+        "connecting": "Подключение…",
+        "connected": "Подключено",
+        "exited": "Завершено",
+        "connectionError": "Ошибка подключения",
+        "connect": "Подключить",
+        "interrupt": "Прервать (Ctrl+C)",
+        "stop": "Завершить сеанс",
+        "clear": "Очистить",
+        "startFailed": "Не удалось запустить терминал",
+        "shellLabel": "Оболочка",
+        "noSession": "Нажмите «Подключить», чтобы запустить терминал"
       }
     },
     "documentManager": {
