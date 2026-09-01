@@ -158,7 +158,9 @@
             :indeterminate="someChecked"
             density="compact"
             class="batch-select-all"
-            :title="allChecked ? tm('batch.deselectAll') : tm('batch.selectAll')"
+            :title="
+              allChecked ? tm('batch.deselectAll') : tm('batch.selectAll')
+            "
             @update:model-value="toggleSelectAll"
           />
           <span class="batch-select-count">
@@ -242,7 +244,9 @@
 
         <section
           class="sidebar-section session-list"
-          :class="{ 'drop-unsorted': dragOverUnsorted && draggingSessionProjectId }"
+          :class="{
+            'drop-unsorted': dragOverUnsorted && draggingSessionProjectId,
+          }"
           @dragover.prevent="onUnsortedDragOver"
           @dragleave="onUnsortedDragLeave"
           @drop.prevent="onUnsortedDrop"
@@ -252,7 +256,11 @@
           </div>
           <Transition name="drag-hint">
             <div
-              v-if="dragOverUnsorted && draggingSessionId && draggingSessionProjectId"
+              v-if="
+                dragOverUnsorted &&
+                draggingSessionId &&
+                draggingSessionProjectId
+              "
               class="session-list-drop-hint"
             >
               <v-icon size="14">mdi-tray-arrow-up</v-icon>
@@ -267,7 +275,8 @@
               active:
                 !isProviderWorkspace && currSessionId === session.session_id,
               selection: selectionMode,
-              checked: selectionMode && checkedSessionIds.has(session.session_id),
+              checked:
+                selectionMode && checkedSessionIds.has(session.session_id),
               'needs-choice': choiceAttention.hasAttention(session.session_id),
               'has-branch-meta':
                 !selectionMode &&
@@ -281,7 +290,9 @@
             @dragstart="onSidebarSessionDragStart(session.session_id, $event)"
             @dragend="onSessionDragEnd"
             @keydown.enter="handleSidebarSessionClick(session.session_id)"
-            @keydown.space.prevent="handleSidebarSessionClick(session.session_id)"
+            @keydown.space.prevent="
+              handleSidebarSessionClick(session.session_id)
+            "
           >
             <v-checkbox-btn
               v-if="selectionMode"
@@ -349,7 +360,10 @@
                     <GitBranch :size="14" />
                   </template>
                   <v-list-item-title>
-                    {{ branch.display_name?.trim() || tm("conversation.newConversation") }}
+                    {{
+                      branch.display_name?.trim() ||
+                      tm("conversation.newConversation")
+                    }}
                   </v-list-item-title>
                 </v-list-item>
               </StyledMenu>
@@ -411,7 +425,10 @@
         </section>
 
         <!-- Agent collab groups: manage bindings / dissolve a group. -->
-        <section v-if="collabGroups.length" class="sidebar-section collab-group-list">
+        <section
+          v-if="collabGroups.length"
+          class="sidebar-section collab-group-list"
+        >
           <div class="sidebar-section-header">
             <Link2 :size="13" />
             <span>协作分组</span>
@@ -432,7 +449,9 @@
               :style="{ backgroundColor: collabGroupColor(g.id) }"
             />
             <span class="collab-group-name">{{ g.name }}</span>
-            <span class="collab-group-members">{{ g.members.length }} 会话</span>
+            <span class="collab-group-members"
+              >{{ g.members.length }} 会话</span
+            >
             <v-btn
               icon="mdi-delete-outline"
               size="x-small"
@@ -448,16 +467,16 @@
         <button
           type="button"
           class="archive-toggle-btn"
-          :class="{ active: archivedDialogOpen, 'icon-only': isSidebarCollapsed }"
+          :class="{
+            active: archivedDialogOpen,
+            'icon-only': isSidebarCollapsed,
+          }"
           :title="tm('conversation.archived')"
           @click="archivedDialogOpen = true"
         >
           <Archive
             :size="20"
-            :class="[
-              'sidebar-action-icon',
-              { 'mr-2': !isSidebarCollapsed },
-            ]"
+            :class="['sidebar-action-icon', { 'mr-2': !isSidebarCollapsed }]"
           />
           <span v-if="!isSidebarCollapsed">
             {{ tm("conversation.archived") }}
@@ -626,7 +645,10 @@
       v-on="dragEvents"
     >
       <transition name="drop-fade">
-        <div v-if="isDragging && !isProviderWorkspace" class="chat-drop-overlay">
+        <div
+          v-if="isDragging && !isProviderWorkspace"
+          class="chat-drop-overlay"
+        >
           <div class="chat-drop-overlay-content">
             <v-icon size="48" color="primary">mdi-cloud-upload</v-icon>
             <span class="chat-drop-text">{{ tm("input.dropToUpload") }}</span>
@@ -648,49 +670,8 @@
         @select-session="selectProjectSession"
         @edit-session-title="editProjectSessionTitle"
         @delete-session="deleteProjectSession"
-      >
-        <section class="project-composer-shell">
-          <ChatInput
-            ref="inputRef"
-            v-model:prompt="draft"
-            :staged-images-url="stagedImagesUrl"
-            :staged-audio-url="stagedAudioUrl"
-            :staged-files="stagedNonImageFiles"
-            :disabled="sending"
-            :enable-streaming="enableStreaming"
-            :is-recording="isRecording"
-            :is-running="
-              Boolean(
-                currSessionId &&
-                  (isSessionRunning(currSessionId) ||
-                    hasLiveSystemRecord(currSessionId)),
-              )
-            "
-            :token-usage="tokenUsageIndicator"
-            :session-id="currSessionId || null"
-            :current-session="currentSession"
-            :reply-to="chatInputReplyTarget"
-            :send-shortcut="sendShortcut"
-            :show-provider-selector="false"
-            :placeholder="tm('input.projectPlaceholder')"
-            @send="sendCurrentMessage"
-            @send-command="sendSystemCommand"
-            @stop="stopCurrentSession"
-            @flush-pending="flushPendingFromInput"
-            @toggle-streaming="toggleStreaming"
-            @remove-image="removeImage"
-            @remove-audio="removeAudio"
-            @remove-file="removeFile"
-            @start-recording="startRecording"
-            @stop-recording="stopRecording"
-            @paste-image="handlePaste"
-            @file-select="handleFilesSelected"
-            @file-reference-drop="handleSidebarFileDrop"
-            @clear-reply="replyTarget = null"
-            @open-diff-sidebar="openGitDiffSidebar"
-          />
-        </section>
-      </ProjectView>
+        @create-session="createProjectSession"
+      />
 
       <div
         v-else
@@ -836,11 +817,14 @@
         </section>
 
         <div
-                  v-if="scrollMarkers.length"
-                  class="scroll-marker-strip"
-                  :style="{ height: stripHeight + 'px', right: stripRightOffset + 'px' }"
-                  @click="onStripClick"
-                >
+          v-if="scrollMarkers.length"
+          class="scroll-marker-strip"
+          :style="{
+            height: stripHeight + 'px',
+            right: stripRightOffset + 'px',
+          }"
+          @click="onStripClick"
+        >
           <div
             v-for="marker in scrollMarkers"
             :key="`sm-${marker.id}`"
@@ -870,63 +854,63 @@
 
         <section ref="composerShell" class="composer-shell">
           <template v-if="!isReadonlySession">
-          <ChatInput
-            ref="inputRef"
-            v-model:prompt="draft"
-            :staged-images-url="stagedImagesUrl"
-            :staged-audio-url="stagedAudioUrl"
-            :staged-files="stagedNonImageFiles"
-            :disabled="sending"
-            :enable-streaming="enableStreaming"
-            :is-recording="isRecording"
-            :is-running="
-              Boolean(
-                currSessionId &&
-                  (isSessionRunning(currSessionId) ||
-                    hasLiveSystemRecord(currSessionId)),
-              )
-            "
-            :token-usage="tokenUsageIndicator"
-            :session-id="currSessionId || null"
-            :current-session="currentSession"
-            :reply-to="chatInputReplyTarget"
-            :send-shortcut="sendShortcut"
-            :show-provider-selector="false"
-            :placeholder="
-              activeProject ? tm('input.projectPlaceholder') : undefined
-            "
-            @send="sendCurrentMessage"
-            @send-command="sendSystemCommand"
-            @stop="stopCurrentSession"
-            @flush-pending="flushPendingFromInput"
-            @toggle-streaming="toggleStreaming"
-            @remove-image="removeImage"
-            @remove-audio="removeAudio"
-            @remove-file="removeFile"
-            @start-recording="startRecording"
-            @stop-recording="stopRecording"
-            @paste-image="handlePaste"
-            @file-select="handleFilesSelected"
-            @file-reference-drop="handleSidebarFileDrop"
-            @clear-reply="replyTarget = null"
-            @open-diff-sidebar="openGitDiffSidebar"
-          />
-        </template>
-        <!-- 2026-08-13 (elecvoid243): archived sessions open read-only. -->
-        <div v-else class="readonly-session-bar">
-          <ArchiveRestore :size="16" />
-          <span class="readonly-session-text">
-            {{ tm("conversation.readonlyHint") }}
-          </span>
-          <v-btn
-            size="small"
-            variant="tonal"
-            density="compact"
-            @click="restoreReadonlySession"
-          >
-            {{ tm("conversation.unarchive") }}
-          </v-btn>
-        </div>
+            <ChatInput
+              ref="inputRef"
+              v-model:prompt="draft"
+              :staged-images-url="stagedImagesUrl"
+              :staged-audio-url="stagedAudioUrl"
+              :staged-files="stagedNonImageFiles"
+              :disabled="sending"
+              :enable-streaming="enableStreaming"
+              :is-recording="isRecording"
+              :is-running="
+                Boolean(
+                  currSessionId &&
+                    (isSessionRunning(currSessionId) ||
+                      hasLiveSystemRecord(currSessionId)),
+                )
+              "
+              :token-usage="tokenUsageIndicator"
+              :session-id="currSessionId || null"
+              :current-session="currentSession"
+              :reply-to="chatInputReplyTarget"
+              :send-shortcut="sendShortcut"
+              :show-provider-selector="false"
+              :placeholder="
+                activeProject ? tm('input.projectPlaceholder') : undefined
+              "
+              @send="sendCurrentMessage"
+              @send-command="sendSystemCommand"
+              @stop="stopCurrentSession"
+              @flush-pending="flushPendingFromInput"
+              @toggle-streaming="toggleStreaming"
+              @remove-image="removeImage"
+              @remove-audio="removeAudio"
+              @remove-file="removeFile"
+              @start-recording="startRecording"
+              @stop-recording="stopRecording"
+              @paste-image="handlePaste"
+              @file-select="handleFilesSelected"
+              @file-reference-drop="handleSidebarFileDrop"
+              @clear-reply="replyTarget = null"
+              @open-diff-sidebar="openGitDiffSidebar"
+            />
+          </template>
+          <!-- 2026-08-13 (elecvoid243): archived sessions open read-only. -->
+          <div v-else class="readonly-session-bar">
+            <ArchiveRestore :size="16" />
+            <span class="readonly-session-text">
+              {{ tm("conversation.readonlyHint") }}
+            </span>
+            <v-btn
+              size="small"
+              variant="tonal"
+              density="compact"
+              @click="restoreReadonlySession"
+            >
+              {{ tm("conversation.unarchive") }}
+            </v-btn>
+          </div>
         </section>
       </div>
     </main>
@@ -1041,19 +1025,19 @@
     />
   </div>
 
-<ChatMessageSearchDialog v-model="searchDialogOpen" />
-<CollabBindDialog
-  v-model="collabDialogOpen"
-  :sessions="sessions"
-  :initial-members="collabBindPrefill"
-  @saved="onCollabSaved"
-/>
-<ArchivedSessionsDialog
-  v-model="archivedDialogOpen"
-  @restore="onArchivedRestored"
-  @delete="onArchivedDeleted"
-  @open="openArchivedSession"
-/>
+  <ChatMessageSearchDialog v-model="searchDialogOpen" />
+  <CollabBindDialog
+    v-model="collabDialogOpen"
+    :sessions="sessions"
+    :initial-members="collabBindPrefill"
+    @saved="onCollabSaved"
+  />
+  <ArchivedSessionsDialog
+    v-model="archivedDialogOpen"
+    @restore="onArchivedRestored"
+    @delete="onArchivedDeleted"
+    @open="openArchivedSession"
+  />
 </template>
 
 <script setup lang="ts">
@@ -1096,6 +1080,11 @@ import { useSpcodeProjectStatus } from "@/composables/useSpcodeProjectStatus";
 import {
   useSpcodeProjectAutoLoad,
   ProjectLoadError,
+} from "@/composables/useSpcodeProjectAutoLoad";
+import {
+  isSessionLoadedTag,
+  markSessionLoadedTag,
+  clearSessionLoadedTag,
 } from "@/composables/useSpcodeProjectAutoLoad";
 import { useSpcodeOperationProgress } from "@/composables/useSpcodeOperationProgress";
 import { useSpcodeCodegraphStatus } from "@/composables/useSpcodeCodegraphStatus";
@@ -1221,7 +1210,6 @@ const {
   currSessionId,
   getSessions,
   newSession,
-  newChat,
   deleteSession,
   batchDeleteSessions,
   getArchivedSessions,
@@ -1240,7 +1228,8 @@ const collabDialogOpen = ref(false);
 const showCollabTranscript = ref(false);
 const activeCollabGroupId = ref<string | null>(null);
 const activeCollabGroup = computed(
-  () => collabGroups.value.find((g) => g.id === activeCollabGroupId.value) ?? null,
+  () =>
+    collabGroups.value.find((g) => g.id === activeCollabGroupId.value) ?? null,
 );
 // Sidebar "bind collab" flow: selection mode variant that feeds the checked
 // sessions into CollabBindDialog as initial members.
@@ -1279,7 +1268,8 @@ function collabBadges(sessionId: string) {
         color,
         isModerator,
         // Member of the group hosting the running discussion → animated border.
-        running: discussionActive && activeDiscussionSessionIds.value.has(sessionId),
+        running:
+          discussionActive && activeDiscussionSessionIds.value.has(sessionId),
         // Moderator sessions get a visibly deeper badge background.
         bgColor: collabWithAlpha(color, isModerator ? 0.45 : 0.14),
         title: `${g.name}${isModerator ? " · 主持人" : ""}（点击切换协作面板）`,
@@ -1300,9 +1290,9 @@ async function dissolveCollabGroup(group: CollabGroup) {
   if (!ok) return;
   try {
     const res = await agentCollabApi.deleteGroup(group.id);
-    if (res.data.status === 'error') {
+    if (res.data.status === "error") {
       // e.g. a discussion is still running on this group
-      toast.error(res.data.message || '解散失败');
+      toast.error(res.data.message || "解散失败");
       return;
     }
     await loadCollabGroups();
@@ -1311,7 +1301,7 @@ async function dissolveCollabGroup(group: CollabGroup) {
     }
     toast.success(`协作分组「${group.name}」已解散`);
   } catch {
-    toast.error('解散失败，请检查网络或后台日志');
+    toast.error("解散失败，请检查网络或后台日志");
   }
 }
 const {
@@ -1367,7 +1357,14 @@ const savingSessionTitle = ref(false);
 const messageEditDraft = ref("");
 const editingMessage = ref<ChatRecord | null>(null);
 const savingMessageEdit = ref(false);
-const scrollMarkers = ref<Array<{id: string | number; topPct: number; preview: string; inherited: boolean}>>([]);
+const scrollMarkers = ref<
+  Array<{
+    id: string | number;
+    topPct: number;
+    preview: string;
+    inherited: boolean;
+  }>
+>([]);
 const stripHeight = ref(0);
 const stripRightOffset = ref(0); // scrollbar width (px) so the yellow strip sits flush with the scrollbar's left edge
 const dotTooltip = reactive({
@@ -1847,14 +1844,14 @@ const transportMode = ref<TransportMode>(
     : "sse",
 );
 
-const pointerMediaQuery = window.matchMedia('(pointer: coarse)');
+const pointerMediaQuery = window.matchMedia("(pointer: coarse)");
 const isTouchDevice = ref<boolean>(pointerMediaQuery.matches);
 const handlePointerChange = (e: MediaQueryListEvent) => {
   isTouchDevice.value = e.matches;
 };
-pointerMediaQuery.addEventListener('change', handlePointerChange);
+pointerMediaQuery.addEventListener("change", handlePointerChange);
 onBeforeUnmount(() => {
-  pointerMediaQuery.removeEventListener('change', handlePointerChange);
+  pointerMediaQuery.removeEventListener("change", handlePointerChange);
 });
 
 const transportOptions: Array<{ value: TransportMode; labelKey: string }> = [
@@ -2013,7 +2010,9 @@ async function scrollToMessageFromQuery() {
   if (isNaN(target) || target < 0) return;
   await nextTick();
   await new Promise((r) => setTimeout(r, 300));
-  const el = document.querySelector(`[data-message-index="${target}"]`) as HTMLElement | null;
+  const el = document.querySelector(
+    `[data-message-index="${target}"]`,
+  ) as HTMLElement | null;
   if (!el) return;
   el.scrollIntoView({ block: "center" });
   const { scrollToIndex: _, ...rest } = route.query;
@@ -2148,29 +2147,37 @@ watch(
   },
 );
 
-watch(activeMessages, () => {
-  if (shouldStickToBottom.value) {
-    scrollToBottom();
-  }
-  nextTick(() => updateScrollMarkers());
-}, { deep: true });
+watch(
+  activeMessages,
+  () => {
+    if (shouldStickToBottom.value) {
+      scrollToBottom();
+    }
+    nextTick(() => updateScrollMarkers());
+  },
+  { deep: true },
+);
 
 // Scroll marker strip: keep markers updated when container size changes
 let markerResizeObserver: ResizeObserver | null = null;
 
-watch(messagesContainer, (container, _oldContainer) => {
-  if (markerResizeObserver) {
-    markerResizeObserver.disconnect();
-    markerResizeObserver = null;
-  }
-  if (container) {
-    updateScrollMarkers();
-    markerResizeObserver = new ResizeObserver(() => {
+watch(
+  messagesContainer,
+  (container, _oldContainer) => {
+    if (markerResizeObserver) {
+      markerResizeObserver.disconnect();
+      markerResizeObserver = null;
+    }
+    if (container) {
       updateScrollMarkers();
-    });
-    markerResizeObserver.observe(container);
-  }
-}, { immediate: true });
+      markerResizeObserver = new ResizeObserver(() => {
+        updateScrollMarkers();
+      });
+      markerResizeObserver.observe(container);
+    }
+  },
+  { immediate: true },
+);
 
 // Re-fetch the spcode status when the active session changes. Each
 // session has its own loaded project so the chip must refresh.
@@ -2278,11 +2285,38 @@ async function tryAutoLoadSpcodeForSession(
   if (project.spcode_auto_load === false) return;
   if (!project.workspace_path) return;
 
+  // Dirty tag fast path (2026-09-01): if this session already completed a
+  // project load for the same project under the SAME backend process,
+  // do nothing at all — no webapi call, no AGENTS.md re-injection, no
+  // codegraph re-init. A backend restart (detected via boot id) or a
+  // project rebinding invalidates the tag and falls through to reload.
+  //
+  // await refresh() first: the boot id must be observed AFTER the
+  // session switch (refresh shares the in-flight GET with the switch
+  // watcher, so normally this costs zero extra requests). Without it a
+  // backend restarted between the two switches would keep the stale
+  // boot id and wrongly skip the reload.
+  await spcodeStatus.refresh(umo);
+  if (
+    isSessionLoadedTag(
+      sessionId,
+      project.project_id,
+      spcodeStatus.status.value.bootId,
+    )
+  ) {
+    return;
+  }
+
   try {
     operationProgress.startPolling(umo);
     const data = await silentLoad({ project, umo });
     if (data?.loaded) {
       await spcodeStatus.refresh(umo);
+      markSessionLoadedTag(
+        sessionId,
+        project.project_id,
+        spcodeStatus.status.value.bootId,
+      );
     }
   } catch (err) {
     if (err instanceof ProjectLoadError) {
@@ -2452,7 +2486,24 @@ async function startNewChat() {
   showChatWorkspace();
   selectedProjectId.value = null;
   replyTarget.value = null;
-  newChat();
+  // 2026-09-01 (elecvoid243): create the session immediately so the umo
+  // is available right after clicking "new chat". UMO-dependent state
+  // chips (spcode / plan mode / file access) then show this session's
+  // own defaults instead of the previous session's residue.
+  //
+  // If the current session is empty (no messages and not still loading),
+  // delete it first so repeated clicks do not pile up blank sessions in
+  // the sidebar.
+  const oldSessionId = currSessionId.value;
+  if (
+    oldSessionId &&
+    !loadingMessages.value &&
+    activeMessages.value.length === 0
+  ) {
+    await deleteSession(oldSessionId);
+  }
+  await newSession();
+  await getSessions();
   closeMobileSidebar();
   await focusChatInput();
 }
@@ -2601,7 +2652,11 @@ function onSessionDragLeave(projectId: string): void {
  * so an in-project reorder subtracts one when the dragged row sits above
  * the target.
  */
-function projectInsertIndex(projectId: string, sessionId: string, before: boolean) {
+function projectInsertIndex(
+  projectId: string,
+  sessionId: string,
+  before: boolean,
+) {
   const list = projectSessionsById.value[projectId] || [];
   const targetIndex = list.findIndex((s) => s.session_id === sessionId);
   let index = before ? targetIndex : targetIndex + 1;
@@ -2668,7 +2723,8 @@ async function moveSessionToProject(
   // but dropping at a specific position reorders within that project.
   if (currentProjectId === targetProjectId && position === null) return;
 
-  const isReorder = currentProjectId === targetProjectId && targetProjectId !== null;
+  const isReorder =
+    currentProjectId === targetProjectId && targetProjectId !== null;
   movingSession.value = true;
   try {
     const ok = targetProjectId
@@ -2717,9 +2773,8 @@ async function moveSessionToProject(
         targetProjectId
           ? tm("project.sessionAdded", {
               title:
-                projects.value.find(
-                  (p) => p.project_id === targetProjectId,
-                )?.title || targetProjectId,
+                projects.value.find((p) => p.project_id === targetProjectId)
+                  ?.title || targetProjectId,
             })
           : tm("project.sessionRemoved"),
       );
@@ -2796,9 +2851,7 @@ const archivingCheckedSessions = ref(false);
  * project session list that has been loaded so far. */
 const selectableSessionIds = computed(() => {
   const ids = sessions.value.map((session) => session.session_id);
-  for (const projectSessionList of Object.values(
-    projectSessionsById.value,
-  )) {
+  for (const projectSessionList of Object.values(projectSessionsById.value)) {
     for (const session of projectSessionList) {
       ids.push(session.session_id);
     }
@@ -2864,9 +2917,13 @@ async function deleteCheckedSessions() {
   try {
     const result = await batchDeleteSessions(ids);
 
-    // Refresh cached project session lists so deleted entries also
-    // disappear from expanded projects.
-    const failedIds = new Set(result.failed_items.map((item) => item.session_id));
+    // 2026-09-01: batch delete — drop dirty tags for the removed sessions.
+    const failedIds = new Set(
+      result.failed_items.map((item) => item.session_id),
+    );
+    for (const id of ids) {
+      if (!failedIds.has(id)) clearSessionLoadedTag(id);
+    }
     const deletedIds = new Set(ids.filter((id) => !failedIds.has(id)));
     const affectedProjectIds = Object.keys(projectSessionsById.value).filter(
       (projectId) =>
@@ -2975,9 +3032,8 @@ const archivedDialogOpen = ref(false);
 
 /** Archived sessions open read-only: hide the composer and show a restore
  * bar instead of the input. */
-const isReadonlySession = computed(
-  () =>
-    Boolean(currSessionId.value && sessionArchivedFlags[currSessionId.value]),
+const isReadonlySession = computed(() =>
+  Boolean(currSessionId.value && sessionArchivedFlags[currSessionId.value]),
 );
 
 async function restoreReadonlySession() {
@@ -3085,6 +3141,8 @@ async function deleteSidebarSession(session: Session) {
   const message = tm("conversation.confirmDelete", { name: title });
   if (!(await askForConfirmation(message, confirmDialog))) return;
 
+  // 2026-09-01: session deleted — drop its "already loaded" dirty tag.
+  clearSessionLoadedTag(session.session_id);
   const wasCurrent = currSessionId.value === session.session_id;
   await deleteSession(session.session_id);
   if (wasCurrent) {
@@ -3098,6 +3156,52 @@ async function selectProjectSession(sessionId: string) {
   await selectSession(sessionId);
 }
 
+/** 2026-09-01 (elecvoid243): project page "create new session" button —
+ * creates a session immediately, links it to the current project and jumps
+ * into the new conversation. Mirrors the send-message creation path so the
+ * reverse map / spcode auto-load behave identically. */
+async function createProjectSession() {
+  const projectId = selectedProjectId.value;
+  if (!projectId) return;
+  try {
+    const sessionId = await newSession();
+    // Refresh the flat session list first, otherwise the new session briefly
+    // shows up in the "conversations" sidebar and then disappears.
+    await getSessions();
+    const alreadyLinked =
+      projectSessionsById.value[projectId]?.some(
+        (s) => s.session_id === sessionId,
+      ) ?? false;
+    if (!alreadyLinked) {
+      await addSessionToProject(sessionId, projectId);
+      const targetProject = selectedProject.value;
+      sessionProjects[sessionId] = targetProject
+        ? {
+            project_id: targetProject.project_id,
+            title: targetProject.title,
+            emoji: targetProject.emoji,
+          }
+        : null;
+      await loadProjectSessions(projectId);
+      // spcode auto-load backstop: the currSessionId watcher fires inside
+      // newSession() before the sessions list / reverse map are populated,
+      // so it misses. Explicit trigger mirrors the selectSession backstop.
+      const umo = resolveCurrentUmo(sessionId);
+      if (umo) void tryAutoLoadSpcodeForSession(umo, sessionId);
+    }
+    selectedProjectId.value = null;
+    closeMobileSidebar();
+    await focusChatInput();
+  } catch (error) {
+    toast.error(
+      isAxiosError(error)
+        ? error.response?.data?.message || error.message
+        : tm("project.createSessionFailed"),
+    );
+    console.error("Failed to create session in project:", error);
+  }
+}
+
 async function editProjectSessionTitle(sessionId: string, title: string) {
   openSessionTitleDialog(sessionId, title, true);
 }
@@ -3106,6 +3210,8 @@ async function deleteProjectSession(
   sessionId: string,
   projectId = selectedProjectId.value,
 ) {
+  // 2026-09-01: session deleted — drop its "already loaded" dirty tag.
+  clearSessionLoadedTag(sessionId);
   await deleteSession(sessionId);
   if (projectId) {
     await loadProjectSessions(projectId);
@@ -3206,7 +3312,21 @@ async function sendCurrentMessage() {
     const targetProject = selectedProject.value;
     if (!sessionId) {
       sessionId = await newSession();
-      if (targetProjectId) {
+      // 关联项目后再刷新，否则新会话会短暂出现在"对话"列表
+      await getSessions();
+    }
+    // 2026-09-01 (elecvoid243): the "new chat" button now creates the
+    // session immediately, so `sessionId` may already exist by the time
+    // the user picks a project and sends the first message. Still link
+    // such a session to the target project so the behavior matches the
+    // "created on send" path. Sessions already in the project's loaded
+    // list are skipped.
+    if (targetProjectId) {
+      const alreadyLinked =
+        projectSessionsById.value[targetProjectId]?.some(
+          (s) => s.session_id === sessionId,
+        ) ?? false;
+      if (!alreadyLinked) {
         await addSessionToProject(sessionId, targetProjectId);
         sessionProjects[sessionId] = targetProject
           ? {
@@ -3226,8 +3346,6 @@ async function sendCurrentMessage() {
         const umo = resolveCurrentUmo(sessionId);
         if (umo) void tryAutoLoadSpcodeForSession(umo, sessionId);
       }
-      // 关联项目后再刷新，否则新会话会短暂出现在"对话"列表
-      await getSessions();
     }
 
     const userText = draft.value.trim();
@@ -3513,7 +3631,9 @@ function onStripClick(event: MouseEvent) {
 }
 
 async function onDotEnter(text: string, event: MouseEvent) {
-  const strip = (event.currentTarget as HTMLElement).closest(".scroll-marker-strip");
+  const strip = (event.currentTarget as HTMLElement).closest(
+    ".scroll-marker-strip",
+  );
   if (!strip) return;
   const stripRect = strip.getBoundingClientRect();
   dotTooltip.text = text;
@@ -3866,18 +3986,22 @@ watch(refsSidebarOpen, (open) => {
 // closed. When the snapshot disappears (session switch to a todo-less
 // session, or a live todo_clear), the badge goes away and an open
 // sidebar is closed — it would only show an empty panel.
-watch(currentTodoSnapshot, (snapshot) => {
-  chatHeader.SET_TODO_BADGE(
-    snapshot
-      ? {
-          done: snapshot.stats?.done || 0,
-          total: snapshot.stats?.effective_total || 0,
-          attention: snapshot.attentionItems?.length || 0,
-        }
-      : null,
-  );
-  if (!snapshot) chatHeader.SET_TODO_SIDEBAR_OPEN(false);
-}, { immediate: true });
+watch(
+  currentTodoSnapshot,
+  (snapshot) => {
+    chatHeader.SET_TODO_BADGE(
+      snapshot
+        ? {
+            done: snapshot.stats?.done || 0,
+            total: snapshot.stats?.effective_total || 0,
+            attention: snapshot.attentionItems?.length || 0,
+          }
+        : null,
+    );
+    if (!snapshot) chatHeader.SET_TODO_SIDEBAR_OPEN(false);
+  },
+  { immediate: true },
+);
 
 function toggleTodoSidebar() {
   todoSidebarOpen.value = !todoSidebarOpen.value;
@@ -4183,13 +4307,13 @@ function toggleTheme() {
   --chat-muted: rgba(var(--v-theme-on-surface), 0.62);
   --chat-section-label: rgba(var(--v-theme-on-surface), 0.48);
   --chat-content-width: 76%;
-    /* 2026-07-22 widen-chat-column: previous 760 px cap on the chat
+  /* 2026-07-22 widen-chat-column: previous 760 px cap on the chat
        column was the real bottleneck — .messages-list-shell and the
        input box both consumed this var, so widening only the inner
        .from-bot .message-stack had no visible effect on the chat bar.
        860 px aligns the outer shell with the inner bubble target so
        longer assistant replies actually get the room we wanted. */
-    --chat-content-max-width: 860px;
+  --chat-content-max-width: 860px;
   display: flex;
   height: 100%;
   min-height: 0;
@@ -5308,8 +5432,7 @@ function toggleTheme() {
   min-width: 0;
 }
 
-.composer-shell :deep(.input-area),
-.project-composer-shell :deep(.input-area) {
+.composer-shell :deep(.input-area) {
   padding-top: 0;
   border-top: 0;
 }
@@ -5361,8 +5484,7 @@ kbd {
     max-width: 100%;
   }
 
-  .composer-shell,
-  .project-composer-shell {
+  .composer-shell {
     padding: 0;
   }
 }

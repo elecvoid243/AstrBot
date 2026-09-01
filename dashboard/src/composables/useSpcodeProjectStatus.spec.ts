@@ -60,6 +60,7 @@ describe("useSpcodeProjectStatus null-umo guard", () => {
           loaded_at: 123.4,
           umo: UMO,
           all_loaded_count: 2,
+          boot_id: "4000-1234567890",
         },
       },
     } as never);
@@ -73,5 +74,66 @@ describe("useSpcodeProjectStatus null-umo guard", () => {
     expect(status.value.directory).toBe("C:/proj/demo");
     expect(status.value.umo).toBe(UMO);
     expect(status.value.allLoadedCount).toBe(2);
+    // 2026-09-01: backend boot id is parsed and drives stale-tag detection.
+    expect(status.value.bootId).toBe("4000-1234567890");
+  });
+
+  it("bootId stays null when the backend omits it", async () => {
+    getMock.mockResolvedValue({
+      data: {
+        data: {
+          loaded: false,
+          directory: null,
+          loaded_at: null,
+          umo: UMO,
+          all_loaded_count: 0,
+        },
+      },
+    } as never);
+    const { status, refresh } = useSpcodeProjectStatus();
+    await refresh(UMO);
+    expect(status.value.bootId).toBeNull();
+  });
+
+  it("reset() and setUnloaded() keep the observed bootId", async () => {
+    getMock.mockResolvedValue({
+      data: {
+        data: {
+          loaded: true,
+          directory: "C:/proj/demo",
+          loaded_at: 123.4,
+          umo: UMO,
+          all_loaded_count: 1,
+          boot_id: "4000-abc",
+        },
+      },
+    } as never);
+    const { status, refresh, setUnloaded, reset } = useSpcodeProjectStatus();
+    await refresh(UMO);
+    expect(status.value.bootId).toBe("4000-abc");
+
+    setUnloaded();
+    expect(status.value.bootId).toBe("4000-abc");
+    reset();
+    expect(status.value.bootId).toBe("4000-abc");
+  });
+
+  it("concurrent refresh(umo) calls share a single GET", async () => {
+    getMock.mockResolvedValue({
+      data: {
+        data: {
+          loaded: true,
+          directory: "C:/proj/demo",
+          loaded_at: 123.4,
+          umo: UMO,
+          all_loaded_count: 1,
+          boot_id: "4000-abc",
+        },
+      },
+    } as never);
+    const { status, refresh } = useSpcodeProjectStatus();
+    await Promise.all([refresh(UMO), refresh(UMO), refresh(UMO)]);
+    expect(getMock).toHaveBeenCalledTimes(1);
+    expect(status.value.bootId).toBe("4000-abc");
   });
 });

@@ -367,6 +367,7 @@ describe("SpcodeProjectIndicator worktree activation overlay", () => {
       umo: "webchat-1",
       allLoadedCount: 1,
       fetchedAt: 1,
+      bootId: null,
     };
   }
 

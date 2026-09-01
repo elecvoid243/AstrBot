@@ -13,6 +13,9 @@ import { pluginExtensionApi } from "@/api/v1";
 import {
   ProjectLoadError,
   useSpcodeProjectAutoLoad,
+  isSessionLoadedTag,
+  markSessionLoadedTag,
+  clearSessionLoadedTag,
 } from "./useSpcodeProjectAutoLoad";
 import type { Project } from "@/components/chat/ProjectList.vue";
 
@@ -118,5 +121,39 @@ describe("useSpcodeProjectAutoLoad silentLoad", () => {
       expect(data).toBeNull();
     }
     expect(postMock()).not.toHaveBeenCalled();
+  });
+});
+
+// ── Dirty tag (2026-09-01) ─────────────────────────────────────────
+describe("spcode session dirty tag", () => {
+  beforeEach(() => {
+    markSessionLoadedTag("s1", "p1", "boot-1");
+  });
+
+  it("reports loaded for the same session+project+bootId", () => {
+    expect(isSessionLoadedTag("s1", "p1", "boot-1")).toBe(true);
+  });
+
+  it("misses when the session has no tag", () => {
+    expect(isSessionLoadedTag("s-unknown", "p1", "boot-1")).toBe(false);
+  });
+
+  it("misses on project rebinding (projectId changed)", () => {
+    expect(isSessionLoadedTag("s1", "p2", "boot-1")).toBe(false);
+  });
+
+  it("misses after a backend restart (bootId changed)", () => {
+    expect(isSessionLoadedTag("s1", "p1", "boot-2")).toBe(false);
+  });
+
+  it("applies the tag when the current bootId is still unknown (null)", () => {
+    // Old backend without boot_id: cannot distinguish restart, keep the
+    // fast path (backend idempotent rejection stays as safety net).
+    expect(isSessionLoadedTag("s1", "p1", null)).toBe(true);
+  });
+
+  it("clearSessionLoadedTag drops the tag", () => {
+    clearSessionLoadedTag("s1");
+    expect(isSessionLoadedTag("s1", "p1", "boot-1")).toBe(false);
   });
 });

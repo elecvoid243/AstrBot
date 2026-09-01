@@ -120,6 +120,7 @@ describe("GitDiffSidebar repo-init prompt", () => {
       umo: "session:test",
       allLoadedCount: 1,
       fetchedAt: 1,
+      bootId: null,
     };
   });
 

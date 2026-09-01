@@ -21,9 +21,7 @@
         <span>{{ workspaceSummary }}</span>
       </div>
       <SpcodeProjectStatusChip
-        v-if="
-          project?.workspace_type === 'custom' && project.workspace_path
-        "
+        v-if="project?.workspace_type === 'custom' && project.workspace_path"
         :umo="props.umo ?? null"
         :workspace-path="project.workspace_path"
       />
@@ -78,15 +76,22 @@
       </div>
     </section>
 
-    <div class="project-input-slot">
-      <slot></slot>
+    <div class="project-create-slot">
+      <button
+        type="button"
+        class="project-create-session-btn"
+        @click="$emit('createSession')"
+      >
+        <Plus :size="20" />
+        <span>{{ tm("project.createSession") }}</span>
+      </button>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed } from "vue";
-import { FolderCog, MessageSquare, Pencil, Trash2 } from "@lucide/vue";
+import { FolderCog, MessageSquare, Pencil, Plus, Trash2 } from "@lucide/vue";
 import { useModuleI18n } from "@/i18n/composables";
 import type { Project } from "@/components/chat/ProjectList.vue";
 import SpcodeProjectStatusChip from "@/components/chat/SpcodeProjectStatusChip.vue";
@@ -112,6 +117,8 @@ const emit = defineEmits<{
   selectSession: [sessionId: string];
   editSessionTitle: [sessionId: string, title: string];
   deleteSession: [sessionId: string];
+  /** 2026-09-01 (elecvoid243): project page "create new session" button. */
+  createSession: [];
 }>();
 
 const { tm } = useModuleI18n("features/chat");
@@ -226,10 +233,38 @@ async function handleDeleteSession(session: Session) {
   white-space: nowrap;
 }
 
-.project-input-slot {
+.project-create-slot {
   flex: 0 0 auto;
-  width: 100%;
+  width: var(--chat-content-width, 76%);
+  max-width: var(--chat-content-max-width, 760px);
+  margin: 0 auto;
   padding-top: 18px;
+}
+
+.project-create-session-btn {
+  width: 100%;
+  min-height: 52px;
+  border: 1px dashed rgba(var(--v-theme-on-surface), 0.24);
+  border-radius: 12px;
+  background: transparent;
+  color: rgba(var(--v-theme-on-surface), 0.7);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 550;
+  cursor: pointer;
+  transition:
+    background-color 0.14s ease,
+    border-color 0.14s ease,
+    color 0.14s ease;
+}
+
+.project-create-session-btn:hover {
+  border-color: rgba(var(--v-theme-on-surface), 0.4);
+  background-color: rgba(var(--v-theme-on-surface), 0.04);
+  color: rgb(var(--v-theme-on-surface));
 }
 
 .project-sessions-list {

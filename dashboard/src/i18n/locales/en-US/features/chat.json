@@ -320,6 +320,8 @@
       "path": "Workspace path"
     },
     "loadingSessions": "Loading conversations...",
+    "createSession": "Create new session",
+    "createSessionFailed": "Failed to create session",
     "noSessions": "No conversations in this project",
     "noProjects": "No projects",
     "dropToRemoveHint": "Drag a session here to move it out of the project",

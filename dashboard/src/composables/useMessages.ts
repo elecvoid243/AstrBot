@@ -546,7 +546,9 @@ export function useMessages(options: UseMessagesOptions) {
       const existing = messagesBySession[sessionId] || [];
       messagesBySession[sessionId] = records;
       if (existing.length) {
-        const historyIds = new Set(records.map((r: ChatRecord) => String(r.id)));
+        const historyIds = new Set(
+          records.map((r: ChatRecord) => String(r.id)),
+        );
         const activeOrphanIds = new Set(
           (Array.isArray(payload.active_runs) ? payload.active_runs : [])
             .filter((r: ActiveChatRun) => !r.llm_checkpoint_id)
@@ -562,7 +564,9 @@ export function useMessages(options: UseMessagesOptions) {
         if (live.length) {
           messagesBySession[sessionId] = [...records, ...live].sort(
             (a: ChatRecord, b: ChatRecord) =>
-              String(a.created_at || "").localeCompare(String(b.created_at || "")),
+              String(a.created_at || "").localeCompare(
+                String(b.created_at || ""),
+              ),
           );
         }
       }
@@ -634,11 +638,7 @@ export function useMessages(options: UseMessagesOptions) {
       },
     });
     messages.push(botRecord);
-    startResumeStream(
-      sessionId,
-      runId,
-      messages[messages.length - 1],
-    );
+    startResumeStream(sessionId, runId, messages[messages.length - 1]);
   }
 
   async function restoreNextActiveRun(

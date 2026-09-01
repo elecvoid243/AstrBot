@@ -320,6 +320,8 @@
       "path": "工作区路径"
     },
     "loadingSessions": "加载对话中...",
+    "createSession": "创建新会话",
+    "createSessionFailed": "创建会话失败",
     "noSessions": "该项目暂无对话",
     "noProjects": "暂无项目",
     "dropToRemoveHint": "拖拽会话到此处，将其移出项目",

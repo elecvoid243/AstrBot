@@ -118,10 +118,18 @@
             @keydown.esc="editingFollowUpId = null"
           />
           <div class="pending-follow-up-card__actions">
-            <v-btn size="small" variant="text" @click="editingFollowUpId = null">
+            <v-btn
+              size="small"
+              variant="text"
+              @click="editingFollowUpId = null"
+            >
               {{ tm("input.cancel") }}
             </v-btn>
-            <v-btn size="small" variant="tonal" @click="saveFollowUpEdit(item.id)">
+            <v-btn
+              size="small"
+              variant="tonal"
+              @click="saveFollowUpEdit(item.id)"
+            >
               {{ tm("input.save") }}
             </v-btn>
           </div>
@@ -651,6 +659,7 @@ import { useSpcodeOperationProgress } from "@/composables/useSpcodeOperationProg
 import {
   ProjectLoadError,
   useSpcodeSilentOps,
+  clearSessionLoadedTag,
 } from "@/composables/useSpcodeProjectAutoLoad";
 import { useToastStore } from "@/stores/toast";
 import { useFileComments } from "@/composables/useFileComments";
@@ -758,11 +767,7 @@ function startFollowUpEdit(item: PendingFollowUp) {
 
 function saveFollowUpEdit(id: string) {
   if (props.sessionId) {
-    pendingFollowUps.updateText(
-      props.sessionId,
-      id,
-      editingFollowUpText.value,
-    );
+    pendingFollowUps.updateText(props.sessionId, id, editingFollowUpText.value);
   }
   editingFollowUpId.value = null;
 }
@@ -1549,6 +1554,8 @@ async function handleProjectLoadSubmit(
   try {
     if (payload.mode === "unload") {
       await silentOps.silentUnload(umo);
+      // 2026-09-01: manual unload invalidates the "already loaded" tag.
+      clearSessionLoadedTag(session.session_id);
     } else if (payload.mode === "codegraph") {
       await silentOps.silentCodegraphSet(umo, payload.path!);
       await codegraphStatus.refresh();
@@ -1562,6 +1569,10 @@ async function handleProjectLoadSubmit(
         create: payload.create,
         gitInit: payload.gitInit,
       });
+      // 2026-09-01: manual load may point at a directory other than the
+      // project binding; drop the tag so the next auto-load re-evaluates
+      // against the binding (the backend idempotent check keeps it cheap).
+      clearSessionLoadedTag(session.session_id);
     }
   } catch (err) {
     // The chip's failed state + detail popover come from the progress ref;

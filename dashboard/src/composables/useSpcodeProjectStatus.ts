@@ -1,14 +1,17 @@
-import { ref } from 'vue'
-import { pluginExtensionApi } from '@/api/v1'
-import {
-  EMPTY_STATUS,
-  type SpcodeProjectStatus,
-} from './parseSpcodeStatus'
+import { ref } from "vue";
+import { pluginExtensionApi } from "@/api/v1";
+import { EMPTY_STATUS, type SpcodeProjectStatus } from "./parseSpcodeStatus";
 
 // Re-export the type so existing consumers of this module keep working.
-export type { SpcodeProjectStatus } from './parseSpcodeStatus'
+export type { SpcodeProjectStatus } from "./parseSpcodeStatus";
 
-const status = ref<SpcodeProjectStatus>({ ...EMPTY_STATUS })
+const status = ref<SpcodeProjectStatus>({ ...EMPTY_STATUS });
+
+// 2026-09-01 (elecvoid243): in-flight refresh dedup, keyed by umo.
+// The session-switch watcher and the spcode auto-load fast path may
+// both call refresh(umo) for the same session at the same tick; sharing
+// the promise avoids a duplicate GET and keeps the boot id coherent.
+const inflightRefresh = new Map<string, Promise<void>>();
 
 /**
  * Shared state holder for the spcode "currently loaded project" chip.
@@ -51,39 +54,52 @@ export function useSpcodeProjectStatus() {
    */
   async function refresh(umo?: string | null): Promise<void> {
     if (!umo) {
-      status.value = { ...EMPTY_STATUS }
-      return
+      status.value = { ...EMPTY_STATUS };
+      return;
     }
+    // dedup: multiple callers in the same tick share one network request
+    const existing = inflightRefresh.get(umo);
+    if (existing) return existing;
+    const promise = (async (): Promise<void> => {
+      try {
+        const res = await pluginExtensionApi.get<{
+          loaded: boolean;
+          directory: string | null;
+          loaded_at: number | null;
+          umo: string | null;
+          all_loaded_count: number;
+          boot_id?: string | null;
+        }>("spcode/project-status", {
+          params: { umo },
+        });
+        const data = res.data?.data;
+        if (!data) {
+          // Soft-fail: keep the last known state.
+          return;
+        }
+        status.value = {
+          loaded: Boolean(data.loaded),
+          directory: data.directory ?? null,
+          loadedAt: typeof data.loaded_at === "number" ? data.loaded_at : null,
+          umo: data.umo ?? null,
+          allLoadedCount:
+            typeof data.all_loaded_count === "number"
+              ? data.all_loaded_count
+              : 0,
+          fetchedAt: Date.now(),
+          // 2026-09-01: backend boot id, drives dirty-tag invalidation.
+          bootId: data.boot_id ?? null,
+        };
+      } catch (err) {
+        // Network or auth error: keep previous state, do not throw to callers.
+        console.warn("[useSpcodeProjectStatus] refresh failed:", err);
+      }
+    })();
+    inflightRefresh.set(umo, promise);
     try {
-      const res = await pluginExtensionApi.get<{
-        loaded: boolean
-        directory: string | null
-        loaded_at: number | null
-        umo: string | null
-        all_loaded_count: number
-      }>('spcode/project-status', {
-        params: { umo },
-      })
-      const data = res.data?.data
-      if (!data) {
-        // Soft-fail: keep the last known state.
-        return
-      }
-      status.value = {
-        loaded: Boolean(data.loaded),
-        directory: data.directory ?? null,
-        loadedAt:
-          typeof data.loaded_at === 'number' ? data.loaded_at : null,
-        umo: data.umo ?? null,
-        allLoadedCount:
-          typeof data.all_loaded_count === 'number'
-            ? data.all_loaded_count
-            : 0,
-        fetchedAt: Date.now(),
-      }
-    } catch (err) {
-      // Network or auth error: keep previous state, do not throw to callers.
-      console.warn('[useSpcodeProjectStatus] refresh failed:', err)
+      await promise;
+    } finally {
+      inflightRefresh.delete(umo);
     }
   }
 
@@ -100,7 +116,7 @@ export function useSpcodeProjectStatus() {
       directory,
       loadedAt,
       fetchedAt: Date.now(),
-    }
+    };
   }
 
   /** Optimistically mark the current session as having no project loaded. */
@@ -110,14 +126,21 @@ export function useSpcodeProjectStatus() {
       umo: status.value.umo,
       allLoadedCount: Math.max(0, status.value.allLoadedCount - 1),
       fetchedAt: Date.now(),
-    }
+      // backend identity is session-independent: keep it (only refresh updates)
+      bootId: status.value.bootId,
+    };
   }
 
   /**
    * Reset the status to the empty state (e.g. on logout or session switch).
    */
   function reset() {
-    status.value = { ...EMPTY_STATUS }
+    status.value = {
+      ...EMPTY_STATUS,
+      // keep bootId so the dirty tag stays valid across session switches;
+      // the backend identity only changes when refresh() observes a new one.
+      bootId: status.value.bootId,
+    };
   }
 
   return {
@@ -126,5 +149,5 @@ export function useSpcodeProjectStatus() {
     setLoaded,
     setUnloaded,
     reset,
-  }
+  };
 }

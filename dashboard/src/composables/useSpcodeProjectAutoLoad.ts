@@ -71,6 +71,71 @@ export interface SilentLoadRequest {
 const DEFAULT_TIMEOUT_MS = 30_000;
 const inflight = new Map<string, Promise<ProjectLoadData | null>>();
 
+// ── Dirty tag: "session already loaded the project once" (2026-09-01) ──
+// Records, per session, that a project load has *already been completed*
+// in this frontend session. Keyed by sessionId (Chat.vue has it at every
+// relevant call site: auto-load, session delete). A fast-path check in
+// Chat.vue skips the whole /spcode/project-load round-trip when the tag
+// exists AND both the project id and the backend boot id still match.
+//
+// Why boot id? tools/project/state is process memory. When AstrBot
+// restarts, the backend forgets everything and a session that was
+// "already loaded" must be loaded again. The boot id from
+// /spcode/project-status lets us detect that restart cheaply.
+//
+// Invalidation (all handled by callers):
+//   - manual unload            -> clearSessionLoadedTag
+//   - manual load (any mode)   -> clearSessionLoadedTag (next auto-load re-evaluates)
+//   - session deleted          -> clearSessionLoadedTag
+//   - project binding changed  -> projectId mismatch in isSessionLoadedTag
+//   - backend restarted        -> bootId mismatch in isSessionLoadedTag
+interface SessionLoadTag {
+  projectId: string;
+  bootId: string | null;
+}
+
+const sessionLoadTags = new Map<string, SessionLoadTag>();
+
+/** True when the session already loaded this exact project under this
+ * backend process — callers may skip the silent project-load entirely.
+ *
+ * bootId null (never observed yet, e.g. old backend without boot_id)
+ * is treated as "unknown process generation": the tag still applies,
+ * because without a boot id we can't tell a restart apart, and the
+ * backend's own idempotent rejection remains the safety net.
+ */
+export function isSessionLoadedTag(
+  sessionId: string,
+  projectId: string,
+  bootId: string | null,
+): boolean {
+  const tag = sessionLoadTags.get(sessionId);
+  if (!tag) return false;
+  if (tag.projectId !== projectId) return false;
+  if (bootId !== null && tag.bootId !== bootId) return false;
+  return true;
+}
+
+/** Mark the session as having completed a project load for this identity. */
+export function markSessionLoadedTag(
+  sessionId: string,
+  projectId: string,
+  bootId: string | null,
+): void {
+  sessionLoadTags.set(sessionId, { projectId, bootId });
+}
+
+/** Drop the tag (manual unload, manual reload to another directory,
+ * session deletion). The next switch re-runs the auto-load path. */
+export function clearSessionLoadedTag(sessionId: string): void {
+  sessionLoadTags.delete(sessionId);
+}
+
+/** Wipe all tags (e.g. backend boot id changed globally). */
+export function clearAllSessionLoadedTags(): void {
+  sessionLoadTags.clear();
+}
+
 /**
  * Normalize a path for equality comparison ONLY (never sent to the
  * backend — the server resolves the original workspace_path itself).
@@ -138,16 +203,13 @@ async function postLoad(
     const aborted =
       controller.signal.aborted ||
       (err as { name?: string })?.name === "AbortError";
-    throw new ProjectLoadError(
-      aborted ? "network_timeout" : "unknown",
-      {
-        loaded: false,
-        directory: req.project.workspace_path ?? "",
-        umo: req.umo,
-        skipped_substeps: [],
-        substep_messages: [String((err as Error)?.message ?? err)],
-      },
-    );
+    throw new ProjectLoadError(aborted ? "network_timeout" : "unknown", {
+      loaded: false,
+      directory: req.project.workspace_path ?? "",
+      umo: req.umo,
+      skipped_substeps: [],
+      substep_messages: [String((err as Error)?.message ?? err)],
+    });
   } finally {
     clearTimeout(timer);
     req.signal?.removeEventListener("abort", onExternalAbort);
