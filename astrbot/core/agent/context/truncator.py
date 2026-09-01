@@ -1,4 +1,6 @@
 from ..message import Message
+from .round_utils import split_into_rounds
+from .token_counter import TokenCounter
 
 
 class ContextTruncator:
@@ -166,6 +168,75 @@ class ContextTruncator:
         )
         if index is not None:
             truncated_non_system = truncated_non_system[index:]
+
+        result = self._ensure_user_message(
+            system_messages, truncated_non_system, messages
+        )
+        return self.fix_messages(result)
+
+    def truncate_by_token_budget(
+        self,
+        messages: list[Message],
+        budget_tokens: int,
+        token_counter: TokenCounter,
+        min_drop_turns: int = 0,
+    ) -> list[Message]:
+        """Drop the oldest rounds until the remaining tokens fit the budget.
+
+        This strategy is token-aware: starting from the most recent round, it
+        keeps rounds while their accumulated token count stays within
+        ``budget_tokens`` and drops all older rounds. The latest round is
+        always preserved (round-granular). Dropping to the budget at once gives
+        the request a large headroom below the compression trigger, so
+        subsequent requests can keep a stable prefix and reuse the
+        provider-side prefix cache instead of truncating one turn at a time.
+
+        Args:
+            messages: The original list of messages in the context.
+            budget_tokens: The maximum token budget for the kept context.
+            token_counter: Token counter used to estimate each round.
+            min_drop_turns: Minimum number of oldest turns to drop; applied
+                when the budget alone would drop fewer turns.
+
+        Returns:
+            The truncated list of messages.
+        """
+        if budget_tokens <= 0 or len(messages) <= 2:
+            return messages
+
+        system_messages, non_system_messages = self._split_system_rest(messages)
+
+        if non_system_messages:
+            rounds = [
+                [seg for seg in rnd if isinstance(seg, Message)]
+                for rnd in split_into_rounds(non_system_messages)
+            ]
+            rounds = [rnd for rnd in rounds if rnd]
+        else:
+            rounds = []
+
+        if len(rounds) <= 1:
+            return messages
+
+        # Keep the most recent rounds while the accumulated tokens stay within
+        # the budget. The latest round is always kept (round-granular).
+        kept_tokens = 0
+        keep_start = len(rounds)
+        for idx in range(len(rounds) - 1, -1, -1):
+            round_tokens = token_counter.count_tokens(rounds[idx])
+            if keep_start < len(rounds) and kept_tokens + round_tokens > budget_tokens:
+                break
+            kept_tokens += round_tokens
+            keep_start = idx
+
+        drop_turns = keep_start
+        if drop_turns < min_drop_turns:
+            drop_turns = min(min_drop_turns, len(rounds) - 1)
+
+        if drop_turns <= 0:
+            return messages
+
+        truncated_non_system = [seg for rnd in rounds[drop_turns:] for seg in rnd]
 
         result = self._ensure_user_message(
             system_messages, truncated_non_system, messages

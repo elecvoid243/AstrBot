@@ -1,5 +1,6 @@
 """Tests for ContextTruncator."""
 
+from astrbot.core.agent.context.token_counter import EstimateTokenCounter
 from astrbot.core.agent.context.truncator import ContextTruncator
 from astrbot.core.agent.message import Message
 
@@ -226,6 +227,109 @@ class TestContextTruncator:
         # First message should be user
         if len(result) > 0:
             assert result[0].role == "user"
+
+    # ==================== truncate_by_token_budget Tests ====================
+
+    def test_truncate_by_token_budget_keeps_recent_rounds(self):
+        """Basic: drops oldest rounds until remaining tokens fit the budget."""
+        truncator = ContextTruncator()
+        counter = EstimateTokenCounter()
+        # 10 messages = 5 turns. Each "Message i" estimates to 2 tokens,
+        # so a round (user+assistant) is about 4 tokens.
+        messages = self.create_messages(10)
+        result = truncator.truncate_by_token_budget(
+            messages, budget_tokens=8, token_counter=counter
+        )
+        # Keep 2 recent rounds (4 messages), drop 3 oldest turns.
+        assert len(result) == 4
+        assert result[0].role == "user"
+        assert result[-1].content == "Message 9"
+
+    def test_truncate_by_token_budget_preserves_system(self):
+        """System messages are always preserved."""
+        truncator = ContextTruncator()
+        counter = EstimateTokenCounter()
+        messages = self.create_messages(10, include_system=True)
+        result = truncator.truncate_by_token_budget(
+            messages, budget_tokens=4, token_counter=counter
+        )
+        assert result[0].role == "system"
+        assert result[0].content == "System prompt"
+        assert result[1].role == "user"
+
+    def test_truncate_by_token_budget_keeps_latest_round(self):
+        """Even a tiny budget keeps the latest round."""
+        truncator = ContextTruncator()
+        counter = EstimateTokenCounter()
+        messages = self.create_messages(10)
+        result = truncator.truncate_by_token_budget(
+            messages, budget_tokens=1, token_counter=counter
+        )
+        assert len(result) == 2
+        assert result[0].role == "user"
+        assert result[1].role == "assistant"
+
+    def test_truncate_by_token_budget_large_budget_no_drop(self):
+        """A budget covering everything keeps the context unchanged."""
+        truncator = ContextTruncator()
+        counter = EstimateTokenCounter()
+        messages = self.create_messages(10)
+        result = truncator.truncate_by_token_budget(
+            messages, budget_tokens=10000, token_counter=counter
+        )
+        assert result == messages
+
+    def test_truncate_by_token_budget_min_drop_turns(self):
+        """min_drop_turns forces extra drops even when budget is generous."""
+        truncator = ContextTruncator()
+        counter = EstimateTokenCounter()
+        messages = self.create_messages(10)
+        result = truncator.truncate_by_token_budget(
+            messages, budget_tokens=10000, token_counter=counter, min_drop_turns=2
+        )
+        # Drop 2 oldest turns (4 messages), keep 3 turns.
+        assert len(result) == 6
+        assert result[0].role == "user"
+
+    def test_truncate_by_token_budget_non_positive_budget(self):
+        """Non-positive budget disables truncation."""
+        truncator = ContextTruncator()
+        counter = EstimateTokenCounter()
+        messages = self.create_messages(10)
+        result = truncator.truncate_by_token_budget(
+            messages, budget_tokens=0, token_counter=counter
+        )
+        assert result == messages
+
+    def test_truncate_by_token_budget_cannot_keep_min(self):
+        """min_drop_turns never drops all rounds."""
+        truncator = ContextTruncator()
+        counter = EstimateTokenCounter()
+        messages = self.create_messages(4)  # 2 turns
+        result = truncator.truncate_by_token_budget(
+            messages, budget_tokens=1, token_counter=counter, min_drop_turns=5
+        )
+        # At least one round (user message) remains.
+        assert len(result) >= 1
+        assert result[0].role == "user"
+
+    def test_truncate_by_token_budget_tool_chain(self):
+        """Tool chains are cleaned up after budget truncation."""
+        truncator = ContextTruncator()
+        counter = EstimateTokenCounter()
+        # 3 rounds, each: user -> assistant -> tool (isolated, no tool_calls).
+        msgs = [self.create_message("system", "System prompt")]
+        for r in range(3):
+            msgs.append(self.create_message("user", f"user {r}"))
+            msgs.append(self.create_message("assistant", f"调用工具 {r}"))
+            msgs.append(self.create_message("tool", f"工具结果 {r}"))
+        result = truncator.truncate_by_token_budget(
+            msgs, budget_tokens=8, token_counter=counter
+        )
+        roles = [m.role for m in result]
+        assert "user" in roles
+        # tool messages without a pending assistant(tool_calls) are pruned.
+        assert "tool" not in roles
 
     # ==================== truncate_by_halving Tests ====================
 

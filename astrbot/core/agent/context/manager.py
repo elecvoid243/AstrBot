@@ -39,7 +39,10 @@ class ContextManager:
             )
         else:
             self.compressor = TruncateByTurnsCompressor(
-                truncate_turns=config.truncate_turns
+                truncate_turns=config.truncate_turns,
+                target_usage_ratio=config.truncate_target_usage_ratio,
+                max_tokens=config.max_context_tokens,
+                token_counter=self.token_counter,
             )
 
     async def process(

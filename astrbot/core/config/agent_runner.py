@@ -21,6 +21,7 @@ AGENT_RUNNER_CONFIG_DEFAULTS: dict[str, dict[str, Any]] = {
         "compression": {
             "max_turns": -1,
             "trim_turns": 1,
+            "target_usage_ratio": 0.4,
             "overflow_strategy": "llm_compress",
             "instruction": "",
             "keep_recent_ratio": 0.15,
@@ -172,4 +173,8 @@ def normalize_agent_runner(agent_runner: object) -> dict[str, Any]:
             normalized["misc"]["max_steps"] = 1
         if normalized["compression"]["trim_turns"] < 1:
             normalized["compression"]["trim_turns"] = 1
+        if normalized["compression"]["target_usage_ratio"] < 0.0:
+            normalized["compression"]["target_usage_ratio"] = 0.0
+        if normalized["compression"]["target_usage_ratio"] > 0.8:
+            normalized["compression"]["target_usage_ratio"] = 0.8
     return {"runner_type": runner_type, "config": normalized}

@@ -339,7 +339,11 @@
         },
         "trim_turns": {
           "description": "Turns to Discard When Limit Exceeded",
-          "hint": "When history exceeds 'Max Turns Before Compression' and LLM compression is unavailable, discard this many oldest turns at once. Request-time truncation also reuses this value."
+          "hint": "When history exceeds 'Max Turns Before Compression' and LLM compression is unavailable, discard at least this many oldest turns at once. When token-budget truncation is active (see 'Target Usage Ratio After Truncation' below), this value acts as the minimum drop. Request-time truncation also reuses this value."
+        },
+        "target_usage_ratio": {
+          "description": "Target Usage Ratio After Truncation",
+          "hint": "When truncating by turns, drop oldest rounds until the context token usage is below model window x this ratio. 0.4 means dropping to below 40% at once, leaving headroom so subsequent requests can hit the LLM prefix cache. Set to 0 to fall back to a fixed 'Turns to Discard When Limit Exceeded' drop."
         },
         "overflow_strategy": {
           "description": "Handling for History Limits or Context Window Pressure",

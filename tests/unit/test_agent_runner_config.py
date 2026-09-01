@@ -156,6 +156,7 @@ def test_local_legacy_fields_are_fully_migrated():
             "compression": {
                 "max_turns": 20,
                 "trim_turns": 3,
+                "target_usage_ratio": 0.4,
                 "overflow_strategy": "truncate_by_turns",
                 "instruction": "Summarize",
                 "keep_recent_ratio": 0.2,
@@ -240,6 +241,7 @@ def test_local_migration_replaces_default_root_inserted_before_version_bump():
             "compression": {
                 "max_turns": 24,
                 "trim_turns": 4,
+                "target_usage_ratio": 0.4,
                 "overflow_strategy": "llm_compress",
                 "instruction": "Keep decisions",
                 "keep_recent_ratio": 0.15,

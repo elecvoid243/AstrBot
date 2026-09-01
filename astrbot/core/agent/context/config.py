@@ -23,6 +23,15 @@ class ContextConfig:
     1. Enforce max turns truncation.
     2. Truncation by turns compression strategy.
     """
+    truncate_target_usage_ratio: float = 0.4
+    """Target usage ratio of ``max_context_tokens`` after turn-based truncation.
+
+    When token-budget truncation is active, the oldest turns are dropped until
+    the remaining estimated tokens are below ``max_context_tokens`` times this
+    ratio, giving the request headroom for a stable prefix (prefix cache).
+    ``<= 0`` disables token-budget truncation and falls back to a fixed
+    ``truncate_turns`` drop.
+    """
     llm_compress_instruction: str | None = None
     """Instruction prompt for LLM-based compression."""
     llm_compress_keep_recent_ratio: float = 0.15

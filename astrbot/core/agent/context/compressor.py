@@ -63,16 +63,32 @@ class TruncateByTurnsCompressor:
     """
 
     def __init__(
-        self, truncate_turns: int = 1, compression_threshold: float = 0.82
+        self,
+        truncate_turns: int = 1,
+        compression_threshold: float = 0.82,
+        target_usage_ratio: float = 0.4,
+        max_tokens: int = 0,
+        token_counter: TokenCounter | None = None,
     ) -> None:
         """Initialize the truncate by turns compressor.
 
         Args:
             truncate_turns: The number of turns to remove when truncating (default: 1).
             compression_threshold: The compression trigger threshold (default: 0.82).
+            target_usage_ratio: Target usage ratio of ``max_tokens`` after
+                truncation (default: 0.4). When ``max_tokens`` is provided, the
+                compressor drops the oldest turns until the remaining estimated
+                tokens fit this budget instead of a fixed turn count.
+            max_tokens: The maximum allowed tokens for the model. ``<= 0``
+                disables token-budget truncation and falls back to dropping
+                ``truncate_turns`` turns at a time.
+            token_counter: Token counter used to estimate the budget.
         """
         self.truncate_turns = truncate_turns
         self.compression_threshold = compression_threshold
+        self.target_usage_ratio = max(0.0, min(float(target_usage_ratio), 1.0))
+        self.max_tokens = max_tokens
+        self.token_counter = token_counter
 
     def should_compress(
         self, messages: list[Message], current_tokens: int, max_tokens: int
@@ -94,6 +110,21 @@ class TruncateByTurnsCompressor:
 
     async def __call__(self, messages: list[Message]) -> list[Message]:
         truncator = ContextTruncator()
+        if (
+            self.max_tokens > 0
+            and self.target_usage_ratio > 0
+            and self.token_counter is not None
+        ):
+            # Token-budget truncation: drop the oldest turns until the
+            # remaining tokens fit max_tokens * target_usage_ratio, so the
+            # next requests have headroom and can reuse the prefix cache.
+            budget_tokens = int(self.max_tokens * self.target_usage_ratio)
+            return truncator.truncate_by_token_budget(
+                messages,
+                budget_tokens=budget_tokens,
+                token_counter=self.token_counter,
+                min_drop_turns=self.truncate_turns,
+            )
         truncated_messages = truncator.truncate_by_dropping_oldest_turns(
             messages,
             drop_turns=self.truncate_turns,

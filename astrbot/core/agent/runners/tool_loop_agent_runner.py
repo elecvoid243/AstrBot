@@ -218,6 +218,7 @@ class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
         llm_compress_provider: Provider | None = None,
         # truncate by turns compressor
         truncate_turns: int = 1,
+        truncate_target_usage_ratio: float = 0.4,
         # customize
         custom_token_counter: TokenCounter | None = None,
         custom_compressor: ContextCompressor | None = None,
@@ -237,6 +238,7 @@ class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
         self.llm_compress_keep_recent_ratio = llm_compress_keep_recent_ratio
         self.llm_compress_provider = llm_compress_provider
         self.truncate_turns = truncate_turns
+        self.truncate_target_usage_ratio = truncate_target_usage_ratio
         self.custom_token_counter = custom_token_counter
         self.custom_compressor = custom_compressor
         self.request_max_retries = request_max_retries
@@ -249,6 +251,7 @@ class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
             # Enforce max turns before token-based guarding.
             enforce_max_turns=self.enforce_max_turns,
             truncate_turns=self.truncate_turns,
+            truncate_target_usage_ratio=self.truncate_target_usage_ratio,
             llm_compress_instruction=self.llm_compress_instruction,
             llm_compress_keep_recent_ratio=self.llm_compress_keep_recent_ratio,
             llm_compress_provider=self.llm_compress_provider,

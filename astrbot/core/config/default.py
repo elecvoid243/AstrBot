@@ -4058,7 +4058,16 @@ CONFIG_METADATA_3 = {
                     "agent_runner.config.compression.trim_turns": {
                         "description": "轮次超限时一次丢弃轮数",
                         "type": "int",
-                        "hint": "当超过“压缩前最多保留对话轮数”且无法使用 LLM 压缩时，一次丢弃多少轮旧对话；请求期截断也会复用该值。",
+                        "hint": "当超过“压缩前最多保留对话轮数”且无法使用 LLM 压缩时，一次至少丢弃多少轮旧对话；启用按 Token 动态截断时（下方“截断时目标占用比例”> 0），该值作为最少丢弃轮数兜底。请求期截断也会复用该值。",
+                        "condition": {
+                            "agent_runner.runner_type": "local",
+                        },
+                    },
+                    "agent_runner.config.compression.target_usage_ratio": {
+                        "description": "截断时目标占用比例",
+                        "type": "float",
+                        "slider": {"min": 0, "max": 0.8, "step": 0.05},
+                        "hint": "按对话轮数截断时，从最旧对话轮开始丢弃，直到上下文 Token 占用低于 模型窗口 × 该比例。0.4 表示一次丢弃到 40% 以下，为后续对话留出缓冲空间，使 LLM 前缀缓存可以连续命中。设为 0 时退化为按“轮次超限时一次丢弃轮数”固定丢弃。",
                         "condition": {
                             "agent_runner.runner_type": "local",
                         },

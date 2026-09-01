@@ -59,6 +59,42 @@ class TestContextManager:
             messages.append(self.create_message(role, f"Message {i}"))
         return messages
 
+    # ==================== TruncateByTurns Token Budget Tests ====================
+
+    @pytest.mark.asyncio
+    async def test_truncate_compressor_drops_to_target_ratio(self):
+        """Truncate compressor drops oldest turns to the target usage ratio."""
+        config = ContextConfig(
+            max_context_tokens=40,
+            enforce_max_turns=-1,
+            truncate_turns=1,
+            truncate_target_usage_ratio=0.4,
+        )
+        manager = ContextManager(config)
+        # 20 messages = 10 turns, about 40 tokens; 40/40 = 100% > 82% triggers.
+        messages = self.create_messages(20)
+        result = await manager.process(messages)
+
+        # Budget = 40 * 0.4 = 16 tokens (~4 turns of 4 tokens each).
+        assert len(result) < len(messages)
+        assert result[0].role == "user"
+        # Must stay below the compression trigger so no halving fallback runs.
+        assert manager.token_counter.count_tokens(result) <= 16
+
+    @pytest.mark.asyncio
+    async def test_truncate_compressor_fallback_fixed_turns(self):
+        """Without max_context_tokens, the compressor falls back to fixed drops."""
+        config = ContextConfig(
+            max_context_tokens=0,
+            enforce_max_turns=-1,
+            truncate_turns=3,
+        )
+        manager = ContextManager(config)
+        messages = self.create_messages(12)  # 6 turns
+        result = await manager.process(messages)
+        # No token guard: no truncation should happen at all.
+        assert result == messages
+
     # ==================== Basic Initialization Tests ====================
 
     def test_init_with_minimal_config(self):

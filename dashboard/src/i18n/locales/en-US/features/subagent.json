@@ -109,7 +109,7 @@
   },
   "contextInheritMode": {
     "label": "Context Inherit Mode",
-    "hint": "In Fork mode, subagents byte-identically inherit the main agent's context and toolset to maximize prefix cache hits, with subagent instructions appended after the inherited context. Auto mode uses Fork while context usage stays below the compression threshold (82%), otherwise falls back to Normal mode.",
+    "hint": "In Fork mode, subagents byte-identically inherit the main agent's context and toolset to maximize prefix cache hits, with subagent instructions appended after the inherited context. Auto mode uses Fork while context usage stays below the compression threshold, otherwise falls back to Normal mode.",
     "normal": "Normal",
     "fork": "Fork",
     "auto": "Auto"
