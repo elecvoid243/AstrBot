@@ -87,6 +87,9 @@
                   checked:
                     selectionMode &&
                     checkedSessionIds.has(session.session_id),
+                  'needs-choice': choiceAttention.hasAttention(
+                    session.session_id,
+                  ),
                   'has-branch-meta':
                     !selectionMode &&
                     (Boolean(session.branches?.length) ||
@@ -138,6 +141,11 @@
                   @update:model-value="
                     emit('toggleSessionChecked', session.session_id)
                   "
+                />
+                <span
+                  v-if="choiceAttention.hasAttention(session.session_id)"
+                  class="project-session-choice-dot"
+                  aria-hidden="true"
                 />
                 <span class="project-session-title">
                   {{ sessionTitle(session) }}
@@ -277,6 +285,7 @@ import {
 import { useModuleI18n } from "@/i18n/composables";
 import { askForConfirmation, useConfirmDialog } from "@/utils/confirmDialog";
 import StyledMenu from "@/components/shared/StyledMenu.vue";
+import { useInteractiveChoiceAttentionStore } from "@/stores/interactiveChoiceAttention";
 
 export interface Project {
   project_id: string;
@@ -366,6 +375,12 @@ const emit = defineEmits<{
 
 const { tm } = useModuleI18n("features/chat");
 const confirmDialog = useConfirmDialog();
+
+// 2026-09-01 (elecvoid243): read the ask_user_choice attention store
+// directly instead of prop-drilling it — the flat session list excludes
+// project sessions, so this component is their only sidebar renderer and
+// must mirror Chat.vue's `needs-choice` highlight on its own.
+const choiceAttention = useInteractiveChoiceAttentionStore();
 
 const expandedProjectIds = ref<Set<string>>(readExpandedProjectIds());
 
@@ -752,6 +767,32 @@ function onSessionRowDrop(
 
 .project-session-row.checked {
   background: var(--chat-session-active-bg);
+}
+
+/* 2026-09-01 (elecvoid243): ask_user_choice highlight for project session
+   rows, mirroring the flat session list styles in Chat.vue. Declared after
+   hover/active/checked so the amber tint wins when they coincide. */
+.project-session-row.needs-choice {
+  background: rgba(245, 158, 11, 0.14);
+}
+
+.project-session-choice-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #f59e0b;
+  flex-shrink: 0;
+  animation: project-session-choice-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes project-session-choice-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
 }
 
 .project-session-select-checkbox {
