@@ -5,8 +5,9 @@
      handle DEL, so the frontend runs a local line editor:
        - printable chars are echoed locally only (never sent);
        - backspace / history edit the local buffer only;
-       - Enter erases the local preview, sends ONE complete line, and
-         the shell's own echo (highlighted cyan) takes over display.
+       - Enter keeps the local preview on screen, sends ONE complete
+         line, and the shell's own echo of the line is swallowed from
+         the output stream so the command shows exactly once.
      This keeps single display + correct backspace for both shells. -->
 <template>
   <div class="terminal-view">
@@ -18,8 +19,24 @@
         class="terminal-shell-toggle"
         :disabled="running"
       >
-        <v-btn value="powershell" :ripple="false">PowerShell</v-btn>
-        <v-btn value="cmd" :ripple="false">cmd</v-btn>
+        <!-- Explicit height prop: VBtnGroup forces inline height:auto on
+             children, which no CSS rule can override. -->
+        <v-btn
+          value="powershell"
+          height="24"
+          class="terminal-toggle-btn"
+          :ripple="false"
+        >
+          PowerShell
+        </v-btn>
+        <v-btn
+          value="cmd"
+          height="24"
+          class="terminal-toggle-btn"
+          :ripple="false"
+        >
+          cmd
+        </v-btn>
       </v-btn-toggle>
       <div class="terminal-status" :class="`is-${status}`">
         <span class="terminal-status-dot" />
@@ -141,8 +158,12 @@ let pendingLine = "";
 let pendingCols = 0;
 const history: string[] = [];
 let historyIndex = -1;
-// Last complete line sent; used to highlight the shell's echo line.
-let lastSubmittedLine = "";
+// Shell-echo swallow state: the exact last line sent, plus how many of
+// its characters already matched in the output stream. PowerShell on a
+// piped stdin echoes each received line back; swallowing that echo
+// keeps the locally echoed command as the only copy on screen.
+let echoLine: string | null = null;
+let echoPos = 0;
 
 const running = computed(() => status.value === "running");
 
@@ -204,23 +225,53 @@ function redrawLocalInput(): void {
   pendingCols = strWidth(pendingLine);
 }
 
-/** Highlight the shell's own echo line (``<prompt>> <command>``). */
-function highlightEchoLine(text: string): string {
-  if (!lastSubmittedLine) return text;
-  const esc = escapeRegExp(lastSubmittedLine);
-  const re = new RegExp(
-    `^([^\\r\\n]*>[ \\t]*)(${esc})([ \\t]*\\r?\\n?)$`,
-    "gm",
-  );
-  return text.replace(
-    re,
-    (_m, pre: string, cmd: string, rest: string) =>
-      `${pre}${ansi("1;36", cmd)}${rest}`,
-  );
-}
-
-function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+/**
+ * Swallow the shell's own echo of the submitted line from an output
+ * chunk, so the locally echoed preview stays the only copy on screen.
+ * The echo is the exact line text followed by a newline and may be
+ * split across chunks; if the stream does not match (e.g. cmd /Q,
+ * which never echoes), the text is displayed unchanged.
+ *
+ * Args:
+ *   text: Raw decoded output chunk from the SSE stream.
+ *
+ * Returns:
+ *   The part of the chunk that should be written to the terminal.
+ */
+function swallowShellEcho(text: string): string {
+  if (echoLine === null) return text;
+  let matched = 0; // echo chars matched within this chunk
+  let i = 0;
+  while (i < text.length) {
+    const ch = text[i];
+    if (echoPos < echoLine.length) {
+      if (ch === echoLine[echoPos]) {
+        echoPos += 1;
+        matched += 1;
+        i += 1;
+        continue;
+      }
+      // Not the echo after all: show the rest, re-emitting what this
+      // chunk already consumed.
+      echoLine = null;
+      echoPos = 0;
+      return text.slice(i - matched);
+    }
+    // Full line matched; the echo ends with a newline.
+    if (ch === "\r" || ch === "\n") {
+      if (ch === "\r" && text[i + 1] === "\n") i += 1;
+      i += 1;
+      echoLine = null;
+      echoPos = 0;
+      return text.slice(i);
+    }
+    // No newline right after the line — not an echo.
+    echoLine = null;
+    echoPos = 0;
+    return text.slice(i - matched);
+  }
+  // The whole chunk was part of the echo; nothing left to display.
+  return "";
 }
 
 function writeNotice(text: string): void {
@@ -242,6 +293,8 @@ function onTerminalData(data: string): void {
   if (data === "\x03") {
     pendingLine = "";
     clearLocalInput();
+    echoLine = null;
+    echoPos = 0;
     term?.write("^C\r\n");
     void doInterrupt();
     return;
@@ -278,14 +331,16 @@ function onTerminalData(data: string): void {
 function submitPendingLine(): void {
   const line = pendingLine;
   pendingLine = "";
-  // Remove the local preview, then advance to a new line; the shell's
-  // own echo of the line (highlighted) takes over the display.
-  clearLocalInput();
+  pendingCols = 0;
+  // Keep the locally echoed command on screen and just advance to the
+  // next line — the shell's own echo of the line is swallowed in the
+  // SSE stream, so the command is displayed exactly once.
   term?.write("\r\n");
   if (line.trim()) {
     history.push(line);
-    lastSubmittedLine = line.trim();
   }
+  echoLine = line;
+  echoPos = 0;
   void sendInput(`${line}\n`);
 }
 
@@ -434,6 +489,10 @@ async function onStart(): Promise<void> {
     }
     sessionId.value = data.session_id;
     status.value = "running";
+    // A start always replaces the previous session (the backend
+    // terminates it), so begin on a clean screen — covers switching
+    // shells (PowerShell <-> cmd) as well as same-shell restarts.
+    term?.reset();
     writeNotice(`[spcode] ${data.shell} @ ${data.cwd} (pid ${data.pid})`);
     await openStream(0);
     term?.focus();
@@ -469,12 +528,7 @@ async function openStream(startCursor: number): Promise<void> {
         const event = parseSpcodeTerminalStreamBlock(block);
         if (!event) continue;
         if (event.type === "output") {
-          const text = String(event.data);
-          if (lastSubmittedLine) {
-            term?.write(highlightEchoLine(text));
-          } else {
-            term?.write(text);
-          }
+          term?.write(swallowShellEcho(String(event.data)));
         } else if (event.type === "exit") {
           status.value = "exited";
           writeNotice(
@@ -485,12 +539,16 @@ async function openStream(startCursor: number): Promise<void> {
           sessionId.value = null;
           pendingLine = "";
           pendingCols = 0;
+          echoLine = null;
+          echoPos = 0;
           return;
         } else if (event.type === "error") {
           status.value = "error";
           sessionId.value = null;
           pendingLine = "";
           pendingCols = 0;
+          echoLine = null;
+          echoPos = 0;
           writeNotice(String(event.data));
           return;
         }
@@ -544,6 +602,8 @@ async function onStop(): Promise<void> {
   sessionId.value = null;
   pendingLine = "";
   pendingCols = 0;
+  echoLine = null;
+  echoPos = 0;
 }
 
 function onClear(): void {
@@ -593,8 +653,10 @@ onBeforeUnmount(() => {
   border-radius: 6px;
   flex: none;
 }
-.terminal-shell-toggle :deep(.v-btn) {
-  height: 24px;
+/* Direct class on the toggle v-btns (same pattern as the action
+   buttons): the scoped attribute lands on the button root itself. */
+.terminal-toggle-btn {
+  min-width: 0;
   padding: 0 10px;
   text-transform: none;
   font-size: 11px;
