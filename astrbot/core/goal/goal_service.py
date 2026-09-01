@@ -181,7 +181,14 @@ class GoalService:
             logger.warning(f"goal loop: notify failed: {e}")
 
     async def _judge_llm_caller(self, umo: str, system_prompt: str, user_prompt: str):
-        """Call the judge model; return raw text, or None on transport error."""
+        """Call the judge model; return raw text, or None on transport error.
+
+        The returned ``completion_text`` is the provider-parsed body: thinking
+        is already separated into ``LLMResponse.reasoning_content`` (and
+        openai_source even strips ``<think>`` tags out of the text), so the
+        verdict text is clean. ``goal_judge.parse_judge_response`` additionally
+        strips any leftover tracing markup as a provider-agnostic fallback.
+        """
         try:
             pid = self._config().get("judge_provider_id") or (
                 await self._context.get_current_chat_provider_id(umo)

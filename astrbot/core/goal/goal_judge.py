@@ -44,7 +44,9 @@ JUDGE_SYSTEM_PROMPT = (
     "- The response explains the goal is unachievable / blocked / needs "
     "user input (treat this as DONE with reason describing the block).\n\n"
     "Otherwise the goal is NOT done — CONTINUE.\n\n"
-    "Reply ONLY with a single JSON object on one line:\n"
+    "Reply ONLY with a single JSON object on one line. Do NOT output any "
+    "thinking, reasoning, tool-call traces, explanations, Markdown fences, "
+    "or anything outside the JSON object:\n"
     '{"done": <true|false>, "reason": "<one-sentence rationale>"}'
 )
 
@@ -69,7 +71,25 @@ JUDGE_USER_PROMPT_WITH_SUBGOALS_TEMPLATE = (
     "Is the goal AND every additional criterion satisfied?"
 )
 
-_JSON_OBJECT_RE = re.compile(r"\{.*?\}", re.DOTALL)
+_LEAK_BLOCK_TAG_RE = re.compile(
+    r"<(?P<tag>think|thinking|thought|thoughts|reasoning|analysis|"
+    r"tool_call|tool_calls|tool_call_result|tool_call_results|tool_result)"
+    r"(?:\s[^>]*)?>.*?</(?P=tag)>",
+    re.DOTALL | re.IGNORECASE,
+)
+_LEAK_ORPHAN_TAG_RE = re.compile(
+    r"</?(?:think|thinking|thought|thoughts|reasoning|analysis|"
+    r"tool_call|tool_calls|tool_call_result|tool_call_results|tool_result)"
+    r"(?:\s[^>]*)?>",
+    re.IGNORECASE,
+)
+_CODE_FENCE_RE = re.compile(r"````*[a-zA-Z]*\s*\n?(.*?)````*", re.DOTALL)
+
+JUDGE_PARSE_FAILURE_REASON = "judge 输出无法解析（原文仅记录于日志）"
+"""Reason used when the judge reply is not valid JSON; the raw text is never
+shown to the user so thinking/tool-call traces cannot leak into chat."""
+
+_TAIL_LEAK_TAG = "</think>"
 
 
 def _truncate(text: str, limit: int) -> str:
@@ -78,8 +98,78 @@ def _truncate(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[:limit] + "… [truncated]"
 
 
+def _strip_markup(text: str) -> str:
+    """Remove code fences and thinking/tool-call trace tags from judge output.
+
+    Judge models frequently wrap their reasoning in ``<think>`` / ``<thinking>``
+    blocks or emit tool-call logs. Those are internal traces, never part of
+    the JSON verdict, and stripping them before parsing keeps them out of the
+    user-facing reason message.
+
+    Args:
+        text: Raw judge output.
+
+    Returns:
+        Text with fenced blocks unwrapped and leak tags removed.
+    """
+    text = _CODE_FENCE_RE.sub(r"\1", text)
+    text = _LEAK_BLOCK_TAG_RE.sub("", text)
+    text = _LEAK_ORPHAN_TAG_RE.sub("", text)
+    # Models sometimes emit a dangling ``</think>`` after the JSON.
+    if text.rstrip().endswith(_TAIL_LEAK_TAG):
+        text = text.rstrip()[: -len(_TAIL_LEAK_TAG)].strip()
+    return text.strip()
+
+
+def _extract_json_object(text: str) -> dict | None:
+    """Locate the first syntactically complete JSON object in ``text``.
+
+    Unlike a non-greedy ``\\{.*?\\}`` regex (which can match a brace pair
+    inside a <think> block), this scans every ``{`` and asks the JSON decoder
+    to validate the whole object, so a stray ``{done}`` inside thinking text
+    is skipped and the real verdict object is found.
+
+    Args:
+        text: Judge output (already stripped of markup).
+
+    Returns:
+        The first parsed dict, or None when no valid JSON object exists.
+    """
+    decoder = json.JSONDecoder()
+    for index, char in enumerate(text):
+        if char != "{":
+            continue
+        try:
+            obj, _ = decoder.raw_decode(text[index:])
+        except (ValueError, json.JSONDecodeError):
+            continue
+        if isinstance(obj, dict):
+            return obj
+    return None
+
+
+def _sanitize_reason(reason: str, limit: int = 200) -> str:
+    """Strip trace markup and normalize whitespace in a judge reason.
+
+    Args:
+        reason: Raw reason from the judge verdict.
+        limit: Maximum length of the sanitized reason.
+
+    Returns:
+        Sanitized one-line reason (may be empty).
+    """
+    cleaned = _LEAK_BLOCK_TAG_RE.sub("", reason)
+    cleaned = _LEAK_ORPHAN_TAG_RE.sub("", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return _truncate(cleaned, limit)
+
+
 def parse_judge_response(raw: str) -> tuple[bool, str, bool]:
     """Parse the judge's reply, fail-open to (False, reason, parse_failed).
+
+    Never leaks the raw model output into the returned reason: on parse
+    failure a fixed summary is returned and the raw text is only meant for
+    logging (see :data:`JUDGE_PARSE_FAILURE_REASON`).
 
     Args:
         raw: Raw text returned by the judge model.
@@ -90,30 +180,22 @@ def parse_judge_response(raw: str) -> tuple[bool, str, bool]:
     """
     if not raw:
         return False, "judge returned empty response", True
-    text = raw.strip()
-    if text.startswith("```"):
-        text = text.strip("`")
-        nl = text.find("\n")
-        if nl != -1:
-            text = text[nl + 1 :]
+    text = _strip_markup(raw.strip())
     data = None
     try:
         data = json.loads(text)
     except Exception:
-        match = _JSON_OBJECT_RE.search(text)
-        if match:
-            try:
-                data = json.loads(match.group(0))
-            except Exception:
-                data = None
+        data = _extract_json_object(text)
     if not isinstance(data, dict):
-        return False, f"judge reply was not JSON: {_truncate(raw, 200)!r}", True
+        return False, JUDGE_PARSE_FAILURE_REASON, True
     done_val = data.get("done")
     if isinstance(done_val, str):
         done = done_val.strip().lower() in {"true", "yes", "1", "done"}
     else:
         done = bool(done_val)
-    reason = str(data.get("reason") or "").strip() or "no reason provided"
+    reason = _sanitize_reason(
+        str(data.get("reason") or "").strip() or "no reason provided"
+    )
     return done, reason, False
 
 

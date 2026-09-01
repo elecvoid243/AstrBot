@@ -97,3 +97,43 @@ async def test_judge_goal_skips_empty_inputs():
         llm_caller=_caller_ok, goal="  ", last_response="resp"
     )
     assert (verdict, failed) == ("skipped", False)
+
+
+def test_parse_strips_leading_think_tags():
+    raw = '<think>评估中</think>\n{"done": false, "reason": "not yet"}'
+    done, reason, failed = parse_judge_response(raw)
+    assert (done, reason, failed) == (False, "not yet", False)
+
+
+def test_parse_think_braces_do_not_misgrab():
+    raw = '<think>需要判断 {done} 后回复</think>\n{"done": true, "reason": "finished"}'
+    done, reason, failed = parse_judge_response(raw)
+    assert (done, reason, failed) == (True, "finished", False)
+
+
+def test_parse_strips_thinking_variant_and_orphan_tags():
+    raw = '<thinking>notes</thinking>\n</think>\n{"done": true, "reason": "ok"}'
+    done, reason, failed = parse_judge_response(raw)
+    assert (done, reason, failed) == (True, "ok", False)
+
+
+def test_parse_failure_reason_does_not_leak_raw_text():
+    raw = '<think>整个思考内容\n<tool_call>foo</tool_call>\n{"done": 真假}</think>'
+    done, reason, failed = parse_judge_response(raw)
+    assert done is False and failed is True
+    assert raw not in reason
+    assert "<think>" not in reason
+    assert "<tool_call>" not in reason
+
+
+def test_parse_sanitizes_reason_field():
+    raw = (
+        '{"done": false, "reason": "经分析 <think>还在想</think> 并 '
+        '<tool_call>ls</tool_call> 后仍未完成"}'
+    )
+    done, reason, failed = parse_judge_response(raw)
+    assert (done, failed) == (False, False)
+    assert "<think>" not in reason
+    assert "<tool_call>" not in reason
+    assert "还在想" not in reason
+    assert "未完成" in reason
