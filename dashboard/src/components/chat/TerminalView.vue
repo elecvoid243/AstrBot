@@ -4,49 +4,69 @@
      No PTY: PowerShell/cmd echo input themselves in pipe mode (verified
      2026-09-01: 'pwd' -> echo '> pwd'; DEL char is NOT handled by the
      shell, so character-level echo/backspace inside xterm double-prints
-     and never erases). The native input field gives correct editing. -->
+     and never erases). The native input field gives correct editing.
+     UI: Vuetify controls (v-btn-toggle / v-btn / v-chip), command lines
+     are highlighted by the frontend and the shell's own echo line is
+     filtered out in the SSE stream (pattern: `<prompt>> <command>`). -->
 <template>
   <div class="terminal-view">
     <div class="terminal-toolbar">
-      <select
+      <v-btn-toggle
         v-model="shell"
-        class="terminal-shell-select"
+        mandatory
+        variant="outlined"
+        density="comfortable"
+        class="terminal-shell-toggle"
         :disabled="running"
-        :aria-label="tm('spcodeProjectLoad.gitDiffSidebar.terminal.shellLabel')"
       >
-        <option value="powershell">PowerShell</option>
-        <option value="cmd">cmd</option>
-      </select>
+        <v-btn value="powershell" size="small" :ripple="false">
+          PowerShell
+        </v-btn>
+        <v-btn value="cmd" size="small" :ripple="false">
+          cmd
+        </v-btn>
+      </v-btn-toggle>
       <div class="terminal-cwd" :title="projectRoot ?? ''">
         {{ projectRoot ?? "" }}
       </div>
-      <span class="terminal-status" :class="`is-${status}`">
+      <v-chip
+        size="small"
+        variant="tonal"
+        class="terminal-status-chip"
+        :class="`is-${status}`"
+      >
         {{ statusLabel }}
-      </span>
-      <button
+      </v-chip>
+      <v-btn
         v-if="!running"
-        type="button"
-        class="terminal-btn"
+        variant="text"
+        size="small"
+        color="primary"
         :disabled="busy || !props.umo"
         @click="onStart"
       >
         {{ tm("spcodeProjectLoad.gitDiffSidebar.terminal.connect") }}
-      </button>
+      </v-btn>
       <template v-else>
-        <button type="button" class="terminal-btn" @click="onInterrupt">
+        <v-btn variant="text" size="small" @click="onInterrupt">
           {{ tm("spcodeProjectLoad.gitDiffSidebar.terminal.interrupt") }}
-        </button>
-        <button type="button" class="terminal-btn" @click="onStop">
+        </v-btn>
+        <v-btn
+          variant="tonal"
+          size="small"
+          color="error"
+          @click="onStop"
+        >
           {{ tm("spcodeProjectLoad.gitDiffSidebar.terminal.stop") }}
-        </button>
+        </v-btn>
       </template>
-      <button type="button" class="terminal-btn" @click="onClear">
+      <v-btn variant="text" size="small" @click="onClear">
         {{ tm("spcodeProjectLoad.gitDiffSidebar.terminal.clear") }}
-      </button>
+      </v-btn>
     </div>
     <div ref="hostRef" class="terminal-host" />
     <div class="terminal-input-row">
-      <span class="terminal-input-prompt">&gt;</span>
+      <span class="terminal-input-prompt">&#10095;</span>
       <input
         ref="inputRef"
         v-model="lineInput"
@@ -67,7 +87,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
@@ -132,6 +152,8 @@ let resizeObserver: ResizeObserver | null = null;
 // Local command history for the native input field (ArrowUp/Down).
 const history: string[] = [];
 let historyIndex = -1;
+// Last command submitted; used to filter the shell's own echo line.
+let lastSubmittedLine = "";
 
 const running = computed(() => status.value === "running");
 
@@ -149,28 +171,100 @@ const statusLabel = computed(() => {
   }
 });
 
+/** ANSI color helper: wrap text in a foreground color without resets. */
+function ansi(color: string, text: string): string {
+  return `\x1b[${color}m${text}\x1b[0m`;
+}
+
+/** Dark editor palette (GitHub Dark-like). */
+const DARK_THEME = {
+  background: "#101418",
+  foreground: "#d6dde5",
+  cursor: "#6ab4ff",
+  cursorAccent: "#101418",
+  selectionBackground: "rgba(106, 180, 255, 0.28)",
+  black: "#101418",
+  brightBlack: "#5c6770",
+  blue: "#6ab4ff",
+  brightBlue: "#8cc6ff",
+  green: "#7ec699",
+  brightGreen: "#9adbad",
+  cyan: "#56c8d8",
+  brightCyan: "#7ee0ee",
+  yellow: "#d8b76a",
+  brightYellow: "#f0d08a",
+  red: "#e07070",
+  brightRed: "#f08a8a",
+  magenta: "#c48ad8",
+  brightMagenta: "#d9a8ea",
+  white: "#d6dde5",
+  brightWhite: "#ffffff",
+} as const;
+
+/** Light editor palette (GitHub Light-like). */
+const LIGHT_THEME = {
+  background: "#fbfbf8",
+  foreground: "#24292f",
+  cursor: "#0969da",
+  cursorAccent: "#fbfbf8",
+  selectionBackground: "rgba(9, 105, 218, 0.18)",
+  black: "#24292f",
+  brightBlack: "#6e7781",
+  blue: "#0969da",
+  brightBlue: "#218bff",
+  green: "#1a7f37",
+  brightGreen: "#2da44e",
+  cyan: "#1b7c83",
+  brightCyan: "#3192aa",
+  yellow: "#9a6700",
+  brightYellow: "#bf8700",
+  red: "#cf222e",
+  brightRed: "#f14c4c",
+  magenta: "#8250df",
+  brightMagenta: "#a475f9",
+  white: "#24292f",
+  brightWhite: "#1f2328",
+} as const;
+
 function initTerm(): void {
   if (!hostRef.value) return;
+  const host = hostRef.value;
   term = new Terminal({
     fontSize: 12,
     fontFamily: 'Consolas, "Courier New", monospace',
     convertEol: true,
     cursorBlink: true,
-    theme: props.isDark
-      ? { background: "#1e1e1e", foreground: "#d4d4d4" }
-      : { background: "#ffffff", foreground: "#1f1f1f" },
+    theme: props.isDark ? DARK_THEME : LIGHT_THEME,
   });
   fit = new FitAddon();
   term.loadAddon(fit);
-  term.open(hostRef.value);
+  term.open(host);
   void nextTick(() => fit?.fit());
 
   resizeObserver = new ResizeObserver(() => fit?.fit());
-  resizeObserver.observe(hostRef.value);
+  resizeObserver.observe(host);
 }
 
 function writeNotice(text: string): void {
-  term?.write(`\x1b[90m${text}\x1b[0m\r\n`);
+  term?.write(`${ansi("90", text)}\r\n`);
+}
+
+/** Escape a string for use inside a RegExp. */
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Filter the shell's echo line (e.g. `PS C:\repo> pwd` / `C:\repo>pwd`)
+ * out of a received output block — the frontend already rendered the
+ * submitted line itself with highlight. Non-matching output passes
+ * through untouched.
+ */
+function filterEchoLine(text: string): string {
+  if (!lastSubmittedLine) return text;
+  const esc = escapeRegExp(lastSubmittedLine);
+  const re = new RegExp(`^[^\\r\\n]*>[ \\t]*${esc}[ \\t]*\\r?\\n?$`, "gm");
+  return text.replace(re, "");
 }
 
 /** Submit the current input line to the shell as one complete line. */
@@ -181,9 +275,13 @@ function submitLine(): void {
   historyIndex = -1;
   if (line.trim()) {
     history.push(line);
+    lastSubmittedLine = line.trim();
+    // Highlighted command line, rendered locally (the shell's echo of
+    // the same line is filtered out in openStream).
+    term?.write(
+      `${ansi("36", "\u276f")} ${ansi("1;36", line.trim())}\r\n`,
+    );
   }
-  // The shell echoes the received line itself (verified pipe behaviour),
-  // so nothing is written locally — the echo arrives via SSE output.
   void pluginExtensionApi
     .post("spcode/terminal/input", {
       umo: props.umo,
@@ -273,7 +371,12 @@ async function openStream(startCursor: number): Promise<void> {
         const event = parseSpcodeTerminalStreamBlock(block);
         if (!event) continue;
         if (event.type === "output") {
-          term?.write(String(event.data));
+          const text = String(event.data);
+          if (lastSubmittedLine) {
+            term?.write(filterEchoLine(text));
+          } else {
+            term?.write(text);
+          }
         } else if (event.type === "exit") {
           status.value = "exited";
           writeNotice(
@@ -361,6 +464,14 @@ onMounted(() => {
   void restoreSession();
 });
 
+// Apply theme changes to a live terminal (global dark/light toggle).
+watch(
+  () => props.isDark,
+  (dark) => {
+    if (term) term.options.theme = dark ? DARK_THEME : LIGHT_THEME;
+  },
+);
+
 onBeforeUnmount(() => {
   abortController?.abort();
   resizeObserver?.disconnect();
@@ -382,70 +493,60 @@ onBeforeUnmount(() => {
 .terminal-toolbar {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   padding: 6px 8px;
-  border-bottom: 1px solid rgba(127, 127, 127, 0.25);
   flex-wrap: wrap;
 }
-.terminal-shell-select {
+.terminal-shell-toggle {
+  border-radius: 6px;
+}
+.terminal-shell-toggle :deep(.v-btn) {
+  text-transform: none;
   font-size: 12px;
-  padding: 2px 4px;
-  background: transparent;
-  color: inherit;
-  border: 1px solid rgba(127, 127, 127, 0.4);
-  border-radius: 4px;
+  letter-spacing: 0;
 }
 .terminal-cwd {
   font-size: 11px;
-  opacity: 0.7;
+  opacity: 0.65;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 180px;
+  max-width: 200px;
+  flex: 1;
+  min-width: 80px;
 }
-.terminal-status {
+.terminal-status-chip {
   font-size: 11px;
-  opacity: 0.85;
-  margin-left: auto;
 }
-.terminal-status.is-running {
-  color: #4caf50;
+.terminal-status-chip.is-running {
+  color: var(--v-theme-success) !important;
 }
-.terminal-status.is-error {
-  color: #ef5350;
-}
-.terminal-btn {
-  font-size: 12px;
-  padding: 3px 10px;
-  border: 1px solid rgba(127, 127, 127, 0.4);
-  border-radius: 4px;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-}
-.terminal-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+.terminal-status-chip.is-error {
+  color: var(--v-theme-error) !important;
 }
 .terminal-host {
   flex: 1;
   min-height: 0;
-  padding: 4px 2px;
+  margin: 0 8px;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.08);
 }
 .terminal-host :deep(.xterm) {
   height: 100%;
+  padding: 6px 8px;
 }
 .terminal-input-row {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 8px;
-  border-top: 1px solid rgba(127, 127, 127, 0.25);
+  gap: 8px;
+  padding: 8px 10px;
 }
 .terminal-input-prompt {
   font-family: Consolas, "Courier New", monospace;
-  font-size: 12px;
-  opacity: 0.7;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--v-theme-success);
 }
 .terminal-input {
   flex: 1;
@@ -455,5 +556,8 @@ onBeforeUnmount(() => {
   color: inherit;
   border: none;
   outline: none;
+}
+.terminal-input::placeholder {
+  opacity: 0.45;
 }
 </style>
