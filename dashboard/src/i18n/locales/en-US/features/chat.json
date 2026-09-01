@@ -1738,6 +1738,9 @@
     "copy": "Copy",
     "copied": "Copied"
   },
+  "runFinished": {
+    "title": "Reply finished"
+  },
   "interactiveChoice": {
     "alreadyChosen": "Chosen",
     "alreadyInput": "Custom input",

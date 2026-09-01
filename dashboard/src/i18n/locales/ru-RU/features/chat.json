@@ -1667,6 +1667,9 @@
     "copy": "Копировать",
     "copied": "Скопировано"
   },
+  "runFinished": {
+    "title": "Ответ завершён"
+  },
   "interactiveChoice": {
     "alreadyChosen": "Выбрано",
     "alreadyInput": "Свой вариант",

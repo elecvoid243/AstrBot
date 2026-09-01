@@ -90,6 +90,9 @@
                   'needs-choice': choiceAttention.hasAttention(
                     session.session_id,
                   ),
+                  'has-finished-run':
+                    !choiceAttention.hasAttention(session.session_id) &&
+                    finishedAttention.hasFinished(session.session_id),
                   'has-branch-meta':
                     !selectionMode &&
                     (Boolean(session.branches?.length) ||
@@ -145,6 +148,13 @@
                 <span
                   v-if="choiceAttention.hasAttention(session.session_id)"
                   class="project-session-choice-dot"
+                  aria-hidden="true"
+                />
+                <span
+                  v-else-if="
+                    finishedAttention.hasFinished(session.session_id)
+                  "
+                  class="project-session-finished-dot"
                   aria-hidden="true"
                 />
                 <span class="project-session-title">
@@ -286,6 +296,7 @@ import { useModuleI18n } from "@/i18n/composables";
 import { askForConfirmation, useConfirmDialog } from "@/utils/confirmDialog";
 import StyledMenu from "@/components/shared/StyledMenu.vue";
 import { useInteractiveChoiceAttentionStore } from "@/stores/interactiveChoiceAttention";
+import { useRunFinishedAttentionStore } from "@/stores/runFinishedAttention";
 
 export interface Project {
   project_id: string;
@@ -381,6 +392,9 @@ const confirmDialog = useConfirmDialog();
 // project sessions, so this component is their only sidebar renderer and
 // must mirror Chat.vue's `needs-choice` highlight on its own.
 const choiceAttention = useInteractiveChoiceAttentionStore();
+// Same story for the calmer run-finished marker: project sessions would
+// never show it unless this component consumes the store itself.
+const finishedAttention = useRunFinishedAttentionStore();
 
 const expandedProjectIds = ref<Set<string>>(readExpandedProjectIds());
 
@@ -793,6 +807,21 @@ function onSessionRowDrop(
   50% {
     opacity: 0.35;
   }
+}
+
+/* 2026-09-01 (elecvoid243): run-finished marker for project session rows,
+   mirroring the flat session list in Chat.vue — steady green dot + faint
+   tint, distinct from the pulsing amber pending-choice highlight. */
+.project-session-row.has-finished-run {
+  background: rgba(16, 185, 129, 0.1);
+}
+
+.project-session-finished-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #10b981;
+  flex-shrink: 0;
 }
 
 .project-session-select-checkbox {

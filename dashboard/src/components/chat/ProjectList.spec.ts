@@ -12,6 +12,7 @@ import { createPinia } from "pinia";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { useInteractiveChoiceAttentionStore } from "@/stores/interactiveChoiceAttention";
+import { useRunFinishedAttentionStore } from "@/stores/runFinishedAttention";
 import ProjectList, { type Project } from "./ProjectList.vue";
 
 const project: Project = {
@@ -84,5 +85,32 @@ describe("ProjectList ask_user_choice highlight", () => {
       "needs-choice",
     );
     expect(wrapper.find(".project-session-choice-dot").exists()).toBe(false);
+  });
+
+  it("shows the steady finished dot for runs that ended unseen", async () => {
+    const wrapper = mountList();
+    const finished = useRunFinishedAttentionStore();
+    finished.add("sess-1");
+    await wrapper.vm.$nextTick();
+
+    const row = wrapper.find(".project-session-row");
+    expect(row.classes()).toContain("has-finished-run");
+    expect(row.classes()).not.toContain("needs-choice");
+    expect(wrapper.find(".project-session-finished-dot").exists()).toBe(true);
+    // The pending-choice dot stays hidden — the markers are exclusive.
+    expect(wrapper.find(".project-session-choice-dot").exists()).toBe(false);
+  });
+
+  it("prefers the pending-choice marker when both states apply", async () => {
+    const wrapper = mountList();
+    useInteractiveChoiceAttentionStore().add("sess-1");
+    useRunFinishedAttentionStore().add("sess-1");
+    await wrapper.vm.$nextTick();
+
+    const row = wrapper.find(".project-session-row");
+    expect(row.classes()).toContain("needs-choice");
+    expect(row.classes()).not.toContain("has-finished-run");
+    expect(wrapper.find(".project-session-choice-dot").exists()).toBe(true);
+    expect(wrapper.find(".project-session-finished-dot").exists()).toBe(false);
   });
 });

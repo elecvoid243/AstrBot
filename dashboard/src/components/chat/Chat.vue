@@ -278,6 +278,9 @@
               checked:
                 selectionMode && checkedSessionIds.has(session.session_id),
               'needs-choice': choiceAttention.hasAttention(session.session_id),
+              'has-finished-run':
+                !choiceAttention.hasAttention(session.session_id) &&
+                finishedAttention.hasFinished(session.session_id),
               'has-branch-meta':
                 !selectionMode &&
                 (Boolean(session.branches?.length) ||
@@ -305,6 +308,11 @@
             <span
               v-if="choiceAttention.hasAttention(session.session_id)"
               class="session-choice-dot"
+              aria-hidden="true"
+            />
+            <span
+              v-else-if="finishedAttention.hasFinished(session.session_id)"
+              class="session-finished-dot"
               aria-hidden="true"
             />
             <span class="session-title">{{ sessionTitle(session) }}</span>
@@ -1152,9 +1160,11 @@ import {
 } from "@/utils/providerMetadata";
 import { useToast } from "@/utils/toast";
 import { useInteractiveChoiceAttentionStore } from "@/stores/interactiveChoiceAttention";
+import { useRunFinishedAttentionStore } from "@/stores/runFinishedAttention";
 import {
   clearChoiceAttention,
   markChoiceAttention,
+  markRunFinishedAttention,
 } from "@/composables/useChoiceReminder";
 
 const props = withDefaults(
@@ -1196,6 +1206,9 @@ const toast = useToast();
 // Sessions with an unanswered ask_user_choice prompt — drives the sidebar
 // highlight and the browser attention signals.
 const choiceAttention = useInteractiveChoiceAttentionStore();
+// Sessions whose run finished while the user was elsewhere — calmer
+// steady-dot marker, cleared as soon as the session is opened.
+const finishedAttention = useRunFinishedAttentionStore();
 const { languageOptions, currentLanguage, switchLanguage, locale } =
   useLanguageSwitcher();
 const {
@@ -1759,6 +1772,15 @@ const {
   // a stream is in flight, the new session's state is already covered
   // by the `currSessionId` watcher above.
   onStreamEnd: (sessionId) => {
+    // 2026-09-01 (elecvoid243): surface a bounded "reply finished" notice
+    // (title flash + steady sidebar dot) when a session's run ends while
+    // the user is viewing a different session. The inline message list is
+    // the reminder when the session itself is open.
+    markRunFinishedAttention(
+      sessionId,
+      tm("runFinished.title"),
+      sessionId === currSessionId.value,
+    );
     // Run finished (or was stopped) without consuming the follow-up
     // queue — dispatch queued items as normal messages so they start
     // new runs, mirroring how the backend activates unconsumed
@@ -1829,6 +1851,12 @@ watch(currSessionId, (newId, oldId) => {
     fileReferences.resetForSession();
     inlineAnnotations.resetForSession();
   }
+});
+
+// 2026-09-01 (elecvoid243): opening a session acknowledges its
+// run-finished marker — the output is right there in the message list.
+watch(currSessionId, (sessionId) => {
+  if (sessionId) finishedAttention.clear(sessionId);
 });
 
 const transportMode = ref<TransportMode>(
@@ -4793,6 +4821,22 @@ function toggleTheme() {
   50% {
     opacity: 0.35;
   }
+}
+
+/* 2026-09-01 (elecvoid243): calmer marker for sessions whose run finished
+   while the user was elsewhere — steady green dot + faint tint, visually
+   distinct from the pulsing amber pending-choice highlight. Cleared as
+   soon as the user opens the session. */
+.session-item.has-finished-run {
+  background: rgba(16, 185, 129, 0.1);
+}
+
+.session-finished-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #10b981;
+  flex-shrink: 0;
 }
 
 .session-title {

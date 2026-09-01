@@ -8,6 +8,7 @@
 // strings and the "is this the currently viewed session" flag.
 
 import { useInteractiveChoiceAttentionStore } from "@/stores/interactiveChoiceAttention";
+import { useRunFinishedAttentionStore } from "@/stores/runFinishedAttention";
 
 interface BadgingApi {
   setAppBadge?: (count: number) => Promise<void>;
@@ -16,10 +17,15 @@ interface BadgingApi {
 
 let titleFlashTimer: number | null = null;
 let originalTitle = "";
+let noticeFlashTimer: number | null = null;
+let noticeOriginalTitle = "";
 let visibilityBound = false;
 
 function startTitleFlash(attentionTitle: string): void {
   if (typeof document === "undefined" || titleFlashTimer !== null) return;
+  // A pending choice outranks the bounded run-finished flash — reclaim
+  // the title from it before starting the unbounded choice flash.
+  stopNoticeFlash();
   originalTitle = document.title;
   let on = false;
   titleFlashTimer = window.setInterval(() => {
@@ -37,6 +43,40 @@ function stopTitleFlash(): void {
   if (originalTitle) {
     document.title = originalTitle;
     originalTitle = "";
+  }
+}
+
+/**
+ * Bounded title flash for informational run-finished notices: alternates
+ * the title a fixed number of times, then restores it. Deliberately
+ * self-terminating — unlike a pending choice, a finished run needs no
+ * user action, so nagging forever would be noise.
+ */
+function startNoticeFlash(noticeTitle: string, flashes = 3): void {
+  if (typeof document === "undefined") return;
+  // The pending-choice flash is more urgent — never clobber it.
+  if (titleFlashTimer !== null) return;
+  stopNoticeFlash();
+  noticeOriginalTitle = document.title;
+  let on = false;
+  let toggles = 0;
+  noticeFlashTimer = window.setInterval(() => {
+    on = !on;
+    toggles += 1;
+    document.title = on ? noticeTitle : noticeOriginalTitle;
+    if (toggles >= flashes * 2) stopNoticeFlash();
+  }, 800);
+}
+
+function stopNoticeFlash(): void {
+  if (typeof document === "undefined") return;
+  if (noticeFlashTimer !== null) {
+    window.clearInterval(noticeFlashTimer);
+    noticeFlashTimer = null;
+  }
+  if (noticeOriginalTitle) {
+    document.title = noticeOriginalTitle;
+    noticeOriginalTitle = "";
   }
 }
 
@@ -58,7 +98,10 @@ function bindVisibilityOnce(): void {
     // The tab is visible again — a flashing title is pointless and
     // distracting. Keep the badge + sidebar highlight so the pending
     // choice is still discoverable.
-    if (!document.hidden) stopTitleFlash();
+    if (!document.hidden) {
+      stopTitleFlash();
+      stopNoticeFlash();
+    }
   });
 }
 
@@ -114,4 +157,30 @@ export function clearChoiceAttention(sessionId: string): void {
     stopTitleFlash();
     syncBadge(0);
   }
+}
+
+/**
+ * Signal that a session's LLM run finished while the user was elsewhere.
+ *
+ * The session is always added to the run-finished store (steady sidebar
+ * dot), but — unlike a pending choice — the browser title only flashes a
+ * bounded number of times and no OS notification/badge is raised: a
+ * finished run is informational, and the dot persists until the user
+ * opens the session.
+ */
+export function markRunFinishedAttention(
+  sessionId: string,
+  noticeTitle: string,
+  isCurrentSession: boolean,
+): void {
+  const store = useRunFinishedAttentionStore();
+  store.add(sessionId);
+
+  if (isCurrentSession) {
+    // The arriving output itself is the reminder — nothing to surface.
+    return;
+  }
+
+  bindVisibilityOnce();
+  startNoticeFlash(noticeTitle);
 }
