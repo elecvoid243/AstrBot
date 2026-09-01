@@ -1,6 +1,7 @@
 """如需修改配置，请在 `data/cmd_config.json` 中修改或者在管理面板中可视化修改。"""
 
 import os
+import textwrap
 
 from astrbot import __version__
 from astrbot.core.computer.booters.cua_defaults import CUA_DEFAULT_CONFIG
@@ -9,6 +10,56 @@ from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 from .agent_runner import get_agent_runner_config_default
 
 VERSION = __version__
+
+DEFAULT_LLM_COMPRESS_INSTRUCTION = textwrap.dedent(
+    """Your task is to create a detailed summary of the conversation so far, paying close attention to the user's explicit requests and your previous actions.This summary should be thorough in capturing technical details, code patterns, and architectural decisions that would be essential for continuing development work without losing context.
+Before providing your final summary, wrap your analysis in <analysis> tags to organize your thoughts and ensure you've covered all necessary points. In your analysis process:
+1. Chronologically analyze each message and section of the conversation. For each section thoroughly identify: - The user's explicit requests and intents - Your approach to addressing the user's requests - Key decisions, technical concepts and code patterns - Specific details like: - file names - full code snippets - function signatures - file edits - Errors that you ran into and how you fixed them - Pay special attention to specific user feedback that you received, especially if the user told you to do something differently.
+2. Double-check for technical accuracy and completeness, addressing each required element thoroughly.
+
+Your summary should be in the user's language, and include the following sections:
+
+1. Primary Request and Intent: Capture all of the user's explicit requests and intents in detail
+2. Key Technical Concepts: List all important technical concepts, technologies, and frameworks discussed.
+3. Files and Code Sections: Enumerate specific files and code sections examined, modified, or created. Pay special attention to the most recent messages and include full code snippets where applicable and include a summary of why this file read or edit is important.
+4. Errors and fixes: List all errors that you ran into, and how you fixed them. Pay special attention to specific user feedback that you received, especially if the user told you to do something differently.
+5. Problem Solving: Document problems solved and any ongoing troubleshooting efforts.
+6. All user messages: List ALL user messages that are not tool results. These are critical for understanding the users' feedback and changing intent.
+7. Pending Tasks: Outline any pending tasks that you have explicitly been asked to work on.
+8. Current Work: Describe in detail precisely what was being worked on immediately before this summary request, paying special attention to the most recent messages from both user and assistant. Include file names and code snippets where applicable. If given, you should also indicate the working path, current code branch or working tree, and other information.
+9. Optional Next Step: List the next step that you will take that is related to the most recent work you were doing. IMPORTANT: ensure that this step is DIRECTLY in line with the user's most recent explicit requests, and the task you were working on immediately before this summary request. If your last task was concluded, then only list next steps if they are explicitly in line with the users request. Do not start on tangential requests or really old requests that were already completed without confirming with the user first. If there is a next step, include direct quotes from the most recent conversation showing exactly what task you were working on and where you left off. This should be verbatim to ensure there's no drift in task interpretation.
+
+Here's an example of how your output should be structured:
+<example><analysis>[Your thought process, ensuring all points are covered thoroughly and accurately]</analysis>
+<summary>1. Primary Request and Intent: [Detailed description]
+2. Key Technical Concepts: - [Concept 1] - [Concept 2] - [...]
+3. Files and Code Sections: - [File Name 1] - [Summary of why this file is important] - [Summary of the changes made to this file, if any] - [Important Code Snippet] - [File Name 2] - [Important Code Snippet] - [...]
+4. Errors and fixes: - [Detailed description of error 1]: - [How you fixed it] - [User feedback on the error if any] - [...]
+5. Problem Solving: [Description of solved problems and ongoing troubleshooting]
+6. All user messages:  - [Detailed non tool use user message] - [...]
+7. Pending Tasks: - [Task 1] - [Task 2] - [...]
+8. Current Work: [Precise description of current work]
+9. Optional Next Step: [Optional Next step to take]
+</summary></example>
+
+Please provide your summary based on the conversation so far, following this structure and ensuring precision and thoroughness in your response.
+There may be additional summarization instructions provided in the included context. If so, remember to follow these instructions when creating the above summary. Examples of instructions include:<example>## Compact Instructions
+When summarizing the conversation focus on typescript code changes and also remember the mistakes you made and how you fixed them.</example>
+<example># Summary instructions
+When you are using compact - please focus on test output and code changes. Include file reads verbatim.</example>"""
+)
+"""Default instruction for LLM-based context compression.
+Taken from the astrbot_plugin_compact plugin. Used as the UI default of
+``agent_runner.config.compression.instruction`` and in the default config template.
+"""
+
+
+def _local_agent_runner_default_config() -> dict:
+    """Local Agent Runner default config with the optimized compress instruction."""
+    config = get_agent_runner_config_default("local")
+    config["compression"]["instruction"] = DEFAULT_LLM_COMPRESS_INSTRUCTION
+    return config
+
 
 DB_PATH = os.path.join(get_astrbot_data_path(), "data_v4.db")
 PERSONAL_WECHAT_CONFIG_METADATA = {
@@ -183,7 +234,7 @@ DEFAULT_CONFIG = {
     },
     "agent_runner": {
         "runner_type": "local",
-        "config": get_agent_runner_config_default("local"),
+        "config": _local_agent_runner_default_config(),
     },
     # SubAgent orchestrator mode:
     # - main_enable = False: disabled; main LLM mounts tools normally (persona selection).
@@ -3334,7 +3385,11 @@ CONFIG_METADATA_3 = {
                         ],
                         "_special": "agent_runner_type",
                         "runner_defaults": {
-                            runner_type: get_agent_runner_config_default(runner_type)
+                            runner_type: (
+                                _local_agent_runner_default_config()
+                                if runner_type == "local"
+                                else get_agent_runner_config_default(runner_type)
+                            )
                             for runner_type in (
                                 "local",
                                 "dify",
@@ -4085,7 +4140,8 @@ CONFIG_METADATA_3 = {
                     "agent_runner.config.compression.instruction": {
                         "description": "上下文压缩提示词",
                         "type": "text",
-                        "hint": "如果为空则使用默认提示词。",
+                        "default": DEFAULT_LLM_COMPRESS_INSTRUCTION,
+                        "hint": "默认使用 astrbot_plugin_compact 提供的压缩提示词，可修改；清空则回退为内置默认提示词。",
                         "condition": {
                             "agent_runner.config.compression.overflow_strategy": "llm_compress",
                             "agent_runner.runner_type": "local",

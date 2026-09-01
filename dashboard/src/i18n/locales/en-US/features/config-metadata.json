@@ -355,7 +355,7 @@
         },
         "instruction": {
           "description": "Context Compression Instruction",
-          "hint": "If empty, the default prompt will be used."
+          "hint": "Defaults to the astrbot_plugin_compact compression prompt; editable. Clear to fall back to the built-in prompt."
         },
         "keep_recent_ratio": {
           "description": "Recent Context Token Ratio to Keep",

@@ -372,7 +372,7 @@
             },
             "instruction": {
               "description": "上下文压缩提示词",
-              "hint": "如果为空则使用默认提示词。"
+              "hint": "默认使用 astrbot_plugin_compact 提供的压缩提示词，可修改；清空则回退为内置默认提示词。"
             },
             "keep_recent_ratio": {
               "description": "压缩时保留最近上下文比例",
