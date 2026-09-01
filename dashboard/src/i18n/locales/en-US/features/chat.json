@@ -1754,9 +1754,12 @@
     "nextPage": "Next"
   },
   "fileAccessChip": {
-    "fullLabel": "Full",
-    "readonlyLabel": "Read-only",
-    "workspaceLabel": "Workspace",
+    "fullLabel": "Full access",
+    "readonlyLabel": "Read-only mode",
+    "workspaceLabel": "Workspace access",
+    "fullHint": "Allow the agent to read and write all local files",
+    "readonlyHint": "Read-only tools only; suited to exploration or planning",
+    "workspaceHint": "Writes are restricted to the workspace",
     "tooltip": "Set file read/write permissions",
     "menuTitle": "File access mode",
     "rootsDialog": {

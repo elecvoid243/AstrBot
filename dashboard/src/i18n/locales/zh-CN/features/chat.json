@@ -1787,9 +1787,12 @@
     "nextPage": "下一页"
   },
   "fileAccessChip": {
-    "fullLabel": "完全",
-    "readonlyLabel": "只读",
-    "workspaceLabel": "工作区",
+    "fullLabel": "完全访问",
+    "readonlyLabel": "只读模式",
+    "workspaceLabel": "工作区访问",
+    "fullHint": "允许Agent读写本机全部文件",
+    "readonlyHint": "仅允许使用只读工具，适合信息探索或计划",
+    "workspaceHint": "仅可在工作区执行写操作",
     "tooltip": "设置文件读写权限",
     "menuTitle": "文件访问模式",
     "rootsDialog": {

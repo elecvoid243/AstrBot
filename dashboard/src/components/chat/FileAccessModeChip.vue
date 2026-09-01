@@ -44,6 +44,8 @@ interface ModeOption {
   value: FileAccessMode;
   label: string;
   icon: string;
+  /** Hover description of what the mode permits. */
+  hint: string;
 }
 
 const modeValue = computed<FileAccessMode>(
@@ -55,16 +57,19 @@ const options = computed<ModeOption[]>(() => [
     value: "full",
     label: tm("fileAccessChip.fullLabel"),
     icon: "mdi-lock-open-outline",
+    hint: tm("fileAccessChip.fullHint"),
   },
   {
     value: "readonly",
     label: tm("fileAccessChip.readonlyLabel"),
     icon: "mdi-file-eye-outline",
+    hint: tm("fileAccessChip.readonlyHint"),
   },
   {
     value: "workspace",
     label: tm("fileAccessChip.workspaceLabel"),
     icon: "mdi-folder-edit-outline",
+    hint: tm("fileAccessChip.workspaceHint"),
   },
 ]);
 
@@ -195,28 +200,36 @@ async function saveRoots(): Promise<void> {
       <v-card-text>
         <div class="fa-chip-title">{{ tm("fileAccessChip.menuTitle") }}</div>
         <div v-for="opt in options" :key="opt.value" class="fa-chip-row">
-          <button
-            type="button"
-            class="fa-chip-row__main"
-            :class="{ 'fa-chip-row__main--selected': opt.value === modeValue }"
-            @click="select(opt.value)"
-          >
-            <v-icon
-              size="14"
-              class="fa-chip-row__icon"
-              :class="`fa-chip-row__icon--${opt.value}`"
-            >
-              {{ opt.icon }}
-            </v-icon>
-            <span class="fa-chip-row__label">{{ opt.label }}</span>
-            <v-icon
-              v-if="opt.value === modeValue"
-              size="14"
-              class="fa-chip-row__check"
-            >
-              mdi-check
-            </v-icon>
-          </button>
+          <v-tooltip location="top" :open-delay="200">
+            <template #activator="{ props: hintProps }">
+              <button
+                v-bind="hintProps"
+                type="button"
+                class="fa-chip-row__main"
+                :class="{
+                  'fa-chip-row__main--selected': opt.value === modeValue,
+                }"
+                @click="select(opt.value)"
+              >
+                <v-icon
+                  size="14"
+                  class="fa-chip-row__icon"
+                  :class="`fa-chip-row__icon--${opt.value}`"
+                >
+                  {{ opt.icon }}
+                </v-icon>
+                <span class="fa-chip-row__label">{{ opt.label }}</span>
+                <v-icon
+                  v-if="opt.value === modeValue"
+                  size="14"
+                  class="fa-chip-row__check"
+                >
+                  mdi-check
+                </v-icon>
+              </button>
+            </template>
+            <span>{{ opt.hint }}</span>
+          </v-tooltip>
           <v-tooltip
             v-if="opt.value === 'workspace'"
             location="top"
@@ -339,9 +352,10 @@ async function saveRoots(): Promise<void> {
   outline-offset: 1px;
 }
 
-/* Long locale labels (ru-RU) truncate instead of stretching the row. */
+/* Longer mode labels ("Read-only mode") still fit without stretching
+   the status row. */
 .fa-chip-btn__label {
-  max-width: 72px;
+  max-width: 110px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -351,15 +365,18 @@ async function saveRoots(): Promise<void> {
   opacity: 0.7;
 }
 
-/* Restrictive modes tint their icon so the current state reads at a
-   glance: readonly is a hard write lock (warning), workspace is scoped
-   (primary). Full stays neutral. */
+/* Mode colors read at a glance: full is a broad grant (red = caution),
+   readonly is safe (green), workspace is scoped writes (yellow). */
+.fa-chip-btn__icon--full {
+  color: rgb(var(--v-theme-error));
+}
+
 .fa-chip-btn__icon--readonly {
-  color: rgb(var(--v-theme-warning));
+  color: rgb(var(--v-theme-success));
 }
 
 .fa-chip-btn__icon--workspace {
-  color: rgb(var(--v-theme-primary));
+  color: rgb(var(--v-theme-warning));
 }
 
 .fa-chip-title {
@@ -416,12 +433,16 @@ async function saveRoots(): Promise<void> {
   opacity: 1;
 }
 
+.fa-chip-row__icon--full {
+  color: rgb(var(--v-theme-error));
+}
+
 .fa-chip-row__icon--readonly {
-  color: rgb(var(--v-theme-warning));
+  color: rgb(var(--v-theme-success));
 }
 
 .fa-chip-row__icon--workspace {
-  color: rgb(var(--v-theme-primary));
+  color: rgb(var(--v-theme-warning));
 }
 
 .fa-chip-row__check {
