@@ -562,12 +562,15 @@ export function useMessages(options: UseMessagesOptions) {
           return !historyIds.has(recordId);
         });
         if (live.length) {
-          messagesBySession[sessionId] = [...records, ...live].sort(
-            (a: ChatRecord, b: ChatRecord) =>
-              String(a.created_at || "").localeCompare(
-                String(b.created_at || ""),
-              ),
-          );
+          // 2026-09-01 (elecvoid243): no cross-format timestamp sorting here.
+          // Live records necessarily postdate the persisted snapshot, so
+          // appending preserves the visual order (user message first, then
+          // the streaming bot reply). Sorting strings mixes server-side
+          // "+00:00" isoformat timestamps with local `new Date().toISOString()`
+          // "Z" values; localeCompare then groups by format instead of time,
+          // which reordered the streaming reply above its user message after
+          // switching back to a session mid-stream.
+          messagesBySession[sessionId] = [...records, ...live];
         }
       }
       sessionProjects[sessionId] = normalizeSessionProject(payload.project);
