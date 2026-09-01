@@ -277,10 +277,13 @@ function submitLine(): void {
     history.push(line);
     lastSubmittedLine = line.trim();
     // Highlighted command line, rendered locally (the shell's echo of
-    // the same line is filtered out in openStream).
+    // the same line is filtered out in openStream). Guaranteed to be
+    // visible for both PowerShell and cmd regardless of their pipe
+    // echo behaviour.
     term?.write(
       `${ansi("36", "\u276f")} ${ansi("1;36", line.trim())}\r\n`,
     );
+    term?.scrollToBottom();
   }
   void pluginExtensionApi
     .post("spcode/terminal/input", {
