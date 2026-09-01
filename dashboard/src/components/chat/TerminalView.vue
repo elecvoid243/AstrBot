@@ -649,7 +649,11 @@ onBeforeUnmount(() => {
   padding: 4px 0 8px;
   flex-wrap: wrap;
 }
-.terminal-shell-toggle {
+/* Must beat `.v-btn-group--density-default.v-btn-group { height: 48px }`:
+   the toggle root has a fixed 48px height by default, which would make
+   the toolbar row misalign around the 24px buttons. */
+.terminal-view .terminal-shell-toggle {
+  height: 24px;
   border-radius: 6px;
   flex: none;
 }
