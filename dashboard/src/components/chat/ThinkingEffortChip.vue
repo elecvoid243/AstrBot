@@ -81,7 +81,7 @@ function openEditor(): void {
         <span>{{ tm("input.thinkingEffort") }}</span>
       </v-tooltip>
     </template>
-    <v-card min-width="200">
+    <v-card>
       <v-card-text>
         <div class="effort-chip-title">{{ tm("input.thinkingEffort") }}</div>
         <button
@@ -162,7 +162,7 @@ function openEditor(): void {
 }
 
 .effort-chip-title {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--sp-text-primary);
   margin-bottom: 2px;
@@ -178,7 +178,7 @@ function openEditor(): void {
   border-radius: 8px;
   background: transparent;
   color: var(--sp-text-primary);
-  font-size: 12px;
+  font-size: 13px;
   text-align: left;
   cursor: pointer;
 }

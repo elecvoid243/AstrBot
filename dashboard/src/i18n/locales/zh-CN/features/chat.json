@@ -19,7 +19,7 @@
       "medium": "中",
       "high": "高"
     },
-    "editThinkingEffortLevels": "编辑思考强度档位",
+    "editThinkingEffortLevels": "编辑档位",
     "thinkingEffortLevelsHint": "自定义档位的值仅对 OpenAI 兼容接口生效（如 max、xhigh、none）。Anthropic / Gemini 仍使用低 / 中 / 高 / 关闭。",
     "levelName": "名称",
     "levelValue": "值",

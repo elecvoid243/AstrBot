@@ -69,7 +69,8 @@ const options = computed<ModeOption[]>(() => [
 ]);
 
 const activeOption = computed<ModeOption>(
-  () => options.value.find((o) => o.value === modeValue.value) ?? options.value[0],
+  () =>
+    options.value.find((o) => o.value === modeValue.value) ?? options.value[0],
 );
 
 function select(mode: FileAccessMode): void {
@@ -102,7 +103,7 @@ const ABSOLUTE_PATH_RE = /^([a-zA-Z]:[\\/]|\/|\\\\)/;
 // only mirrors what is currently active.
 const activeWorktree = computed<string | null>(() => {
   const s = worktrees.state.value;
-  return s.kind === "ok" ? (s.snapshot.meta.activeWorktree ?? null) : null;
+  return s.kind === "ok" ? s.snapshot.meta.activeWorktree ?? null : null;
 });
 
 const fixedEntries = computed<FixedEntry[]>(() => {
@@ -182,13 +183,15 @@ async function saveRoots(): Promise<void> {
               {{ activeOption.icon }}
             </v-icon>
             <span class="fa-chip-btn__label">{{ activeOption.label }}</span>
-            <v-icon size="12" class="fa-chip-btn__chevron">mdi-menu-down</v-icon>
+            <v-icon size="12" class="fa-chip-btn__chevron"
+              >mdi-menu-down</v-icon
+            >
           </button>
         </template>
         <span>{{ tm("fileAccessChip.tooltip") }}</span>
       </v-tooltip>
     </template>
-    <v-card min-width="240">
+    <v-card>
       <v-card-text>
         <div class="fa-chip-title">{{ tm("fileAccessChip.menuTitle") }}</div>
         <div v-for="opt in options" :key="opt.value" class="fa-chip-row">
@@ -206,7 +209,11 @@ async function saveRoots(): Promise<void> {
               {{ opt.icon }}
             </v-icon>
             <span class="fa-chip-row__label">{{ opt.label }}</span>
-            <v-icon v-if="opt.value === modeValue" size="14" class="fa-chip-row__check">
+            <v-icon
+              v-if="opt.value === modeValue"
+              size="14"
+              class="fa-chip-row__check"
+            >
               mdi-check
             </v-icon>
           </button>
@@ -257,7 +264,9 @@ async function saveRoots(): Promise<void> {
           {{ tm("fileAccessChip.rootsDialog.emptyHint") }}
         </div>
         <div v-for="(root, i) in draftRoots" :key="root" class="fa-roots-row">
-          <v-icon size="14" class="fa-roots-row__lock">mdi-folder-outline</v-icon>
+          <v-icon size="14" class="fa-roots-row__lock"
+            >mdi-folder-outline</v-icon
+          >
           <span class="fa-roots-row__path" :title="root">{{ root }}</span>
           <button
             type="button"
@@ -354,7 +363,7 @@ async function saveRoots(): Promise<void> {
 }
 
 .fa-chip-title {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--sp-text-primary);
   margin-bottom: 2px;
@@ -378,7 +387,7 @@ async function saveRoots(): Promise<void> {
   border-radius: 8px;
   background: transparent;
   color: var(--sp-text-primary);
-  font-size: 12px;
+  font-size: 13px;
   text-align: left;
   cursor: pointer;
 }
