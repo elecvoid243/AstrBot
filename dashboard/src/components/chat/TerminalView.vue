@@ -15,54 +15,60 @@
         v-model="shell"
         mandatory
         variant="outlined"
-        density="comfortable"
         class="terminal-shell-toggle"
         :disabled="running"
       >
-        <v-btn value="powershell" size="small" :ripple="false">
-          PowerShell
-        </v-btn>
-        <v-btn value="cmd" size="small" :ripple="false">
-          cmd
-        </v-btn>
+        <v-btn value="powershell" :ripple="false">PowerShell</v-btn>
+        <v-btn value="cmd" :ripple="false">cmd</v-btn>
       </v-btn-toggle>
-      <div class="terminal-cwd" :title="projectRoot ?? ''">
-        {{ projectRoot ?? "" }}
-      </div>
-      <v-chip
-        size="small"
-        variant="tonal"
-        class="terminal-status-chip"
-        :class="`is-${status}`"
-      >
+      <div class="terminal-status" :class="`is-${status}`">
+        <span class="terminal-status-dot" />
         {{ statusLabel }}
-      </v-chip>
-      <v-btn
-        v-if="!running"
-        variant="text"
-        size="small"
-        color="primary"
-        :disabled="busy || !props.umo"
-        @click="onStart"
-      >
-        {{ tm("spcodeProjectLoad.gitDiffSidebar.terminal.connect") }}
-      </v-btn>
-      <template v-else>
-        <v-btn variant="text" size="small" @click="doInterrupt">
-          {{ tm("spcodeProjectLoad.gitDiffSidebar.terminal.interrupt") }}
-        </v-btn>
+      </div>
+      <div class="terminal-actions">
         <v-btn
+          v-if="!running"
           variant="tonal"
           size="small"
-          color="error"
-          @click="onStop"
+          color="primary"
+          class="terminal-action-btn"
+          :disabled="busy || !props.umo"
+          @click="onStart"
         >
-          {{ tm("spcodeProjectLoad.gitDiffSidebar.terminal.stop") }}
+          <v-icon size="14" start>mdi-console-line</v-icon>
+          {{ tm("spcodeProjectLoad.gitDiffSidebar.terminal.connect") }}
         </v-btn>
-      </template>
-      <v-btn variant="text" size="small" @click="onClear">
-        {{ tm("spcodeProjectLoad.gitDiffSidebar.terminal.clear") }}
-      </v-btn>
+        <template v-else>
+          <v-btn
+            variant="text"
+            size="small"
+            class="terminal-action-btn"
+            @click="doInterrupt"
+          >
+            <v-icon size="14" start>mdi-stop-circle-outline</v-icon>
+            {{ tm("spcodeProjectLoad.gitDiffSidebar.terminal.interrupt") }}
+          </v-btn>
+          <v-btn
+            variant="tonal"
+            size="small"
+            color="error"
+            class="terminal-action-btn"
+            @click="onStop"
+          >
+            <v-icon size="14" start>mdi-power</v-icon>
+            {{ tm("spcodeProjectLoad.gitDiffSidebar.terminal.stop") }}
+          </v-btn>
+        </template>
+        <v-btn
+          variant="text"
+          size="small"
+          class="terminal-action-btn"
+          @click="onClear"
+        >
+          <v-icon size="14" start>mdi-eraser</v-icon>
+          {{ tm("spcodeProjectLoad.gitDiffSidebar.terminal.clear") }}
+        </v-btn>
+      </div>
     </div>
     <div ref="hostRef" class="terminal-host" />
   </div>
@@ -577,47 +583,80 @@ onBeforeUnmount(() => {
 .terminal-toolbar {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 6px 8px;
+  gap: 12px;
+  padding: 4px 0 8px;
   flex-wrap: wrap;
 }
 .terminal-shell-toggle {
   border-radius: 6px;
+  flex: none;
 }
 .terminal-shell-toggle :deep(.v-btn) {
+  height: 24px;
+  padding: 0 10px;
+  text-transform: none;
+  font-size: 11px;
+  letter-spacing: 0;
+}
+/* Status hint: plain dot + text, deliberately no chip background. */
+.terminal-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12px;
+  color: rgba(var(--v-theme-on-surface), 0.55);
+  overflow: hidden;
+  white-space: nowrap;
+}
+.terminal-status-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.terminal-status.is-running {
+  color: rgb(var(--v-theme-success));
+}
+.terminal-status.is-exited {
+  color: rgb(var(--v-theme-warning));
+}
+.terminal-status.is-error {
+  color: rgb(var(--v-theme-error));
+}
+.terminal-status.is-running .terminal-status-dot {
+  animation: terminal-status-pulse 1.6s ease-in-out infinite;
+}
+@keyframes terminal-status-pulse {
+  50% {
+    opacity: 0.3;
+  }
+}
+/* Right-aligned action group (connect / interrupt / stop / clear). */
+.terminal-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+  flex: none;
+}
+.terminal-action-btn {
+  height: 24px;
+  padding: 0 8px;
   text-transform: none;
   font-size: 12px;
   letter-spacing: 0;
 }
-.terminal-cwd {
-  font-size: 11px;
-  opacity: 0.65;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 200px;
-  flex: 1;
-  min-width: 80px;
-}
-.terminal-status-chip {
-  font-size: 11px;
-}
-.terminal-status-chip.is-running {
-  color: var(--v-theme-success) !important;
-}
-.terminal-status-chip.is-error {
-  color: var(--v-theme-error) !important;
-}
 .terminal-host {
   flex: 1;
   min-height: 0;
-  margin: 0 8px;
-  border-radius: 6px;
+  border-radius: 8px;
   overflow: hidden;
-  border: 1px solid rgba(var(--v-theme-on-surface), 0.08);
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.1);
 }
 .terminal-host :deep(.xterm) {
   height: 100%;
-  padding: 6px 8px;
+  padding: 8px 10px;
 }
 </style>
