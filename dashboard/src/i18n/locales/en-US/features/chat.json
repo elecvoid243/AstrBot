@@ -1588,7 +1588,21 @@
     },
     "gitDiffSidebar": {
       "tabs": {
-        "docs": "Documents"
+        "docs": "Documents",
+        "terminal": "Terminal"
+      },
+      "terminal": {
+        "connecting": "Connecting…",
+        "connected": "Connected",
+        "exited": "Exited",
+        "connectionError": "Connection failed",
+        "connect": "Connect",
+        "interrupt": "Interrupt (Ctrl+C)",
+        "stop": "Terminate session",
+        "clear": "Clear",
+        "startFailed": "Failed to start terminal",
+        "shellLabel": "Shell",
+        "noSession": "Click \u201cConnect\u201d to start the terminal"
       }
     },
     "documentManager": {

@@ -107,6 +107,7 @@ import WorktreeCreateDialog from "@/components/chat/message_list_comps/WorktreeC
 import LockReasonDialogBody from "@/components/chat/message_list_comps/LockReasonDialogBody.vue";
 import GitLogView from "@/components/chat/message_list_comps/GitLogView.vue";
 import DocumentManager from "@/components/chat/message_list_comps/DocumentManager.vue";
+import TerminalView from "@/components/chat/TerminalView.vue";
 import BranchSwitchConfirmDialog from "@/components/chat/message_list_comps/BranchSwitchConfirmDialog.vue";
 import BranchDeleteConfirmDialog from "@/components/chat/message_list_comps/BranchDeleteConfirmDialog.vue";
 const { tm } = useModuleI18n("features/chat");
@@ -169,11 +170,18 @@ function safeSetItem(key: string, value: string): void {
   }
 }
 
-function loadViewMode(): "files" | "diff" | "history" | "docs" {
+function loadViewMode(): "files" | "diff" | "history" | "docs" | "terminal" {
   const v = safeGetItem(STORAGE_KEYS.viewMode);
   // Spec §2 决策 #10:History 是第 3 个 viewMode,持久化时同样支持。
   // 2026-07-11 document-manager:docs 是第 4 个 viewMode。
-  if (v === "files" || v === "diff" || v === "history" || v === "docs") {
+  // 2026-09-01 terminal:终端是第 5 个 viewMode。
+  if (
+    v === "files" ||
+    v === "diff" ||
+    v === "history" ||
+    v === "docs" ||
+    v === "terminal"
+  ) {
     return v;
   }
   return "files";
@@ -371,7 +379,9 @@ const showClearConfirm = ref(false);
 // "docs" shows <DocumentManager> (spec 2026-07-11 document-manager §2 #1)。
 // Default: "files" per spec §2 decision #10 (the more general view;
 // first-time users likely want to "see what's in the project").
-const viewMode = ref<"files" | "diff" | "history" | "docs">(loadViewMode());
+const viewMode = ref<"files" | "diff" | "history" | "docs" | "terminal">(
+  loadViewMode(),
+);
 const fileBrowserCurrentPath = ref<string>(loadFileBrowserCurrentPath());
 // ── Fullscreen state ──────────────────────────────────────────────
 // Non-persisted. globalFullscreen expands the entire sidebar to the
@@ -4559,6 +4569,23 @@ watch(
               tm("spcodeProjectLoad.diffSidebar.gitWorkflow.history.tab")
             }}</span>
           </button>
+          <!-- 2026-09-01 terminal:终端子页面 tab。 -->
+          <button
+            type="button"
+            role="tab"
+            :aria-selected="viewMode === 'terminal'"
+            :aria-label="tm('spcodeProjectLoad.gitDiffSidebar.tabs.terminal')"
+            :class="[
+              'git-diff-sidebar-view-tab',
+              { 'is-active': viewMode === 'terminal' },
+            ]"
+            @click="viewMode = 'terminal'"
+          >
+            <v-icon size="14">mdi-console</v-icon>
+            <span>{{
+              tm("spcodeProjectLoad.gitDiffSidebar.tabs.terminal")
+            }}</span>
+          </button>
         </div>
 
         <!-- 2026-07-22 worktree-tabs-collapse: branch switcher and
@@ -5412,6 +5439,13 @@ watch(
             :is-dark="!!isDark"
             :git-log="gitLog"
             :git-show="gitShow"
+          />
+          <!-- 2026-09-01 terminal:终端子页面 body。 -->
+          <TerminalView
+            v-else-if="viewMode === 'terminal'"
+            :umo="spcodeStatus.status.value.umo"
+            :project-root="projectRoot"
+            :is-dark="!!isDark"
           />
         </div>
 

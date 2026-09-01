@@ -1621,7 +1621,21 @@
     },
     "gitDiffSidebar": {
       "tabs": {
-        "docs": "文档管理"
+        "docs": "文档管理",
+        "terminal": "终端"
+      },
+      "terminal": {
+        "connecting": "连接中…",
+        "connected": "已连接",
+        "exited": "已结束",
+        "connectionError": "连接失败",
+        "connect": "连接",
+        "interrupt": "中断 (Ctrl+C)",
+        "stop": "终止会话",
+        "clear": "清屏",
+        "startFailed": "终端启动失败",
+        "shellLabel": "Shell",
+        "noSession": "点击「连接」启动终端"
       }
     },
     "documentManager": {
