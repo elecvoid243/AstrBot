@@ -122,6 +122,7 @@ DEFAULT_CONFIG = {
         "websearch_baidu_app_builder_key": "",
         "websearch_firecrawl_key": [],
         "websearch_exa_key": [],
+        "websearch_anysearch_key": [],
         "web_search_link": False,
         "display_reasoning_text": False,
         "identifier": False,
@@ -3364,6 +3365,7 @@ CONFIG_METADATA_3 = {
                     "agent_runner.config.dify_api_key": {
                         "description": "API Key",
                         "type": "string",
+                        "secret": True,
                     },
                     "agent_runner.config.dify_api_base": {
                         "description": "API Base URL",
@@ -3402,6 +3404,7 @@ CONFIG_METADATA_3 = {
                     "agent_runner.config.coze_api_key": {
                         "description": "API Key",
                         "type": "string",
+                        "secret": True,
                     },
                     "agent_runner.config.bot_id": {
                         "description": "Bot ID",
@@ -3441,6 +3444,7 @@ CONFIG_METADATA_3 = {
                     "agent_runner.config.dashscope_api_key": {
                         "description": "API Key",
                         "type": "string",
+                        "secret": True,
                     },
                     "agent_runner.config.dashscope_app_id": {
                         "description": "应用 ID",
@@ -3489,10 +3493,12 @@ CONFIG_METADATA_3 = {
                     "agent_runner.config.deerflow_api_key": {
                         "description": "API Key",
                         "type": "string",
+                        "secret": True,
                     },
                     "agent_runner.config.deerflow_auth_header": {
                         "description": "Authorization Header",
                         "type": "string",
+                        "secret": True,
                     },
                     "agent_runner.config.deerflow_assistant_id": {
                         "description": "Assistant ID",
@@ -3538,7 +3544,7 @@ CONFIG_METADATA_3 = {
                 "type": "object",
                 "items": {
                     "agent_runner.config.model.provider_id": {
-                        "description": "默认对话模型",
+                        "description": "对话模型",
                         "type": "string",
                         "_special": "select_provider",
                         "hint": "留空时使用第一个模型",
@@ -3547,7 +3553,7 @@ CONFIG_METADATA_3 = {
                         },
                     },
                     "agent_runner.config.model.fallback_provider_ids": {
-                        "description": "回退对话模型列表",
+                        "description": "回退对话模型",
                         "type": "list",
                         "items": {"type": "string"},
                         "_special": "select_providers",
@@ -3557,7 +3563,7 @@ CONFIG_METADATA_3 = {
                         },
                     },
                     "agent_runner.config.model.request_max_retries": {
-                        "description": "请求最大重试次数",
+                        "description": "异常重试次数",
                         "type": "int",
                         "hint": "单次模型请求遇到可重试错误时的最大尝试次数。",
                         "condition": {
@@ -3565,15 +3571,15 @@ CONFIG_METADATA_3 = {
                         },
                     },
                     "provider_settings.default_image_caption_provider_id": {
-                        "description": "默认图片转述模型",
+                        "description": "图片转述模型",
                         "type": "string",
                         "_special": "select_provider",
                         "hint": "留空代表不使用，可用于非多模态模型",
                     },
                     "provider_stt_settings.enable": {
-                        "description": "启用语音转文本",
+                        "description": "语音识别",
                         "type": "bool",
-                        "hint": "STT 总开关",
+                        "hint": "使用语音转文字模型将用户语音转述为文本，方便模型理解。",
                     },
                     "provider_stt_settings.provider_id": {
                         "description": "默认语音转文本模型",
@@ -3585,9 +3591,9 @@ CONFIG_METADATA_3 = {
                         },
                     },
                     "provider_tts_settings.enable": {
-                        "description": "启用文本转语音",
+                        "description": "语音回复",
                         "type": "bool",
-                        "hint": "TTS 总开关",
+                        "hint": "使用文字转语音模型将文字转为语音回复。",
                     },
                     "provider_tts_settings.provider_id": {
                         "description": "默认文本转语音模型",
@@ -3608,6 +3614,7 @@ CONFIG_METADATA_3 = {
                     "provider_settings.image_caption_prompt": {
                         "description": "图片转述提示词",
                         "type": "text",
+                        "collapsed": True,
                     },
                 },
                 "condition": {
@@ -3632,6 +3639,7 @@ CONFIG_METADATA_3 = {
                     "agent_runner.config.persona.safety_mode_strategy": {
                         "description": "健康模式策略",
                         "type": "string",
+                        "invisible": True,
                         "options": ["system_prompt"],
                         "hint": "选择健康模式的实现策略。",
                         "condition": {
@@ -3696,6 +3704,7 @@ CONFIG_METADATA_3 = {
                             "brave",
                             "firecrawl",
                             "exa",
+                            "anysearch",
                         ],
                         "condition": {
                             "provider_settings.web_search": True,
@@ -3763,6 +3772,16 @@ CONFIG_METADATA_3 = {
                         "secret": True,
                         "condition": {
                             "provider_settings.websearch_provider": "exa",
+                            "provider_settings.web_search": True,
+                        },
+                    },
+                    "provider_settings.websearch_anysearch_key": {
+                        "description": "AnySearch API Key",
+                        "type": "list",
+                        "items": {"type": "string"},
+                        "hint": "可添加多个 Key 进行轮询。留空则使用匿名模式（每日免费额度）。申请地址：https://anysearch.com/console/api-keys",
+                        "condition": {
+                            "provider_settings.websearch_provider": "anysearch",
                             "provider_settings.web_search": True,
                         },
                     },
@@ -4141,16 +4160,16 @@ CONFIG_METADATA_3 = {
                         },
                     },
                     "provider_settings.show_tool_use_status": {
-                        "description": "输出函数调用状态",
+                        "description": "输出工具调用信息",
                         "type": "bool",
                         "condition": {
                             "agent_runner.runner_type": "local",
                         },
                     },
                     "provider_settings.show_tool_call_result": {
-                        "description": "输出函数调用返回结果",
+                        "description": "输出工具调用结果",
                         "type": "bool",
-                        "hint": "仅在输出函数调用状态启用时生效，展示结果前 70 个字符。",
+                        "hint": "仅在输出工具调用信息启用时生效，展示结果前 70 个字符。",
                         "condition": {
                             "agent_runner.runner_type": "local",
                             "provider_settings.show_tool_use_status": True,
@@ -4232,7 +4251,7 @@ CONFIG_METADATA_3 = {
                         },
                     },
                     "provider_settings.wake_prefix": {
-                        "description": "LLM 聊天额外唤醒前缀 ",
+                        "description": "额外唤醒前缀",
                         "type": "string",
                         "hint": "如果唤醒前缀为 /, 额外聊天唤醒前缀为 chat，则需要 /chat 才会触发 LLM 请求",
                     },
@@ -4666,7 +4685,7 @@ CONFIG_METADATA_3 = {
                         "description": "群聊图片转述模型",
                         "type": "string",
                         "_special": "select_provider",
-                        "hint": "用于群聊记录注入上下文的图片理解，与默认图片转述模型分开配置。",
+                        "hint": "用于群聊记录注入上下文的图片理解，与图片转述模型分开配置。",
                         "condition": {
                             "provider_ltm_settings.group_icl_enable": True,
                             "provider_ltm_settings.image_caption": True,
