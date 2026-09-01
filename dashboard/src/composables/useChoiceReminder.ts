@@ -162,24 +162,22 @@ export function clearChoiceAttention(sessionId: string): void {
 /**
  * Signal that a session's LLM run finished while the user was elsewhere.
  *
- * The session is always added to the run-finished store (steady sidebar
- * dot), but — unlike a pending choice — the browser title only flashes a
- * bounded number of times and no OS notification/badge is raised: a
- * finished run is informational, and the dot persists until the user
- * opens the session.
+ * When the user is already viewing the session, nothing is recorded at
+ * all — the arriving output itself is the reminder, and a marker on the
+ * row they are looking at would be pure noise (unlike a pending choice,
+ * which must stay discoverable until answered). Otherwise the session
+ * gets a steady sidebar dot and the browser title flashes a bounded
+ * number of times; no OS notification/badge is raised.
  */
 export function markRunFinishedAttention(
   sessionId: string,
   noticeTitle: string,
   isCurrentSession: boolean,
 ): void {
+  if (isCurrentSession) return;
+
   const store = useRunFinishedAttentionStore();
   store.add(sessionId);
-
-  if (isCurrentSession) {
-    // The arriving output itself is the reminder — nothing to surface.
-    return;
-  }
 
   bindVisibilityOnce();
   startNoticeFlash(noticeTitle);
