@@ -755,13 +755,6 @@
             </button>
           </transition>
 
-          <!-- 项目 breadcrumb (非 sticky,普通文档流定位在顶部) -->
-          <div v-if="sessionProject" class="session-project-breadcrumb">
-            <span>{{ sessionProject.title }}</span>
-            <v-icon size="16">mdi-chevron-right</v-icon>
-            <span>{{ currentSessionTitle }}</span>
-          </div>
-
           <!-- 加载中 / 消息流 / 欢迎区 主体内容 -->
           <div v-if="loadingMessages" class="center-state">
             <v-progress-circular indeterminate size="32" width="3" />
