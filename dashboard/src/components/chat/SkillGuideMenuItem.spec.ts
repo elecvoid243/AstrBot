@@ -443,3 +443,55 @@ describe("SkillGuideMenuItem — show-all mode", () => {
     ).toContain("skill-guide-menu-card__item--queued");
   });
 });
+
+describe("SkillGuideMenuItem — per-open refresh & search", () => {
+  it("re-fetches the active skill list every time the menu opens", async () => {
+    await primeSession();
+    expect(getMock).toHaveBeenCalledTimes(1);
+    const wrapper = mountItem();
+
+    // First open: the menu triggers a fresh /skill-guide/active fetch.
+    await openByHover(wrapper);
+    expect(getMock).toHaveBeenCalledTimes(2);
+
+    // Close (pointer leaves the card, 150ms delayed) and hover again:
+    // a second open triggers a third fetch.
+    await wrapper
+      .find('[data-test="skill-guide-menu-card"]')
+      .trigger("mouseleave");
+    await new Promise((resolve) => window.setTimeout(resolve, 200));
+    await wrapper
+      .find('[data-test="skill-guide-menu-item"]')
+      .trigger("mouseenter");
+    await flushPromises();
+    expect(getMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("filters the skill list by name or description", async () => {
+    await primeSession();
+    const wrapper = mountItem();
+    await openByHover(wrapper);
+    expect(wrapper.findAll('[data-test^="skill-guide-item-"]')).toHaveLength(2);
+
+    // Case-insensitive description match.
+    await wrapper.find('[data-test="skill-guide-search"]').setValue("PDF");
+    expect(wrapper.find('[data-test="skill-guide-item-pdf"]').exists()).toBe(
+      true,
+    );
+    expect(
+      wrapper.find('[data-test="skill-guide-item-brainstorming"]').exists(),
+    ).toBe(false);
+
+    // No match renders the inline no-match hint.
+    await wrapper.find('[data-test="skill-guide-search"]').setValue("zzz");
+    expect(wrapper.find('[data-test="skill-guide-no-match"]').exists()).toBe(
+      true,
+    );
+
+    // Clear button restores the full list.
+    await wrapper
+      .find('[data-test="skill-guide-search-clear"]')
+      .trigger("click");
+    expect(wrapper.findAll('[data-test^="skill-guide-item-"]')).toHaveLength(2);
+  });
+});

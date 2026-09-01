@@ -50,7 +50,10 @@
       "removeTitle": "Undo {name}: not injected into the next message",
       "clearAll": "Undo all",
       "showAll": "Show all skills",
-      "showAllTitle": "Also list skills not mounted by the persona (gray, still loadable)"
+      "showAllTitle": "Also list skills not mounted by the persona (gray, still loadable)",
+      "searchPlaceholder": "Search skills by name or description",
+      "searchClear": "Clear search",
+      "noMatch": "No matching skills"
     }
   },
   "message": {

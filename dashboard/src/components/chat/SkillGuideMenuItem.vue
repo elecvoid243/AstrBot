@@ -104,6 +104,34 @@
         />
       </div>
 
+      <!-- 2026-09-01 (elecvoid243): search filter for the skill list. -->
+      <div class="skill-guide-menu-card__search">
+        <v-icon
+          icon="mdi-magnify"
+          size="14"
+          class="skill-guide-menu-card__search-icon"
+        />
+        <input
+          v-model="searchQuery"
+          type="text"
+          class="skill-guide-menu-card__search-input"
+          :placeholder="tm('input.skillGuide.searchPlaceholder')"
+          :aria-label="tm('input.skillGuide.searchPlaceholder')"
+          data-test="skill-guide-search"
+        />
+        <button
+          v-if="searchQuery"
+          type="button"
+          class="skill-guide-menu-card__search-clear"
+          :aria-label="tm('input.skillGuide.searchClear')"
+          :title="tm('input.skillGuide.searchClear')"
+          data-test="skill-guide-search-clear"
+          @click="searchQuery = ''"
+        >
+          <v-icon icon="mdi-close-circle" size="14" />
+        </button>
+      </div>
+
       <div class="skill-guide-menu-card__list">
         <div
           v-if="listLoading"
@@ -121,15 +149,23 @@
           {{ tm("input.skillGuide.loadFailed") }}
         </div>
         <div
-          v-else-if="displaySkills.length === 0"
+          v-else-if="filteredSkills.length === 0"
           class="skill-guide-menu-card__hint"
-          data-test="skill-guide-empty"
+          :data-test="
+            displaySkills.length === 0
+              ? 'skill-guide-empty'
+              : 'skill-guide-no-match'
+          "
         >
-          {{ tm("input.skillGuide.empty") }}
+          {{
+            displaySkills.length === 0
+              ? tm("input.skillGuide.empty")
+              : tm("input.skillGuide.noMatch")
+          }}
         </div>
 
         <button
-          v-for="skill in displaySkills"
+          v-for="skill in filteredSkills"
           v-show="!listLoading && !listFailed"
           :key="skill.name"
           type="button"
@@ -245,7 +281,14 @@ let closeTimer: number | null = null;
 
 function handleEnter(): void {
   cancelClose();
-  open.value = true;
+  if (!open.value) {
+    open.value = true;
+    // 2026-09-01 (elecvoid243): re-fetch the session's skill list every
+    // time the menu opens (close→open transition only; a hover flit
+    // inside the same open cycle does not refetch). refresh() soft-fails,
+    // so an unreachable plugin renders the inline load-failed state.
+    void guide.refresh();
+  }
 }
 
 function scheduleClose(): void {
@@ -264,6 +307,19 @@ function cancelClose(): void {
 }
 
 onBeforeUnmount(cancelClose);
+
+// 2026-09-01 (elecvoid243): search filter over the rendered skill rows —
+// matches skill name or description, case-insensitive.
+const searchQuery = ref("");
+const filteredSkills = computed(() => {
+  const q = searchQuery.value.trim().toLowerCase();
+  if (!q) return displaySkills.value;
+  return displaySkills.value.filter(
+    (skill) =>
+      skill.name.toLowerCase().includes(q) ||
+      skill.description.toLowerCase().includes(q),
+  );
+});
 
 function isQueued(name: string): boolean {
   return queued.value.includes(name);
@@ -344,6 +400,53 @@ async function handleClearAll(): Promise<void> {
   gap: 8px;
   padding: 2px 12px 4px;
   border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.08);
+}
+
+/* 2026-09-01 search row: sits under show-all, above the list. */
+.skill-guide-menu-card__search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 8px 2px;
+  padding: 0 8px;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.12);
+  border-radius: 8px;
+  background: rgba(var(--v-theme-on-surface), 0.04);
+}
+
+.skill-guide-menu-card__search-icon {
+  flex: none;
+  color: rgba(var(--v-theme-on-surface), 0.45);
+}
+
+.skill-guide-menu-card__search-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: rgb(var(--v-theme-on-surface));
+  font-size: 12px;
+  line-height: 26px;
+}
+
+.skill-guide-menu-card__search-input::placeholder {
+  color: rgba(var(--v-theme-on-surface), 0.4);
+}
+
+.skill-guide-menu-card__search-clear {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: rgba(var(--v-theme-on-surface), 0.4);
+  cursor: pointer;
+}
+
+.skill-guide-menu-card__search-clear:hover {
+  color: rgba(var(--v-theme-on-surface), 0.8);
 }
 
 .skill-guide-menu-card__showall-label {
