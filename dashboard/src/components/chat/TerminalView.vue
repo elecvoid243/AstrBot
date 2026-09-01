@@ -64,21 +64,27 @@
         {{ tm("spcodeProjectLoad.gitDiffSidebar.terminal.clear") }}
       </v-btn>
     </div>
-    <div ref="hostRef" class="terminal-host" />
+    <div
+      ref="hostRef"
+      class="terminal-host"
+      @click="focusInput"
+    />
     <div class="terminal-input-row">
       <span class="terminal-input-prompt">&#10095;</span>
       <input
         ref="inputRef"
         v-model="lineInput"
         class="terminal-input"
-        :disabled="!running || busy"
+        :disabled="busy"
         :placeholder="
-          tm('spcodeProjectLoad.gitDiffSidebar.terminal.inputPlaceholder')
+          running
+            ? tm('spcodeProjectLoad.gitDiffSidebar.terminal.inputPlaceholder')
+            : tm('spcodeProjectLoad.gitDiffSidebar.terminal.inputPlaceholderIdle')
         "
         autocomplete="off"
         autocapitalize="off"
         spellcheck="false"
-        @keydown.enter.prevent="submitLine"
+        @keydown.enter.prevent="onEnter"
         @keydown.up.prevent="historyPrev"
         @keydown.down.prevent="historyNext"
       />
@@ -265,6 +271,37 @@ function filterEchoLine(text: string): string {
   const esc = escapeRegExp(lastSubmittedLine);
   const re = new RegExp(`^[^\\r\\n]*>[ \\t]*${esc}[ \\t]*\\r?\\n?$`, "gm");
   return text.replace(re, "");
+}
+
+function focusInput(): void {
+  inputRef.value?.focus();
+}
+
+/**
+ * Enter handler: submits the line when the session is running, or
+ * auto-starts the session first when idle (the input field is never
+ * hard-disabled outside of an in-flight start, so keyboard always
+ * responds).
+ */
+function onEnter(): void {
+  if (status.value !== "running" || !sessionId.value) {
+    toggleFocusAndStart();
+    return;
+  }
+  submitLine();
+}
+
+async function toggleFocusAndStart(): Promise<void> {
+  if (busy.value) return;
+  const line = lineInput.value;
+  lineInput.value = "";
+  await onStart();
+  if (line) {
+    // Restore the drafted line: after a successful start the user can
+    // press Enter again to submit it; after a failure they can retry.
+    lineInput.value = line;
+    void nextTick(() => inputRef.value?.focus());
+  }
 }
 
 /** Submit the current input line to the shell as one complete line. */

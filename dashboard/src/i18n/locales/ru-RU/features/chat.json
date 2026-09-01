@@ -1589,7 +1589,8 @@
         "startFailed": "Не удалось запустить терминал",
         "shellLabel": "Оболочка",
         "noSession": "Нажмите «Подключить», чтобы запустить терминал",
-        "inputPlaceholder": "Введите команду и нажмите Enter…"
+        "inputPlaceholder": "Введите команду и нажмите Enter…",
+        "inputPlaceholderIdle": "Подключите терминал, чтобы вводить…"
       }
     },
     "documentManager": {
