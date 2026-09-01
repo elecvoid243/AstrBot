@@ -232,12 +232,28 @@ function writeNotice(text: string): void {
 // ------------------------------------------------------------------
 function onTerminalData(data: string): void {
   if (!sessionId.value) return;
+  // Enter FIRST: CR/LF is a control char, so it must be handled before
+  // the generic control-char filter below.
+  if (data === "\r" || data === "\n") {
+    submitPendingLine();
+    return;
+  }
   // Ctrl+C -> interrupt, clear the preview.
   if (data === "\x03") {
     pendingLine = "";
     clearLocalInput();
     term?.write("^C\r\n");
     void doInterrupt();
+    return;
+  }
+  // Backspace: local edit only (DEL never reaches the shell). Checked
+  // before the control-char filter: BS (0x08) is a control char too.
+  if (data === "\x7f" || data === "\x08") {
+    if (pendingLine.length > 0) {
+      pendingLine = pendingLine.slice(0, -1);
+      term?.write("\b \b");
+      pendingCols = Math.max(0, pendingCols - 1);
+    }
     return;
   }
   // Arrow keys: local command history (no send).
@@ -251,20 +267,6 @@ function onTerminalData(data: string): void {
   }
   // Ignore other escape sequences / control chars (Tab, Alt-combos…).
   if (data === "\x1b" || data.startsWith("\x1b") || /[\x00-\x1f]/.test(data)) {
-    return;
-  }
-  // Enter: erase preview, newline, send the COMPLETE line.
-  if (data === "\r" || data === "\n") {
-    submitPendingLine();
-    return;
-  }
-  // Backspace: local edit only (DEL never reaches the shell).
-  if (data === "\x7f" || data === "\x08") {
-    if (pendingLine.length > 0) {
-      pendingLine = pendingLine.slice(0, -1);
-      term?.write("\b \b");
-      pendingCols = Math.max(0, pendingCols - 1);
-    }
     return;
   }
   // Printable chars: local echo only.
