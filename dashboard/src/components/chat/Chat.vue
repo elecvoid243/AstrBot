@@ -2491,19 +2491,22 @@ async function startNewChat() {
   // chips (spcode / plan mode / file access) then show this session's
   // own defaults instead of the previous session's residue.
   //
-  // If the current session is empty (no messages and not still loading),
-  // delete it first so repeated clicks do not pile up blank sessions in
-  // the sidebar.
+  // If the current session is already empty (no messages and not still
+  // loading), reuse it instead of creating a fresh one: creating on
+  // every click makes each click delete-and-recreate the "new
+  // conversation" entry (the session just created is the current empty
+  // session), which makes the sidebar flicker and piles up blank
+  // sessions. Reuse keeps the list untouched until the first message is
+  // sent.
   const oldSessionId = currSessionId.value;
-  if (
-    oldSessionId &&
+  const isCurrentSessionEmpty =
+    Boolean(oldSessionId) &&
     !loadingMessages.value &&
-    activeMessages.value.length === 0
-  ) {
-    await deleteSession(oldSessionId);
+    activeMessages.value.length === 0;
+  if (!isCurrentSessionEmpty) {
+    await newSession();
+    await getSessions();
   }
-  await newSession();
-  await getSessions();
   closeMobileSidebar();
   await focusChatInput();
 }
