@@ -5444,7 +5444,7 @@ watch(
           <TerminalView
             v-else-if="viewMode === 'terminal'"
             :umo="spcodeStatus.status.value.umo"
-            :project-root="projectRoot"
+            :project-root="currentRoot"
             :is-dark="!!isDark"
           />
         </div>

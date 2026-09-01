@@ -283,6 +283,9 @@ async function onInterrupt(): Promise<void> {
 
 async function onStop(): Promise<void> {
   if (!props.umo || !sessionId.value) return;
+  // Abort the SSE first so the session-cleanup error event (poll of a
+  // removed session) cannot overwrite the manual "idle" status below.
+  abortController?.abort();
   try {
     await pluginExtensionApi.post("spcode/terminal/stop", {
       umo: props.umo,
