@@ -1602,9 +1602,7 @@
         "clear": "Clear",
         "startFailed": "Failed to start terminal",
         "shellLabel": "Shell",
-        "noSession": "Click \u201cConnect\u201d to start the terminal",
-        "inputPlaceholder": "Type a command and press Enter…",
-        "inputPlaceholderIdle": "Connect the terminal to type…"
+        "noSession": "Click \u201cConnect\u201d to start the terminal"
       }
     },
     "documentManager": {
