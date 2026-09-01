@@ -15,8 +15,6 @@
     "stopGenerating": "Stop generating",
     "thinkingEffort": "Thinking Effort",
     "thinkingEffortOptions": {
-      "auto": "Auto",
-      "off": "Off",
       "low": "Low",
       "medium": "Medium",
       "high": "High"
@@ -29,7 +27,6 @@
     "restoreDefaultLevels": "Restore Defaults",
     "levelNameRequired": "Level name is required",
     "levelValueRequired": "Level value is required",
-    "levelReservedValue": "Level value cannot use reserved value auto or off",
     "levelDuplicateValue": "Duplicate level value",
     "levelDeleteAria": "Delete level",
     "save": "Save",

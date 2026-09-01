@@ -13,10 +13,7 @@
       (codegraph / vivado MCP status) via its small side button.
     -->
     <div class="input-area__status-row">
-      <div
-        v-if="showSpcodeIndicator"
-        class="input-area__status-row__left"
-      >
+      <div v-if="showSpcodeIndicator" class="input-area__status-row__left">
         <SpcodeProjectIndicator
           @open-load-dialog="openLoadDialog"
           @open-codegraph-dialog="openCodegraphLoadDialog"
@@ -249,9 +246,7 @@
             :key="name"
             class="skill-guide-chip"
           >
-            <span class="skill-guide-chip__name" :title="name">{{
-              name
-            }}</span>
+            <span class="skill-guide-chip__name" :title="name">{{ name }}</span>
             <button
               type="button"
               class="skill-guide-chip__remove"
@@ -343,38 +338,6 @@
               @config-changed="handleConfigChange"
             />
 
-            <!-- Thinking Effort Selector in Menu -->
-            <v-list-item class="styled-menu-item" rounded="md">
-              <template v-slot:prepend>
-                <v-icon icon="mdi-brain" size="small"></v-icon>
-              </template>
-              <v-list-item-title>{{ tm("input.thinkingEffort") }}</v-list-item-title>
-              <template v-slot:append>
-                <v-select
-                  v-model="thinkingEffort"
-                  :items="thinkingEffortOptions"
-                  density="compact"
-                  variant="plain"
-                  hide-details
-                  class="thinking-effort-select"
-                />
-                <v-tooltip location="top">
-                  <template #activator="{ props: gearProps }">
-                    <v-btn
-                      v-bind="gearProps"
-                      icon="mdi-cog-outline"
-                      variant="text"
-                      size="small"
-                      :aria-label="tm('input.editThinkingEffortLevels')"
-                      class="thinking-effort-gear"
-                      @click="effortLevelsDialogOpen = true"
-                    />
-                  </template>
-                  <span>{{ tm("input.editThinkingEffortLevels") }}</span>
-                </v-tooltip>
-              </template>
-            </v-list-item>
-
             <!-- Streaming Toggle in Menu -->
             <v-list-item
               class="styled-menu-item"
@@ -454,6 +417,15 @@
             size="16"
             class="mr-1"
             width="1.5"
+          />
+          <!-- Thinking effort override chip: send-time companion of the
+               token ring (context budget), so the two sit side by side.
+               Selection state stays here in ChatInput; the chip's gear
+               emits "edit" which opens the level editor dialog below. -->
+          <ThinkingEffortChip
+            v-model="thinkingEffort"
+            :levels="userEffortLevels"
+            @edit="effortLevelsDialogOpen = true"
           />
           <v-tooltip v-if="tokenUsageVisible" location="top" max-width="320">
             <template #activator="{ props: tokenTooltipProps }">
@@ -586,6 +558,8 @@ import { commandApi } from "@/api/v1";
 import type { CommandItem } from "@/components/extension/componentPanel/types";
 import ConfigSelector from "./ConfigSelector.vue";
 import ProviderModelMenu from "./ProviderModelMenu.vue";
+import ThinkingEffortChip from "./ThinkingEffortChip.vue";
+import type { ThinkingEffortLevel } from "./ThinkingEffortChip.vue";
 import ThinkingEffortLevelsDialog from "./ThinkingEffortLevelsDialog.vue";
 import StyledMenu from "@/components/shared/StyledMenu.vue";
 import CommandSuggestion from "./CommandSuggestion.vue";
@@ -706,16 +680,11 @@ const isReplyClosing = ref(false);
 const isDragging = ref(false);
 
 // Per-message "thinking effort" (reasoning intensity) override, sent with
-// each chat request. Persisted locally; "auto" keeps the provider config.
-// "auto" / "off" are reserved and always present; the remaining levels are
-// user-defined (name + raw value) and stored in localStorage
-// "thinkingEffortLevels" (e.g. { name: "深度", value: "max" }).
-const RESERVED_EFFORT_VALUES = ["auto", "off"];
-
-interface ThinkingEffortLevel {
-  name: string;
-  value: string;
-}
+// each chat request. Persisted locally. Every level is user-defined
+// (name + raw value) and stored in localStorage "thinkingEffortLevels"
+// (e.g. { name: "深度", value: "max" }); the shipped defaults are
+// low / medium / high.
+const DEFAULT_EFFORT = "medium";
 
 const defaultThinkingEffortLevels = computed<ThinkingEffortLevel[]>(() => [
   { name: tm("input.thinkingEffortOptions.low"), value: "low" },
@@ -737,10 +706,7 @@ function loadStoredEffortLevels(): ThinkingEffortLevel[] | null {
           typeof item === "object" &&
           typeof (item as ThinkingEffortLevel).name === "string" &&
           typeof (item as ThinkingEffortLevel).value === "string" &&
-          (item as ThinkingEffortLevel).value.trim() !== "" &&
-          !RESERVED_EFFORT_VALUES.includes(
-            (item as ThinkingEffortLevel).value.trim(),
-          ),
+          (item as ThinkingEffortLevel).value.trim() !== "",
       )
       .map((item) => ({
         name: (item as ThinkingEffortLevel).name,
@@ -757,37 +723,32 @@ const storedEffortLevels = ref<ThinkingEffortLevel[] | null>(
 );
 
 /** User-defined levels, falling back to the i18n defaults when not customized. */
-const userEffortLevels = computed<ThinkingEffortLevel[]>(() =>
-  storedEffortLevels.value ?? defaultThinkingEffortLevels.value,
+const userEffortLevels = computed<ThinkingEffortLevel[]>(
+  () => storedEffortLevels.value ?? defaultThinkingEffortLevels.value,
 );
 
-const thinkingEffortOptions = computed(() => [
-  { title: tm("input.thinkingEffortOptions.auto"), value: "auto" },
-  { title: tm("input.thinkingEffortOptions.off"), value: "off" },
-  ...userEffortLevels.value.map((level) => ({
-    title: level.name,
-    value: level.value,
-  })),
-]);
-
 const thinkingEffort = ref<ThinkingEffort>(
-  (() => {
-    if (typeof localStorage === "undefined") return "auto";
-    return (localStorage.getItem("thinkingEffort") as ThinkingEffort) || "auto";
-  })(),
+  typeof localStorage !== "undefined"
+    ? (localStorage.getItem("thinkingEffort") as ThinkingEffort) ||
+        DEFAULT_EFFORT
+    : DEFAULT_EFFORT,
 );
 watch(thinkingEffort, (value) => {
   if (typeof localStorage !== "undefined") {
     localStorage.setItem("thinkingEffort", value);
   }
 });
-// Keep the selection valid when the level list changes (e.g. a level deleted).
+// Keep the selection valid when the level list changes (e.g. a level
+// deleted, or a legacy stored "auto"/"off" value from before those
+// entries were removed from the menu).
 watch(
-  thinkingEffortOptions,
-  (options) => {
-    if (!options.some((option) => option.value === thinkingEffort.value)) {
-      thinkingEffort.value = "auto";
-    }
+  userEffortLevels,
+  (levels) => {
+    if (levels.some((level) => level.value === thinkingEffort.value)) return;
+    const fallback = levels.some((level) => level.value === DEFAULT_EFFORT)
+      ? DEFAULT_EFFORT
+      : levels[0]?.value;
+    if (fallback) thinkingEffort.value = fallback;
   },
   { immediate: true },
 );
@@ -909,10 +870,8 @@ const fileAccessMode = useFileAccessMode();
 const currentSessionUmo = computed<string | null>(() => {
   const session = props.currentSession;
   if (!session) return null;
-  return buildWebchatUmoDetails(
-    session.session_id,
-    Boolean(session.is_group),
-  ).umo;
+  return buildWebchatUmoDetails(session.session_id, Boolean(session.is_group))
+    .umo;
 });
 const wakePrefixes = ref<string[]>(["/"]);
 const currentConfigId = ref((props.configId as string) || "default");
@@ -2238,33 +2197,6 @@ defineExpose({
   min-width: auto !important;
   margin-top: 0 !important;
   overflow: visible !important;
-}
-
-/* Keep the effort dropdown visually separated from the menu label and
-   vertically centered against it (the field's default 8px top padding
-   pushes the selection text off-center). */
-.thinking-effort-select {
-  width: 96px;
-  margin-left: 16px;
-  flex-shrink: 0;
-}
-
-/* Inline gear button that opens the level editor, next to the dropdown. */
-.thinking-effort-gear {
-  margin-left: 2px;
-  flex-shrink: 0;
-}
-
-.thinking-effort-select :deep(.v-input__control) {
-  min-height: 0;
-}
-
-.thinking-effort-select :deep(.v-field),
-.thinking-effort-select :deep(.v-field__input) {
-  min-height: 28px;
-  padding-top: 0;
-  padding-bottom: 0;
-  align-items: center;
 }
 
 .input-right-actions {

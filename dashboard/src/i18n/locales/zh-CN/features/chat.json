@@ -15,8 +15,6 @@
     "stopGenerating": "停止生成",
     "thinkingEffort": "思考强度",
     "thinkingEffortOptions": {
-      "auto": "自动",
-      "off": "关闭",
       "low": "低",
       "medium": "中",
       "high": "高"
@@ -29,7 +27,6 @@
     "restoreDefaultLevels": "恢复默认",
     "levelNameRequired": "档位名称不能为空",
     "levelValueRequired": "档位值不能为空",
-    "levelReservedValue": "档位值不能使用保留值 auto 或 off",
     "levelDuplicateValue": "档位值重复",
     "levelDeleteAria": "删除档位",
     "save": "保存",

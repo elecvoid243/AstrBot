@@ -83,9 +83,6 @@ interface ThinkingEffortLevel {
   value: string;
 }
 
-/** Values reserved by the thinking-effort selector; not allowed here. */
-const RESERVED_EFFORT_VALUES = ["auto", "off"];
-
 const props = defineProps<{
   modelValue: boolean;
   levels: ThinkingEffortLevel[];
@@ -118,9 +115,6 @@ const validationError = computed(() => {
     const value = level.value.trim();
     if (!name) return tm("input.levelNameRequired");
     if (!value) return tm("input.levelValueRequired");
-    if (RESERVED_EFFORT_VALUES.includes(value)) {
-      return tm("input.levelReservedValue");
-    }
     if (seen.has(value)) return tm("input.levelDuplicateValue");
     seen.add(value);
   }
@@ -168,7 +162,10 @@ function save() {
 /* Hint note below the title — wraps across lines (v-card-subtitle would
    truncate it with an ellipsis). */
 .thinking-effort-levels-hint {
-  color: rgba(var(--v-theme-on-surface), var(--v-medium-emphasis-opacity, 0.62));
+  color: rgba(
+    var(--v-theme-on-surface),
+    var(--v-medium-emphasis-opacity, 0.62)
+  );
   font-size: 12px;
   line-height: 1.4;
   white-space: normal;
