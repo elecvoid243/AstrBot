@@ -1639,7 +1639,8 @@
         "startFailed": "终端启动失败",
         "shellLabel": "Shell",
         "noSession": "点击「连接」启动终端",
-        "inputPlaceholder": "在此输入命令,按 Enter 执行…"
+        "inputPlaceholder": "在此输入命令,按 Enter 执行…",
+        "inputPlaceholderIdle": "连接终端后输入…"
       }
     },
     "documentManager": {
