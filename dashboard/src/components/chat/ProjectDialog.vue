@@ -13,14 +13,14 @@
                 <v-select v-model="form.workspace_type" :items="workspaceTypeItems" item-title="label" item-value="value"
                     :label="tm('project.workspace.type')" variant="outlined" hide-details class="mb-3" />
                 <v-text-field
-                    v-if="form.workspace_type !== 'session'"
+                    v-if="form.workspace_type === 'custom'"
                     v-model="form.workspace_path"
                     :label="tm('project.workspace.path')"
                     variant="outlined"
                     hide-details
                     class="mb-1"
                     persistent-hint
-                    :hint="form.workspace_type === 'custom' ? tm('project.spcode.pathHint') : ''"
+                    :hint="tm('project.spcode.pathHint')"
                 >
                     <template #append-inner>
                         <v-btn
@@ -34,43 +34,6 @@
                         />
                     </template>
                 </v-text-field>
-                <!-- Recent paths shared with ProjectLoadDialog; click fills
-                     the field, the X drops the entry from history. Hidden in
-                     session mode — same gate as the path field itself. -->
-                <div
-                    v-if="form.workspace_type !== 'session' && recentPaths.length"
-                    class="path-history mt-2"
-                >
-                    <div class="text-caption text-medium-emphasis mb-1">
-                        {{ tm('spcodeProjectLoad.dialog.historyLabel') }}
-                    </div>
-                    <v-list density="compact" class="history-list pa-0">
-                        <v-list-item
-                            v-for="item in recentPaths"
-                            :key="item"
-                            class="history-item"
-                            rounded="md"
-                            @click="form.workspace_path = item"
-                        >
-                            <template #prepend>
-                                <v-icon icon="mdi-history" size="x-small" />
-                            </template>
-                            <v-list-item-title class="text-body-2">
-                                {{ item }}
-                            </v-list-item-title>
-                            <template #append>
-                                <v-btn
-                                    icon="mdi-close"
-                                    variant="text"
-                                    size="x-small"
-                                    density="compact"
-                                    :aria-label="tm('spcodeProjectLoad.dialog.removeFromHistory')"
-                                    @click.stop="removeFromPathHistory(item)"
-                                />
-                            </template>
-                        </v-list-item>
-                    </v-list>
-                </div>
                 <ProjectDirectoryBrowser
                     v-model="browserOpen"
                     @select="onBrowserSelect"
@@ -107,7 +70,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { useI18n, useModuleI18n } from '@/i18n/composables';
-import { useProjectPathHistory } from '@/composables/useProjectPathHistory';
 import ProjectDirectoryBrowser from './ProjectDirectoryBrowser.vue';
 
 export type WorkspaceType = 'session' | 'project' | 'custom';
@@ -163,9 +125,6 @@ const isEditing = ref(false);
 // In-app directory picker (same one ProjectLoadDialog uses); opened by
 // the browse button inside the workspace-path field.
 const browserOpen = ref(false);
-// Shared recent-path history (same localStorage key as ProjectLoadDialog).
-const { recentPaths, addToPathHistory, removeFromPathHistory } =
-    useProjectPathHistory();
 const form = ref<ProjectFormData>({
     emoji: '📁',
     title: '',
@@ -182,9 +141,12 @@ const workspaceTypeItems = computed(() => [
 ]);
 const canSave = computed(() => {
     if (!form.value.title.trim()) return false;
-    if (form.value.workspace_type === 'session') return true;
-    // project / custom both require non-empty path
-    return form.value.workspace_path.trim().length > 0;
+    // Only the custom workspace mode takes a user-supplied path; session
+    // and project workspaces are auto-allocated by AstrBot.
+    if (form.value.workspace_type === 'custom') {
+        return form.value.workspace_path.trim().length > 0;
+    }
+    return true;
 });
 
 watch(() => props.modelValue, (newVal) => {
@@ -217,7 +179,9 @@ watch(() => props.modelValue, (newVal) => {
 });
 
 watch(() => form.value.workspace_type, (workspaceType) => {
-    if (workspaceType === 'session') {
+    // Non-custom workspaces are auto-allocated; clear any path entered
+    // for the custom mode so it is never submitted.
+    if (workspaceType !== 'custom') {
         form.value.workspace_path = '';
     }
 });
@@ -246,12 +210,12 @@ function handleSave() {
         return;
     }
 
-    const workspacePath = form.value.workspace_path.trim();
-    // Record the saved path so it shows up as recent in this dialog and
-    // in ProjectLoadDialog (shared history).
-    if (workspacePath) {
-        addToPathHistory(workspacePath);
-    }
+    // Only the custom mode carries a path; session/project workspaces
+    // are auto-allocated by the backend, so submit an empty path.
+    const workspacePath =
+        form.value.workspace_type === 'custom'
+            ? form.value.workspace_path.trim()
+            : '';
 
     emit('save', {
         ...form.value,
@@ -271,20 +235,6 @@ function handleSave() {
     margin-top: 4px;
 }
 
-/* Recent-path list: same rendering as ProjectLoadDialog's history —
-   monospace, wraps long absolute paths, capped height. */
-.history-list {
-    max-height: 160px;
-    overflow-y: auto;
-    background: transparent;
-}
-
-.history-item :deep(.v-list-item-title) {
-    font-family: "Fira Code", "Consolas", monospace;
-    font-size: 12px;
-    word-break: break-all;
-    white-space: normal;
-}
 .spcode-section-title {
     font-size: 13px;
     font-weight: 600;

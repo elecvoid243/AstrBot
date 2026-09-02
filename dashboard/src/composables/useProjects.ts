@@ -44,7 +44,11 @@ export function useProjects() {
                 emoji: emoji || '📁',
                 description,
                 workspace_type: workspaceType,
-                workspace_path: workspacePath,
+                // Only the custom workspace mode takes a path; session and
+                // project workspaces are auto-allocated by the backend.
+                ...(workspaceType === 'custom' && workspacePath
+                    ? { workspace_path: workspacePath }
+                    : {}),
                 spcode_auto_load: spcodeAutoLoad,
                 spcode_no_codegraph: spcodeNoCodegraph
             });
@@ -75,7 +79,11 @@ export function useProjects() {
                 emoji,
                 description,
                 workspace_type: workspaceType,
-                workspace_path: workspacePath,
+                // Only the custom workspace mode takes a path; session and
+                // project workspaces are auto-allocated by the backend.
+                ...(workspaceType === 'custom' && workspacePath
+                    ? { workspace_path: workspacePath }
+                    : {}),
                 spcode_auto_load: spcodeAutoLoad,
                 spcode_no_codegraph: spcodeNoCodegraph
             });
