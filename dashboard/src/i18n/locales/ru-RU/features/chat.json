@@ -629,7 +629,9 @@
         "encodingLabel": "Кодировка: {encoding}",
         "openOnDisk": "Открыть на диске",
         "opened": "Открыт файл {name}",
-        "openFailed": "Не удалось открыть файл: {message}"
+        "openFailed": "Не удалось открыть файл: {message}",
+        "folderOpened": "Открыта папка с файлом {name}",
+        "folderOpenFailed": "Не удалось открыть папку: {message}"
       },
       "editor": {
         "edit": "Изменить",

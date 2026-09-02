@@ -630,7 +630,9 @@
         "encodingLabel": "编码: {encoding}",
         "openOnDisk": "在磁盘中打开",
         "opened": "已打开 {name}",
-        "openFailed": "打开文件失败：{message}"
+        "openFailed": "打开文件失败：{message}",
+        "folderOpened": "已打开 {name} 所在文件夹",
+        "folderOpenFailed": "打开文件夹失败：{message}"
       },
       "editor": {
         "edit": "编辑",

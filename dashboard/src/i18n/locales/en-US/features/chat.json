@@ -630,7 +630,9 @@
         "encodingLabel": "Encoding: {encoding}",
         "openOnDisk": "Open on disk",
         "opened": "Opened {name}",
-        "openFailed": "Failed to open file: {message}"
+        "openFailed": "Failed to open file: {message}",
+        "folderOpened": "Opened the folder containing {name}",
+        "folderOpenFailed": "Failed to open folder: {message}"
       },
       "editor": {
         "edit": "Edit",
