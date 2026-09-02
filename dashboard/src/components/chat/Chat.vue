@@ -5562,7 +5562,7 @@ kbd {
 }
 .scroll-marker-strip .scroll-marker-dot:hover {
   opacity: 1;
-  width: 14px;
+  width: 24px; /* 2x width on hover, smooth via transition above */
   height: 6px;
   margin-left: -1px;
   box-shadow: 0 0 0 3px rgba(124, 77, 255, 0.25);
