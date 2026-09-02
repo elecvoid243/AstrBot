@@ -11,6 +11,7 @@ import "markstream-vue/index.css";
 import "katex/dist/katex.min.css";
 import "highlight.js/styles/github.css";
 import { useI18n, useModuleI18n } from "@/i18n/composables";
+import { useAnnouncement } from "@/composables/useAnnouncement";
 import { router } from "@/router";
 import { useRoute } from "vue-router";
 import { useDisplay, useTheme } from "vuetify";
@@ -33,6 +34,12 @@ const theme = useTheme();
 const { lgAndUp } = useDisplay();
 const { t } = useI18n();
 const { tm } = useModuleI18n("features/chat");
+const { tm: tmWelcome } = useModuleI18n("features/welcome");
+// Shared announcement state: when the top bar is collapsed, a small bullhorn
+// toggle is rendered in the app bar (next to the mode switch) to bring it
+// back. Applies to both bot and chat pages.
+const { data: announcementData, collapsed: announcementCollapsed } =
+  useAnnouncement();
 const route = useRoute();
 const LAST_BOT_ROUTE_KEY = "astrbot:last_bot_route";
 const LAST_CHAT_ROUTE_KEY = "astrbot:last_chat_route";
@@ -465,12 +472,8 @@ function getVersion() {
         dialog.value = true;
         accountWarning.value = true;
         accountWarningUpgrade.value = !!password_upgrade_required;
-        accountWarningMd5.value =
-          !!md5_pwd_hint && !password_upgrade_required;
-        if (
-          change_pwd_hint ||
-          (md5_pwd_hint && !password_upgrade_required)
-        ) {
+        accountWarningMd5.value = !!md5_pwd_hint && !password_upgrade_required;
+        if (change_pwd_hint || (md5_pwd_hint && !password_upgrade_required)) {
           localStorage.setItem("change_pwd_hint", "true");
         } else {
           localStorage.removeItem("change_pwd_hint");
@@ -500,16 +503,14 @@ function getVersion() {
 
 function initPasswordWarningFromStorage() {
   const hasChangePwdHint = localStorage.getItem("change_pwd_hint") === "true";
-  const hasMd5PwdHint =
-    localStorage.getItem("md5_pwd_hint") === "true";
+  const hasMd5PwdHint = localStorage.getItem("md5_pwd_hint") === "true";
   const hasPasswordUpgradeRequired =
     localStorage.getItem("password_upgrade_required") === "true";
   if (hasChangePwdHint || hasMd5PwdHint || hasPasswordUpgradeRequired) {
     dialog.value = true;
     accountWarning.value = true;
     accountWarningUpgrade.value = hasPasswordUpgradeRequired;
-    accountWarningMd5.value =
-      hasMd5PwdHint && !hasPasswordUpgradeRequired;
+    accountWarningMd5.value = hasMd5PwdHint && !hasPasswordUpgradeRequired;
   }
 }
 
@@ -826,8 +827,7 @@ async function switchVersion(targetVersion: string) {
           ...updateProgress.value,
           status: "error",
           message:
-            res.data.message ||
-            t("core.header.updateDialog.progress.failed"),
+            res.data.message || t("core.header.updateDialog.progress.failed"),
         };
       }
     })
@@ -879,12 +879,24 @@ function updateDashboard() {
 
 // 主题选项配置
 const themeOptions = [
-  { mode: 'light' as const,  icon: 'mdi-white-balance-sunny', labelKey: 'core.header.buttons.theme.light'  },
-  { mode: 'dark'  as const,  icon: 'mdi-weather-night',       labelKey: 'core.header.buttons.theme.dark'   },
-  { mode: 'system' as const, icon: 'mdi-sync',                labelKey: 'core.header.buttons.theme.system' },
+  {
+    mode: "light" as const,
+    icon: "mdi-white-balance-sunny",
+    labelKey: "core.header.buttons.theme.light",
+  },
+  {
+    mode: "dark" as const,
+    icon: "mdi-weather-night",
+    labelKey: "core.header.buttons.theme.dark",
+  },
+  {
+    mode: "system" as const,
+    icon: "mdi-sync",
+    labelKey: "core.header.buttons.theme.system",
+  },
 ] as const;
 
-function setThemeMode(mode: 'light' | 'dark' | 'system') {
+function setThemeMode(mode: "light" | "dark" | "system") {
   customizer.SET_THEME_MODE(mode);
   theme.global.name.value = customizer.uiTheme;
 }
@@ -1120,14 +1132,13 @@ onMounted(async () => {
       @click.stop="toggleChatSidebarFromHeader"
     >
       <v-icon size="20">
-        {{ customizer.chatSidebarOpen ? "mdi-chevron-left" : "mdi-chevron-right" }}
+        {{
+          customizer.chatSidebarOpen ? "mdi-chevron-left" : "mdi-chevron-right"
+        }}
       </v-icon>
     </v-btn>
 
-    <div
-      v-if="isChatPath"
-      class="chat-header-context"
-    >
+    <div v-if="isChatPath" class="chat-header-context">
       <ProviderModelMenu variant="header" />
       <div v-if="chatHeaderSubtitleText" class="chat-header-subtitle">
         {{ chatHeaderSubtitleText }}
@@ -1218,6 +1229,24 @@ onMounted(async () => {
         </v-icon>
       </v-btn>
 
+      <!-- Collapsed announcement toggle: re-expands the top announcement bar.
+           Rendered on both bot and chat pages, next to the Bot/Chat mode
+           switch (AnnouncementBar no longer renders a floating toggle). -->
+      <v-btn
+        v-if="announcementData && announcementCollapsed"
+        class="announcement-toggle-btn mr-1"
+        variant="tonal"
+        color="warning"
+        size="small"
+        rounded="sm"
+        icon
+        :title="tmWelcome('announcementBar.expandAriaLabel')"
+        :aria-label="tmWelcome('announcementBar.expandAriaLabel')"
+        @click="announcementCollapsed = false"
+      >
+        <v-icon size="16">mdi-bullhorn-variant</v-icon>
+      </v-btn>
+
       <!-- Bot/Chat mode switch - single button, hidden in chat mobile menu -->
       <v-btn
         v-if="!isChatPath || !$vuetify.display.smAndDown"
@@ -1228,7 +1257,9 @@ onMounted(async () => {
         rounded="sm"
         @click="switchMode"
       >
-        <v-icon start>{{ nextMode === "bot" ? "mdi-robot" : "mdi-chat" }}</v-icon>
+        <v-icon start>{{
+          nextMode === "bot" ? "mdi-robot" : "mdi-chat"
+        }}</v-icon>
         {{ nextMode === "bot" ? "Bot" : "Chat" }}
       </v-btn>
 
@@ -1238,10 +1269,7 @@ onMounted(async () => {
           <v-btn
             v-bind="activatorProps"
             size="small"
-            :class="[
-              'action-btn',
-              isChatPath ? 'chat-action-btn' : 'mr-4',
-            ]"
+            :class="['action-btn', isChatPath ? 'chat-action-btn' : 'mr-4']"
             :color="isChatPath ? undefined : 'var(--v-theme-surface)'"
             :variant="isChatPath ? 'text' : 'flat'"
             rounded="sm"
@@ -1334,115 +1362,124 @@ onMounted(async () => {
           </v-card>
         </v-menu>
 
-      <!-- 主题切换分组 -->
-      <v-menu
-        open-on-click
-        :open-on-hover="!$vuetify.display.xs"
-        :open-delay="!$vuetify.display.xs ? 60 : 0"
-        :close-delay="!$vuetify.display.xs ? 120 : 0"
-        :location="$vuetify.display.xs ? 'bottom' : 'start center'"
-        offset="8"
-      >
-        <template v-slot:activator="{ props: themeMenuProps }">
-          <v-list-item
-            v-bind="themeMenuProps"
-            @click.stop
-            class="styled-menu-item theme-group-trigger"
-            rounded="md"
-          >
-            <template v-slot:prepend>
-              <v-icon>mdi-brightness-6</v-icon>
-            </template>
-            <v-list-item-title>{{
-              t("core.header.buttons.theme.title")
-            }}</v-list-item-title>
-            <template v-slot:append>
-              <span class="theme-group-current">
-                <v-icon size="16">{{
-                  customizer.themeMode === 'dark'
-                    ? 'mdi-weather-night'
-                    : customizer.themeMode === 'system'
-                      ? 'mdi-theme-light-dark'
-                      : 'mdi-white-balance-sunny'
-                }}</v-icon>
-              </span>
-              <v-icon size="18" class="language-group-arrow">mdi-chevron-right</v-icon>
-            </template>
-          </v-list-item>
-        </template>
-
-        <v-card
-          class="styled-menu-card"
-          style="min-width: 170px"
-          elevation="8"
-          rounded="lg"
+        <!-- 主题切换分组 -->
+        <v-menu
+          open-on-click
+          :open-on-hover="!$vuetify.display.xs"
+          :open-delay="!$vuetify.display.xs ? 60 : 0"
+          :close-delay="!$vuetify.display.xs ? 120 : 0"
+          :location="$vuetify.display.xs ? 'bottom' : 'start center'"
+          offset="8"
         >
-          <v-list density="compact" class="styled-menu-list pa-1">
+          <template v-slot:activator="{ props: themeMenuProps }">
             <v-list-item
-              v-for="option in themeOptions"
-              :key="option.mode"
-              @click="setThemeMode(option.mode)"
-              :class="{
-                'styled-menu-item-active': customizer.themeMode === option.mode,
-              }"
-              class="styled-menu-item"
+              v-bind="themeMenuProps"
+              @click.stop
+              class="styled-menu-item theme-group-trigger"
               rounded="md"
             >
               <template v-slot:prepend>
-                <v-icon size="18" class="theme-option-icon">{{ option.icon }}</v-icon>
+                <v-icon>mdi-brightness-6</v-icon>
               </template>
-              <v-list-item-title>{{ t(option.labelKey) }}</v-list-item-title>
+              <v-list-item-title>{{
+                t("core.header.buttons.theme.title")
+              }}</v-list-item-title>
+              <template v-slot:append>
+                <span class="theme-group-current">
+                  <v-icon size="16">{{
+                    customizer.themeMode === "dark"
+                      ? "mdi-weather-night"
+                      : customizer.themeMode === "system"
+                      ? "mdi-theme-light-dark"
+                      : "mdi-white-balance-sunny"
+                  }}</v-icon>
+                </span>
+                <v-icon size="18" class="language-group-arrow"
+                  >mdi-chevron-right</v-icon
+                >
+              </template>
             </v-list-item>
-          </v-list>
-        </v-card>
-      </v-menu>
+          </template>
 
-      <!-- 更新按钮 -->
-      <v-list-item
-        @click="handleUpdateClick"
-        class="styled-menu-item"
-        rounded="md"
-      >
-        <template v-slot:prepend>
-          <v-icon>mdi-arrow-up-circle</v-icon>
-        </template>
-        <v-list-item-title>{{
-          t("core.header.updateDialog.title")
-        }}</v-list-item-title>
-        <template
-          v-slot:append
-          v-if="
-            hasNewVersion || (dashboardHasNewVersion && !isDesktopReleaseMode)
-          "
-        >
-          <v-chip size="x-small" color="primary" variant="tonal" class="ml-2"
-            >!</v-chip
+          <v-card
+            class="styled-menu-card"
+            style="min-width: 170px"
+            elevation="8"
+            rounded="lg"
           >
-        </template>
-      </v-list-item>
+            <v-list density="compact" class="styled-menu-list pa-1">
+              <v-list-item
+                v-for="option in themeOptions"
+                :key="option.mode"
+                @click="setThemeMode(option.mode)"
+                :class="{
+                  'styled-menu-item-active':
+                    customizer.themeMode === option.mode,
+                }"
+                class="styled-menu-item"
+                rounded="md"
+              >
+                <template v-slot:prepend>
+                  <v-icon size="18" class="theme-option-icon">{{
+                    option.icon
+                  }}</v-icon>
+                </template>
+                <v-list-item-title>{{ t(option.labelKey) }}</v-list-item-title>
+              </v-list-item>
+            </v-list>
+          </v-card>
+        </v-menu>
 
-      <!-- 账户按钮 -->
-      <v-list-item @click="dialog = true" class="styled-menu-item" rounded="md">
-        <template v-slot:prepend>
-          <v-icon>mdi-account</v-icon>
-        </template>
-        <v-list-item-title>{{
-          t("core.header.accountDialog.title")
-        }}</v-list-item-title>
-      </v-list-item>
+        <!-- 更新按钮 -->
+        <v-list-item
+          @click="handleUpdateClick"
+          class="styled-menu-item"
+          rounded="md"
+        >
+          <template v-slot:prepend>
+            <v-icon>mdi-arrow-up-circle</v-icon>
+          </template>
+          <v-list-item-title>{{
+            t("core.header.updateDialog.title")
+          }}</v-list-item-title>
+          <template
+            v-slot:append
+            v-if="
+              hasNewVersion || (dashboardHasNewVersion && !isDesktopReleaseMode)
+            "
+          >
+            <v-chip size="x-small" color="primary" variant="tonal" class="ml-2"
+              >!</v-chip
+            >
+          </template>
+        </v-list-item>
 
-      <v-divider class="my-1" />
+        <!-- 账户按钮 -->
+        <v-list-item
+          @click="dialog = true"
+          class="styled-menu-item"
+          rounded="md"
+        >
+          <template v-slot:prepend>
+            <v-icon>mdi-account</v-icon>
+          </template>
+          <v-list-item-title>{{
+            t("core.header.accountDialog.title")
+          }}</v-list-item-title>
+        </v-list-item>
 
-      <v-list-item
-        @click="authStore.logout()"
-        class="styled-menu-item text-error"
-        prepend-icon="mdi-logout"
-        rounded="md"
-      >
-        <v-list-item-title>
-          {{ t("core.header.buttons.logout") }}
-        </v-list-item-title>
-      </v-list-item>
+        <v-divider class="my-1" />
+
+        <v-list-item
+          @click="authStore.logout()"
+          class="styled-menu-item text-error"
+          prepend-icon="mdi-logout"
+          rounded="md"
+        >
+          <v-list-item-title>
+            {{ t("core.header.buttons.logout") }}
+          </v-list-item-title>
+        </v-list-item>
       </StyledMenu>
     </div>
 
@@ -1454,9 +1491,7 @@ onMounted(async () => {
     >
       <v-card>
         <v-card-title class="text-h3 pa-4 pb-0 pl-6 mobile-card-title">
-          <span>{{
-            t("core.header.updateDialog.title")
-          }}</span>
+          <span>{{ t("core.header.updateDialog.title") }}</span>
           <v-btn
             v-if="$vuetify.display.xs"
             icon

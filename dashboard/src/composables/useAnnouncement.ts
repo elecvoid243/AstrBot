@@ -11,12 +11,15 @@
  *   - 静默失败: 任何错误都视为"无公告", 公告条不显示.
  *   - 单次加载: 进入页面拉一次即可, 不做轮询.
  *   - 集中缓存: 暴露 module 级单例, 多个组件共享同一份数据.
+ *   - collapsed 为共享 UI 状态 (不持久化, 刷新后重置):
+ *     AnnouncementBar (公告条本体) 与 VerticalHeader (顶栏喇叭按钮)
+ *     通过它联动折叠/展开.
  *
  * 作者: AstrBot Agent Harness
  * 时间: 2026-06-12
  */
-import { ref } from 'vue';
-import axios from 'axios';
+import { ref } from "vue";
+import axios from "axios";
 
 export interface AnnouncementData {
   title: string;
@@ -28,10 +31,11 @@ export interface AnnouncementData {
 }
 
 interface AnnouncementState {
-  data: import('vue').Ref<AnnouncementData | null>;
-  loading: import('vue').Ref<boolean>;
-  error: import('vue').Ref<string | null>;
+  data: import("vue").Ref<AnnouncementData | null>;
+  loading: import("vue").Ref<boolean>;
+  error: import("vue").Ref<string | null>;
   reload: () => Promise<void>;
+  collapsed: import("vue").Ref<boolean>;
 }
 
 // --- module 级单例: 多组件共享同一份公告数据 ---
@@ -41,16 +45,17 @@ function createAnnouncementState(): AnnouncementState {
   const data = ref<AnnouncementData | null>(null);
   const loading = ref(false);
   const error = ref<string | null>(null);
+  const collapsed = ref(false);
 
   async function load(): Promise<void> {
     loading.value = true;
     error.value = null;
     try {
-      const res = await axios.get('/api/system/announcement', {
+      const res = await axios.get("/api/system/announcement", {
         timeout: 5000,
       });
       const payload = res.data?.data ?? res.data;
-      if (payload && typeof payload === 'object' && payload.title) {
+      if (payload && typeof payload === "object" && payload.title) {
         data.value = payload as AnnouncementData;
       } else {
         // 200 但 payload 异常: 静默置空
@@ -58,7 +63,7 @@ function createAnnouncementState(): AnnouncementState {
       }
     } catch (e: any) {
       // 404 (无公告) / 502 / 503 / 网络错误: 全部静默
-      error.value = e?.response?.data?.message ?? e?.message ?? 'unknown';
+      error.value = e?.response?.data?.message ?? e?.message ?? "unknown";
       data.value = null;
     } finally {
       loading.value = false;
@@ -68,7 +73,7 @@ function createAnnouncementState(): AnnouncementState {
   // 立即触发首次加载
   void load();
 
-  return { data, loading, error, reload: load };
+  return { data, loading, error, reload: load, collapsed };
 }
 
 export function useAnnouncement(): AnnouncementState {

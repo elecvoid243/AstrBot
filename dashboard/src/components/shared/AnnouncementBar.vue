@@ -1,87 +1,79 @@
 <template>
-  <div v-if="visible" class="ann-bar-wrapper">
-    <!-- 展开态: 完整滚动公告条 -->
+  <!-- Rendered on every page as a v-system-bar layout item pinned to the very
+       top of the viewport, ABOVE the v-app-bar. order="-1" sorts it before the
+       app bar in Vuetify's layer stack, so the header, sidebars and v-main
+       padding are pushed down by the bar height automatically (the chat page
+       gets the matching extra padding from FullLayout). -->
+  <v-system-bar
+    v-if="visible && !collapsed"
+    order="-1"
+    :height="36"
+    class="announcement-bar"
+    role="region"
+    :aria-label="tm('announcementBar.label')"
+  >
+    <div class="ann-left">
+      <v-icon size="18" class="mr-2">mdi-bullhorn-variant</v-icon>
+      <span class="ann-label">{{ tm("announcementBar.label") }}</span>
+    </div>
+
     <div
-      v-if="!collapsed"
-      class="announcement-bar"
-      role="region"
-      :aria-label="tm('announcementBar.label')"
+      class="ann-middle"
+      :title="data?.title"
+      @click="open = true"
+      @mouseenter="hover = true"
+      @mouseleave="hover = false"
     >
-      <div class="ann-left">
-        <v-icon size="18" class="mr-2">mdi-bullhorn-variant</v-icon>
-        <span class="ann-label">{{ tm('announcementBar.label') }}</span>
-      </div>
-
-      <div
-        class="ann-middle"
-        :title="data?.title"
-        @click="open = true"
-        @mouseenter="hover = true"
-        @mouseleave="hover = false"
-      >
-        <div class="ann-track" :class="{ paused: hover }">
-          <span class="ann-text">{{ summary }}</span>
-          <span class="ann-text" aria-hidden="true">{{ summary }}</span>
-        </div>
-      </div>
-
-      <div class="ann-right">
-        <v-btn
-          variant="text"
-          density="comfortable"
-          size="small"
-          icon
-          :aria-label="tm('announcementBar.viewDetail')"
-          @click="open = true"
-        >
-          <v-icon size="18">mdi-open-in-new</v-icon>
-        </v-btn>
-        <v-btn
-          variant="text"
-          density="comfortable"
-          size="small"
-          icon
-          :aria-label="tm('announcementBar.closeAriaLabel')"
-          @click="collapsed = true"
-        >
-          <v-icon size="18">mdi-close</v-icon>
-        </v-btn>
+      <div class="ann-track" :class="{ paused: hover }">
+        <span class="ann-text">{{ summary }}</span>
+        <span class="ann-text" aria-hidden="true">{{ summary }}</span>
       </div>
     </div>
 
-    <!-- 折叠态: 36x36 小按钮, 放在原公告条同位置, 点击恢复展开 -->
-    <button
-      v-else
-      type="button"
-      class="ann-toggle-btn"
-      :aria-label="tm('announcementBar.expandAriaLabel')"
-      :title="tm('announcementBar.expandAriaLabel')"
-      @click="collapsed = false"
-    >
-      <v-icon size="20">mdi-bullhorn-variant</v-icon>
-    </button>
+    <div class="ann-right">
+      <v-btn
+        variant="text"
+        density="comfortable"
+        size="small"
+        icon
+        :aria-label="tm('announcementBar.viewDetail')"
+        @click="open = true"
+      >
+        <v-icon size="18">mdi-open-in-new</v-icon>
+      </v-btn>
+      <v-btn
+        variant="text"
+        density="comfortable"
+        size="small"
+        icon
+        :aria-label="tm('announcementBar.closeAriaLabel')"
+        @click="collapsed = true"
+      >
+        <v-icon size="18">mdi-close</v-icon>
+      </v-btn>
+    </div>
+  </v-system-bar>
 
-    <v-dialog v-model="open" max-width="720" scrollable>
-      <v-card>
-        <v-card-title class="text-h6 font-weight-bold pa-4">
-          {{ data?.title }}
-        </v-card-title>
-        <v-card-text class="pa-4 pt-0">
-          <MarkdownRender
-            :content="data?.content || ''"
-            :typewriter="false"
-            class="ann-dialog-markdown markdown-content"
-          />
-        </v-card-text>
-        <v-card-actions class="px-4 pb-4">
-          <v-spacer />
-          <v-btn color="primary" variant="text" @click="open = false">
-            {{ tm('announcementBar.close') }}
-          </v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
-  </div>
+  <v-dialog v-if="visible" v-model="open" max-width="720" scrollable>
+    <v-card>
+      <v-card-title class="text-h6 font-weight-bold pa-4">
+        {{ data?.title }}
+      </v-card-title>
+      <v-card-text class="pa-4 pt-0">
+        <MarkdownRender
+          :content="data?.content || ''"
+          :typewriter="false"
+          class="ann-dialog-markdown markdown-content"
+        />
+      </v-card-text>
+      <v-card-actions class="px-4 pb-4">
+        <v-spacer />
+        <v-btn color="primary" variant="text" @click="open = false">
+          {{ tm("announcementBar.close") }}
+        </v-btn>
+      </v-card-actions>
+    </v-card>
+  </v-dialog>
 </template>
 
 <script setup lang="ts">
@@ -92,65 +84,69 @@
  *   - 数据源: AstrBot Core 代理的更新服务器 /announcement
  *   - 无公告 / 加载失败时: visible = false (整个组件不挂载)
  *
- * 折叠/展开行为 (UI 状态, 不持久化):
- *   - 右侧 ✕ 按钮: 折叠为 36x36 小按钮 (collapsed = true)
- *   - 小按钮点击: 恢复完整横条 (collapsed = false)
- *   - 刷新页面后默认展开 (与"完全关闭"语义不同)
+ * 渲染形态 (所有页面一致):
+ *   - v-system-bar 布局项, order="-1" 使其在 Vuetify 图层栈中排在
+ *     v-app-bar 之前, 固定在视口最顶端 (toolbar 上方).
+ *   - Bot 页面: v-app-bar / v-navigation-drawer / v-main 的偏移由布局
+ *     系统自动下推 36px.
+ *   - Chat 页面: v-app-bar 同样自动下移; v-main 需要的 36px 附加 padding
+ *     由 FullLayout 的 chat-main-announcement 类补齐 (chat 侧栏随之下移,
+ *     brand 不再被横条遮挡).
+ *
+ * 折叠/展开行为 (collapsed 存于 useAnnouncement 单例, 与 VerticalHeader 联动,
+ * 不持久化, 刷新后重置):
+ *   - 右侧 ✕ 按钮: 折叠 (collapsed = true), 两种页面均收起横条.
+ *   - 折叠态喇叭按钮: 由 VerticalHeader 渲染在顶栏上 ("Bot"/"Chat" 切换按钮
+ *     旁), 点击恢复完整横条 (collapsed = false).
+ *   - 刷新页面后默认展开 (与"完全关闭"语义不同).
  *
  * 交互:
  *   - 鼠标 hover 横条中部: 暂停 marquee 滚动
  *   - 点击条身 / 右侧 ⤴ 按钮: 打开 v-dialog 查看完整 Markdown
  *   - 右侧 ✕ 按钮: 折叠
- *   - 折叠态小按钮: 展开
+ *   - 顶栏喇叭按钮: 展开
  *
  * 作者: AstrBot Agent Harness
  * 时间: 2026-06-12
  */
-import { computed, ref } from 'vue';
-import { useAnnouncement } from '@/composables/useAnnouncement';
-import { useModuleI18n } from '@/i18n/composables';
-import { MarkdownRender } from 'markstream-vue';
-import 'markstream-vue/index.css';
+import { computed, ref } from "vue";
+import { useAnnouncement } from "@/composables/useAnnouncement";
+import { useModuleI18n } from "@/i18n/composables";
+import { MarkdownRender } from "markstream-vue";
+import "markstream-vue/index.css";
 
-const { tm } = useModuleI18n('features/welcome');
-const { data } = useAnnouncement();
+const { tm } = useModuleI18n("features/welcome");
+const { data, collapsed } = useAnnouncement();
 
 const hover = ref(false);
 const open = ref(false);
-const collapsed = ref(false);
 
 const visible = computed(() => !!data.value);
 
 const summary = computed(() => {
-  if (!data.value) return '';
-  const title = (data.value.title || '').trim();
-  const text = stripMarkdown(data.value.content || '');
+  if (!data.value) return "";
+  const title = (data.value.title || "").trim();
+  const text = stripMarkdown(data.value.content || "");
   const combined = title && text ? `${title}　·　${text}` : title || text;
-  return combined.length > 200 ? combined.slice(0, 200) + '…' : combined;
+  return combined.length > 200 ? combined.slice(0, 200) + "…" : combined;
 });
 
 function stripMarkdown(md: string): string {
   return md
-    .replace(/```[\s\S]*?```/g, ' [代码] ')
-    .replace(/`([^`]+)`/g, '$1')
-    .replace(/^#+\s*/gm, '')
-    .replace(/\*\*?(.+?)\*\*?/g, '$1')
-    .replace(/\[(.+?)\]\(.+?\)/g, '$1')
-    .replace(/\n+/g, ' ')
+    .replace(/```[\s\S]*?```/g, " [代码] ")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/^#+\s*/gm, "")
+    .replace(/\*\*?(.+?)\*\*?/g, "$1")
+    .replace(/\[(.+?)\]\(.+?\)/g, "$1")
+    .replace(/\n+/g, " ")
     .trim();
 }
 </script>
 
 <style scoped>
-.ann-bar-wrapper {
-  /* 提供 absolute 子元素 (折叠态 button) 的定位锚点.
-     自身 0 高度, 不挤压 chat. 展开态 bar 用 sticky + 负 margin 也能正常工作. */
-  position: relative;
-  height: 0;
-  z-index: 5;
-}
-
 .announcement-bar {
+  /* v-system-bar 布局项: 定位 (fixed, top: 0, 全宽, zIndex) 由 Vuetify
+     布局系统的内联样式提供, 这里只负责外观. */
   display: flex;
   align-items: center;
   height: 36px;
@@ -159,17 +155,12 @@ function stripMarkdown(md: string): string {
   border-bottom: 1px solid #ffe082;
   color: #b45309;
   font-size: 13px;
-  /* 浮动覆盖层: sticky 让 bar 始终停在 v-main 顶部 (滚动时也不消失),
-     margin-bottom: -36px 把 bar 自己的 36px 高度从 flex 流中"吐回去",
-     等价于让下一个 flex 元素 (RouterView → chat 页面) 提升 36px,
-     净效果: chat 页面从 bar 顶部同一 y 位置开始渲染, bar 视觉上
-     覆盖在 chat 之上, 不再把 chat 整体下推.
-     负 margin 不会破坏 sticky 行为 (sticky 本质上还是 relative 布局). */
-  position: sticky;
-  top: 0;
-  margin-bottom: -36px;
-  z-index: 5;
   box-shadow: 0 1px 3px rgba(180, 83, 9, 0.08);
+}
+
+/* v-system-bar 默认把图标调淡 (medium-emphasis), 恢复预期外观. */
+.announcement-bar :deep(.v-icon) {
+  opacity: 1;
 }
 
 .ann-left {
@@ -222,49 +213,6 @@ function stripMarkdown(md: string): string {
   to {
     transform: translateX(-50%);
   }
-}
-
-/* 折叠态: 36x36 圆角小按钮, 浮动覆盖在 v-main 左上角.
-   用 position: absolute 彻底脱离文档流, 不依赖负 margin 抵消, 100% 不挤压 chat.
-   父容器 .ann-bar-wrapper (position: relative) 提供定位上下文:
-     top: 0  = v-main 内容区顶部 (v-main 的 padding-top 已让出 toolbar 区域)
-     left: 0 = v-main 内容区左侧 (v-main 的 padding-left 已让出 sidebar 区域)
-   top: 6px / left: 6px 留出 6px 视觉留白. */
-.ann-toggle-btn {
-  position: absolute;
-  top: 6px;
-  left: 6px;
-  z-index: 5;
-  width: 36px;
-  height: 36px;
-  padding: 0;
-  border-radius: 10px;
-  border: 1px solid #ffe082;
-  background: linear-gradient(135deg, #fff8e1 0%, #fffbf0 100%);
-  color: #b45309;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  flex-shrink: 0;
-  transition: background 0.18s ease, box-shadow 0.18s ease, transform 0.12s ease;
-  box-shadow: 0 1px 2px rgba(180, 83, 9, 0.06);
-}
-
-.ann-toggle-btn:hover {
-  background: linear-gradient(135deg, #fff3cd 0%, #fff8e1 100%);
-  box-shadow: 0 4px 10px rgba(255, 193, 7, 0.25);
-  transform: translateY(-1px);
-}
-
-.ann-toggle-btn:active {
-  transform: translateY(0);
-  box-shadow: 0 1px 2px rgba(180, 83, 9, 0.1);
-}
-
-.ann-toggle-btn:focus-visible {
-  outline: 2px solid #fbbf24;
-  outline-offset: 2px;
 }
 
 .ann-dialog-markdown {

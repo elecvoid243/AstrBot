@@ -6,6 +6,7 @@ import VerticalHeaderVue from "./vertical-header/VerticalHeader.vue";
 import ReadmeDialog from "@/components/shared/ReadmeDialog.vue";
 import AnnouncementBar from "@/components/shared/AnnouncementBar.vue";
 import Chat from "@/components/chat/Chat.vue";
+import { useAnnouncement } from "@/composables/useAnnouncement";
 import { useCustomizerStore } from "@/stores/customizer";
 import { useRouterLoadingStore } from "@/stores/routerLoading";
 import { useCommonStore } from "@/stores/common";
@@ -22,8 +23,8 @@ const routerLoadingStore = useRouterLoadingStore();
 const isCurrentChatRoute = computed(
   () => route.path === "/chat" || route.path.startsWith("/chat/"),
 );
-const isPluginPageRoute = computed(
-  () => route.path.startsWith("/plugin-page/"),
+const isPluginPageRoute = computed(() =>
+  route.path.startsWith("/plugin-page/"),
 );
 const isProviderPageRoute = computed(() => route.path === "/providers");
 const isPlatformPageRoute = computed(() => route.path === "/platforms");
@@ -39,6 +40,17 @@ const isFullScreenRoute = computed(
 const shouldMountChat = ref(isCurrentChatRoute.value);
 
 const showSidebar = computed(() => !isCurrentChatRoute.value);
+
+// Expanded announcement bar: the v-system-bar layout item is rendered by
+// AnnouncementBar on every page. On chat pages v-main normally forces
+// padding-top: 0 (the chat header is an absolute overlay and Chat.vue
+// reserves its own 50px), so the 36px the layout system pushes down must
+// be re-applied explicitly to keep the chat sidebar/content below the bar.
+const { data: announcementData, collapsed: announcementCollapsed } =
+  useAnnouncement();
+const announcementActive = computed(
+  () => !!announcementData.value && !announcementCollapsed.value,
+);
 
 const showFirstNoticeDialog = ref(false);
 
@@ -118,16 +130,19 @@ onMounted(() => {
       <VerticalHeaderVue />
       <VerticalSidebarVue v-if="showSidebar" />
       <v-main
-        :class="{ 'chat-main': isCurrentChatRoute }"
+        :class="{
+          'chat-main': isCurrentChatRoute,
+          'chat-main-announcement': isCurrentChatRoute && announcementActive,
+        }"
         :style="{
           height: isViewportLockedRoute ? '100vh' : undefined,
           overflow: isViewportLockedRoute ? 'hidden' : undefined,
         }"
       >
-        <!-- 顶部滚动公告条: 放在 v-main 内最顶部, 由 v-main 的 padding 让出
-             toolbar (top) 和 sidebar (left) 区域. 组件内部用 sticky + 负 margin
-             把 bar 渲染为 36px 高的"浮动覆盖层", 视觉上浮在 chat 之上但不挤压
-             chat 布局 (chat 仍从 v-main 顶部开始渲染, bar 用 z-index 覆盖在上). -->
+        <!-- 顶部滚动公告条: AnnouncementBar 在所有页面渲染为 v-system-bar
+             布局项 (order=-1), 固定在视口最顶端并把 v-app-bar 下推; bot 页面
+             的 drawer / v-main padding 由布局系统自动让位, chat 页面的额外
+             36px padding 由下方 chat-main-announcement 类补齐. -->
         <AnnouncementBar />
         <v-container
           fluid
@@ -193,5 +208,12 @@ onMounted(() => {
 
 .chat-main {
   padding-top: 0 !important;
+}
+
+/* 公告条展开时 (v-system-bar 布局项占据视口顶部 36px), chat 内容随之下移;
+   36px 需与 AnnouncementBar 的 :height="36" 保持一致. 定义在 .chat-main
+   之后, 同为 !important 时按源顺序覆盖. */
+.chat-main-announcement {
+  padding-top: 36px !important;
 }
 </style>
