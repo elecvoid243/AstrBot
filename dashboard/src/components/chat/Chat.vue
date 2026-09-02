@@ -5541,7 +5541,7 @@ kbd {
 }
 .scroll-marker-strip .scroll-marker-dot {
   position: absolute;
-  left: 1px;
+  right: 1px;
   width: 12px;
   height: 4px;
   border-radius: 2px;
@@ -5562,9 +5562,8 @@ kbd {
 }
 .scroll-marker-strip .scroll-marker-dot:hover {
   opacity: 1;
-  width: 24px; /* 2x width on hover, smooth via transition above */
+  width: 24px; /* 2x width on hover, expands leftward (right edge pinned) */
   height: 6px;
-  margin-left: -1px;
   box-shadow: 0 0 0 3px rgba(124, 77, 255, 0.25);
   border-color: rgb(var(--v-theme-primary));
 }
