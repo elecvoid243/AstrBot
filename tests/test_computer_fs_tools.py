@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import base64
 import io
+import locale
 import os
+import sys
 import zipfile
 from types import SimpleNamespace
 from typing import Any
@@ -477,7 +479,7 @@ async def test_local_admin_can_modify_locally_installed_skill(
         content="# Demo Skill\n",
     )
 
-    assert result == f"File written successfully: {installed_skill}"
+    assert result == f"File written successfully: {installed_skill} (encoding: utf-8)"
     assert installed_skill.read_text(encoding="utf-8") == "# Demo Skill\n"
 
 
@@ -867,7 +869,7 @@ async def test_file_write_tool_workspace_mode_honors_dynamic_roots(
 
 
 @pytest.mark.asyncio
-async def test_file_write_tool_bom_flag_selects_utf8_sig_encoding(
+async def test_file_write_tool_encoding_param_selects_codec(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ):
@@ -883,11 +885,25 @@ async def test_file_write_tool_bom_flag_selects_utf8_sig_encoding(
     assert result.startswith("File written successfully")
     assert booter.fs.write_file.await_args.kwargs["encoding"] == "utf-8"
 
-    bom_result = await fs_tools.FileWriteTool().call(
-        context, path=str(tmp_path / "b.txt"), content="x", bom=True
+    for alias in ("utf-8 bom", "utf-8-sig", "UTF-8 BOM"):
+        await fs_tools.FileWriteTool().call(
+            context, path=str(tmp_path / "b.txt"), content="x", encoding=alias
+        )
+        assert booter.fs.write_file.await_args.kwargs["encoding"] == "utf-8-sig"
+
+    await fs_tools.FileWriteTool().call(
+        context, path=str(tmp_path / "c.txt"), content="x", encoding="gbk"
     )
-    assert bom_result.startswith("File written successfully")
-    assert booter.fs.write_file.await_args.kwargs["encoding"] == "utf-8-sig"
+    assert booter.fs.write_file.await_args.kwargs["encoding"] == "gbk"
+
+    await fs_tools.FileWriteTool().call(
+        context, path=str(tmp_path / "d.txt"), content="x", encoding="ansi"
+    )
+    ansi_encoding = booter.fs.write_file.await_args.kwargs["encoding"]
+    if sys.platform == "win32":
+        assert ansi_encoding.startswith("cp")
+    else:
+        assert ansi_encoding == (locale.getpreferredencoding(False) or "utf-8").lower()
 
 
 @pytest.mark.asyncio
@@ -903,6 +919,26 @@ async def test_local_file_write_with_bom_emits_utf8_bom(tmp_path):
 
     assert result["success"] is True
     assert target.read_bytes() == b"\xef\xbb\xbfhello"
+
+
+@pytest.mark.asyncio
+async def test_local_file_write_tool_gbk_encoding_roundtrip(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+):
+    workspace = _setup_local_fs_tools(monkeypatch, tmp_path)
+    target = workspace / "gbk.txt"
+
+    result = await fs_tools.FileWriteTool().call(
+        _make_context(),
+        path=str(target),
+        content="中文内容",
+        encoding="gbk",
+    )
+
+    assert result.startswith("File written successfully")
+    assert "gbk" in result
+    assert target.read_bytes() == "中文内容".encode("gbk")
 
 
 @pytest.mark.asyncio

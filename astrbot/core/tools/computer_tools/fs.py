@@ -43,8 +43,10 @@ Local path resolution rule:
 import ast
 import asyncio
 import base64
+import locale
 import os
 import stat
+import sys
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -464,7 +466,9 @@ class FileReadTool(FunctionTool):
 @dataclass
 class FileWriteTool(FunctionTool):
     name: str = "astrbot_file_write_tool"
-    description: str = "Write UTF-8 text content to a file."
+    description: str = (
+        "Write text content to a file with a configurable encoding (default UTF-8)."
+    )
     parameters: dict = field(
         default_factory=lambda: {
             "type": "object",
@@ -477,11 +481,14 @@ class FileWriteTool(FunctionTool):
                     "type": "string",
                     "description": "The content to write to the file",
                 },
-                "bom": {
-                    "type": "boolean",
+                "encoding": {
+                    "type": "string",
                     "description": (
-                        "When true, write the file as UTF-8 with BOM "
-                        "(utf-8-sig). Defaults to false (plain UTF-8)."
+                        "Text encoding used to write the file. Supported values: "
+                        "`utf-8` (default), `utf-8 bom` / `utf-8-sig` (UTF-8 with "
+                        "BOM), `ansi` (the system ANSI code page, e.g. GBK/cp936 "
+                        "on Chinese Windows), or any Python codec name such as "
+                        "`gbk`, `big5`, `shift_jis`, `utf-16`."
                     ),
                 },
             },
@@ -494,7 +501,7 @@ class FileWriteTool(FunctionTool):
         context: ContextWrapper[AstrAgentContext],
         path: str,
         content: str,
-        bom: bool = False,
+        encoding: str = "utf-8",
     ) -> ToolExecResult:
         if fs_access.get_mode(context) is fs_access.FileAccessMode.READONLY:
             return _READONLY_WRITE_ERROR
@@ -519,17 +526,36 @@ class FileWriteTool(FunctionTool):
             )
             if not normalized_path:
                 raise ValueError("`path` must be a non-empty string.")
+            # Accept friendly aliases before handing the name to open().
+            encoding_name = (encoding or "utf-8").strip().lower()
+            if encoding_name in ("utf-8", "utf8"):
+                encoding_name = "utf-8"
+            elif encoding_name.replace("-", " ").replace("_", " ") in (
+                "utf 8 bom",
+                "utf 8 sig",
+                "utf8 bom",
+                "utf8 sig",
+            ):
+                encoding_name = "utf-8-sig"
+            elif encoding_name == "ansi":
+                if sys.platform == "win32":
+                    # The ANSI code page (e.g. cp936 on zh-CN Windows), which
+                    # locale.getpreferredencoding() cannot report reliably once
+                    # Python UTF-8 mode is enabled.
+                    import ctypes
+
+                    encoding_name = f"cp{ctypes.windll.kernel32.GetACP()}"
+                else:
+                    encoding_name = locale.getpreferredencoding(False) or "utf-8"
             sb = await get_booter(
                 context.context.context,
                 context.context.event.unified_msg_origin,
             )
-            # "utf-8-sig" is the Python codec that emits a BOM on write;
-            # plain "utf-8" must stay the default when `bom` is unset.
             result = await sb.fs.write_file(
                 path=normalized_path,
                 content=content,
                 mode="w",
-                encoding="utf-8-sig" if bom else "utf-8",
+                encoding=encoding_name,
             )
             if not result.get("success", False):
                 error_detail = str(result.get("error", "") or "").strip()
@@ -537,7 +563,7 @@ class FileWriteTool(FunctionTool):
                     "Error writing file: "
                     f"{error_detail or 'unknown filesystem write error'}"
                 )
-            return f"File written successfully: {normalized_path}"
+            return f"File written successfully: {normalized_path} (encoding: {encoding_name})"
         except PermissionError as exc:
             return f"Error: {exc}"
         except Exception as exc:
