@@ -172,7 +172,7 @@ class MainAgentBuildConfig:
     tool_call_timeout_exclude: list[str] = field(
         default_factory=lambda: ["wait_for_subagent", "orchestrate_tasks"]
     )
-    """Tool names excluded from tool_call_timeout, using a fixed 3600s timeout instead."""
+    """Tool names excluded from tool_call_timeout; these tools wait indefinitely."""
     tool_schema_mode: str = "full"
     """The tool schema mode, can be 'full' or 'skills-like'."""
     repeated_tool_notice_enabled: bool = True

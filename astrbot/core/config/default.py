@@ -4290,7 +4290,7 @@ CONFIG_METADATA_3 = {
                         "description": "不受超时限制的工具",
                         "type": "list",
                         "items": {"type": "string"},
-                        "hint": "填写不受工具调用超时时间限制的工具名称。这些工具将使用 3600 秒的固定超时。",
+                        "hint": "填写不受工具调用超时时间限制的工具名称。这些工具将不受超时限制，一直等待直至工具自行返回。",
                         "condition": {
                             "agent_runner.runner_type": "local",
                         },

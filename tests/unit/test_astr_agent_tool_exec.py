@@ -1,3 +1,4 @@
+import asyncio
 import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -621,3 +622,55 @@ class TestMaybeCreateSubagentSink:
             )
             is None
         )
+
+
+class _SleepTool(FunctionTool):
+    async def call(self, context, seconds: float = 0.0) -> str:
+        await asyncio.sleep(seconds)
+        return "done"
+
+
+def _make_sleep_tool() -> _SleepTool:
+    return _SleepTool(
+        name="slow_tool",
+        description="sleeps for the given seconds",
+        parameters={
+            "type": "object",
+            "properties": {"seconds": {"type": "number"}},
+        },
+    )
+
+
+def _tool_run_context(exclude: list[str]) -> ContextWrapper:
+    event = _DummyEvent()
+    return ContextWrapper(
+        context=SimpleNamespace(event=event),
+        tool_call_timeout=1,
+        tool_call_timeout_exclude=exclude,
+    )
+
+
+@pytest.mark.asyncio
+async def test_execute_local_excluded_tool_ignores_tool_call_timeout():
+    tool = _make_sleep_tool()
+    run_context = _tool_run_context(exclude=["slow_tool"])
+
+    results = []
+    async for r in FunctionToolExecutor._execute_local(tool, run_context, seconds=1.5):
+        results.append(r)
+
+    # The tool slept 1.5s > tool_call_timeout=1s; exclusion means no outer
+    # timeout fired and the result still came through.
+    assert results[0].content[0].text == "done"
+
+
+@pytest.mark.asyncio
+async def test_execute_local_unexcluded_tool_times_out():
+    tool = _make_sleep_tool()
+    run_context = _tool_run_context(exclude=[])
+
+    with pytest.raises(Exception, match="timeout after 1 seconds"):
+        async for _ in FunctionToolExecutor._execute_local(
+            tool, run_context, seconds=3
+        ):
+            pass

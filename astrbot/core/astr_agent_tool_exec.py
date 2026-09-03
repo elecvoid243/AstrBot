@@ -1208,17 +1208,17 @@ class FunctionToolExecutor(BaseFunctionToolExecutor[AstrAgentContext]):
         )
         while True:
             try:
-                if (
-                    tool.name in run_context.tool_call_timeout_exclude
-                ):  # Excluded tools use a fixed 3600s timeout
-                    resp = await asyncio.wait_for(
-                        anext(wrapper),
-                        timeout=3600,
-                    )
+                timeout: int | None = None
+                if tool.name in run_context.tool_call_timeout_exclude:
+                    # Excluded tools wait indefinitely: they manage their own
+                    # waiting (e.g. polling a subagent or waiting for user
+                    # input) and always return on their own.
+                    resp = await anext(wrapper)
                 else:
+                    timeout = tool_call_timeout or run_context.tool_call_timeout
                     resp = await asyncio.wait_for(
                         anext(wrapper),
-                        timeout=tool_call_timeout or run_context.tool_call_timeout,
+                        timeout=timeout,
                     )
                 if resp is not None:
                     if isinstance(resp, mcp.types.CallToolResult):
@@ -1250,7 +1250,7 @@ class FunctionToolExecutor(BaseFunctionToolExecutor[AstrAgentContext]):
                     yield None
             except asyncio.TimeoutError:
                 raise Exception(
-                    f"tool {tool.name} execution timeout after {tool_call_timeout or run_context.tool_call_timeout} seconds.",
+                    f"tool {tool.name} execution timeout after {timeout} seconds.",
                 )
             except StopAsyncIteration:
                 break

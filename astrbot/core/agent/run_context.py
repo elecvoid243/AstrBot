@@ -20,7 +20,7 @@ class ContextWrapper(Generic[TContext]):
     tool_call_timeout_exclude: list[str] = Field(
         default_factory=lambda: ["wait_for_subagent", "orchestrate_tasks"]
     )
-    """Tool names that are excluded from tool_call_timeout and use a fixed 3600s timeout instead."""
+    """Tool names that are excluded from tool_call_timeout and wait indefinitely instead."""
 
 
 NoContext = ContextWrapper[None]
